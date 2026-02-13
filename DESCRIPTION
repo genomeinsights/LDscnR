@@ -12,4 +12,8 @@ RoxygenNote: 7.3.2
 Imports: 
     data.table,
     ggplot2,
+    patchwork,
     SNPRelate
+Depends: 
+    R (>= 3.5)
+LazyData: true
