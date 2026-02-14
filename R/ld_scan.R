@@ -160,7 +160,7 @@ ld_scan <- function(ld_struct,
   names(res) <- colnames(F_mat)
   res
 }
-
+#plot(res$emx_F$q_prime,res$lfmm_F$q_prime)
 
 #' @export
 compute_ld_structure <- function(gds,
@@ -455,6 +455,25 @@ plot.ld_scan <- function(x, method) {
 
   dt <- data.table::copy(x$result[[method]]$qq_data)
 
+  # ----------------------------------------------------------
+  # Thin lower quantiles to reduce overplotting
+  # Keep:
+  #   - all points above thinning threshold
+  #   - every kth point below threshold
+  # ----------------------------------------------------------
+
+  thin_prop <- 0.7   # lower 40% thinned
+  thin_step <- 100    # keep every 10th point
+
+  n <- nrow(dt)
+  cutoff <- floor(n * thin_prop)
+
+  idx_keep <- c(
+    seq(1, cutoff, by = thin_step),
+    seq(cutoff + 1, n)
+  )
+
+  dt <- dt[idx_keep]
   required <- c("F_prime_obs", "null_perm", "F_obs")
   if (!all(required %in% colnames(dt)))
     stop("Required QQ components not found.")
@@ -465,15 +484,15 @@ plot.ld_scan <- function(x, method) {
 
   dt_ld <- data.table::data.table(
     q = dt$null_true,
-    ymin = dt$null_true,
-    ymax = dt$null_perm,
+    ymin = pmin(dt$null_true, dt$null_perm),
+    ymax = pmax(dt$null_true, dt$null_perm),
     type = "LD-induced distortion"
   )
 
   dt_signal <- data.table::data.table(
     q = dt$null_true,
-    ymin = dt$null_perm,
-    ymax = dt$F_prime_obs,
+    ymin = pmin(dt$null_perm, dt$F_prime_obs),
+    ymax = pmax(dt$null_perm, dt$F_prime_obs),
     type = "Selection-consistent excess"
   )
 

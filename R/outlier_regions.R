@@ -1,7 +1,7 @@
 #' Detect outlier regions from LD-scaled scan
 #'
 #' @export
-detect_or <- function(scan_obj,
+detect_or <- function(q_vals,
                       ld_struct,
                       decay_obj,
                       alpha,
@@ -12,17 +12,17 @@ detect_or <- function(scan_obj,
   if (!inherits(scan_obj, "ld_scan"))
     stop("scan_obj must be of class 'ld_scan'.")
 
-  ids <- scan_obj$SNP_ids
-  #res <- scan_obj$result[[1]]
-  out <- lapply(scan_obj$result,function(res){
-    q_vals <- res$q_prime
+  if (length(q_vals)>0 & is.null(names(q_vals)))
+    stop("q_vals must have names")
 
-    q_vec <- if (is.matrix(q_vals)) q_vals else q_vals
-    outliers <- ids[q_vec < alpha]
+  ids <- scan_obj$SNP_ids
+
+  #q_vals <- Q_vals[,1]
+  out <- apply(q_vals,2,function(qs){
+    outliers <- ids[qs < alpha]
 
     if (length(outliers) == 0) {
-      out[[i]] <- list()
-      next
+      return(list())
     }
 
     or_list <- list()
@@ -84,7 +84,7 @@ detect_or <- function(scan_obj,
   )
 }
 
-or_draws <- function(scan_obj,
+or_draws <- function(q_vals,
                      ld_struct,
                      decay_obj,
                      n_draws = 25,
@@ -94,7 +94,7 @@ or_draws <- function(scan_obj,
                      lmin_lim=list(min=1,max=10)) {
 
   out <- vector("list", n_draws)
-
+  #i <- 13
   for (i in seq_len(n_draws)) {
 
     rho_d  <- runif(1, rho_OR_lim$min, rho_OR_lim$max)
@@ -105,7 +105,7 @@ or_draws <- function(scan_obj,
     l_min  <- sample(seq(lmin_lim$min, lmin_lim$max), 1)
 
     out[[i]] <- detect_or(
-      scan_obj,
+      q_vals,
       ld_struct,
       decay_obj,
       alpha = alpha,
