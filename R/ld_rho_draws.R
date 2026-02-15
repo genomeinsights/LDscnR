@@ -59,6 +59,16 @@ ld_rho_draws <- function(ld_struct,
     colnames(q_primes) <- paste0(colnames(q_primes),"_prime")
     qvals <- cbind(q_vals, q_primes)
 
+        # q_vals,
+    # ld_struct,
+    # decay_obj,
+    # sign_th,
+    # sign_if = c("less", "greater"),
+    # rho_d,
+    # rho_ld,
+    # l_min = 2,
+    # ret_table=FALSE
+
     or_draws(
       q_vals     = qvals,
       ld_struct  = ld_struct,

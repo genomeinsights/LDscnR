@@ -7,7 +7,7 @@
 #'
 #' @return Object of class "ld_consistency".
 #' @export
-consistency_score <- function(rho_draws_obj) {
+consistency_score <- function(rho_draws_obj,combine=TRUE) {
 
   if (!inherits(rho_draws_obj, "ld_rho_draws"))
     stop("Input must be of class 'ld_rho_draws'.")
@@ -47,6 +47,7 @@ consistency_score <- function(rho_draws_obj) {
 
   out_list <- vector("list", length(methods))
   names(out_list) <- methods
+
   #m <- "lfmm_q"
   #rho_obj <- rho_draws[[1]]
   #rho_obj$draws[[1]]$ORs$emx_q
@@ -72,7 +73,9 @@ consistency_score <- function(rho_draws_obj) {
     )
   }
 
-  structure(
+  names(out_list) <- paste0(methods,"_C")
+
+  C_obj <- structure(
     list(
       consistency = out_list,
       total_draws = total_draws,
@@ -81,7 +84,32 @@ consistency_score <- function(rho_draws_obj) {
     ),
     class = "ld_consistency"
   )
+
+  C_obj <- combine_consistency(C_obj, method = "mean")
 }
+
+#' @export
+add_consistency_to_map <- function(map, consistency_obj) {
+
+  if (!inherits(consistency_obj, "ld_consistency"))
+    stop("consistency_obj must be of class 'ld_consistency'.")
+
+  if (!"marker" %in% names(map))
+    stop("map must contain column 'marker'.")
+
+  cons_dt <- data.table::copy(consistency_obj$combined)
+
+  data.table::setnames(cons_dt, "SNP", "marker")
+
+  setDT(map)
+  setDT(cons_dt)
+
+  out <- cons_dt[map, on = "marker"]
+  new_col_order <- unique(c(colnames(map),colnames(cons_dt)))
+  return(out[,..new_col_order])
+
+}
+
 
 #' @export
 print.ld_consistency <- function(x, ...) {
@@ -115,7 +143,7 @@ print.ld_consistency <- function(x, ...) {
 #' @export
 #' @export
 combine_consistency <- function(consistency_obj,
-                                method = c("mean","min","max","median","geometric"),
+                                method = c("mean","min","max","median"),
                                 add_all = TRUE) {
 
   if (!inherits(consistency_obj, "ld_consistency"))
@@ -147,7 +175,6 @@ combine_consistency <- function(consistency_obj,
     min      = function(x) do.call(pmin, c(as.data.frame(x), na.rm = TRUE)),
     max      = function(x) do.call(pmax, c(as.data.frame(x), na.rm = TRUE)),
     median   = function(x) apply(x, 1, median, na.rm = TRUE),
-    geometric = function(x) exp(rowMeans(log(pmax(x, 1e-12)), na.rm = TRUE))
   )
 
   C_joint <- agg_fun(X)
@@ -155,7 +182,6 @@ combine_consistency <- function(consistency_obj,
   merged[, C_joint := C_joint]
 
   if (add_all) {
-
     merged[, C_mean := rowMeans(X, na.rm = TRUE)]
     merged[, C_min  := do.call(pmin, c(as.data.frame(X), na.rm = TRUE))]
     merged[, C_max  := do.call(pmax, c(as.data.frame(X), na.rm = TRUE))]

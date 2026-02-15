@@ -4,31 +4,59 @@
 detect_or <- function(q_vals,
                       ld_struct,
                       decay_obj,
-                      alpha,
+                      sign_th,
+                      sign_if = c("less", "greater"),
                       rho_d,
                       rho_ld,
-                      l_min = 2) {
+                      l_min = 2,
+                      ret_table=FALSE) {
 
-  if (!inherits(scan_obj, "ld_scan"))
-    stop("scan_obj must be of class 'ld_scan'.")
+  #sign_if <- match.arg(sign_if,c("less", "greater"))
 
-  if (length(q_vals)>0 & is.null(names(q_vals)))
-    stop("q_vals must have names")
+  if (is.null(colnames(q_vals)))
+    stop("q_vals must have column names.")
 
-  ids <- scan_obj$SNP_ids
+  if (is.null(names(ld_struct$by_chr)))
+    stop("ld_struct must contain chromosome-wise LD structure.")
 
-  #q_vals <- Q_vals[,1]
-  out <- apply(q_vals,2,function(qs){
-    outliers <- ids[qs < alpha]
 
-    if (length(outliers) == 0) {
+  ids <- unlist(sapply(ld_struct$by_chr,function(x)x$snp_ids))
+
+
+  # ------------------------------------------------------------
+  # Ensure either all q-values or all C-values
+  # ------------------------------------------------------------
+  is_C <- grepl("^C", colnames(q_vals))
+  value_types <- table(is_C) / ncol(q_vals)
+
+  if (length(value_types) > 1)
+    stop("Must be either only q-values or only C-values.")
+
+  # ------------------------------------------------------------
+  # Define outlier rule
+  # ------------------------------------------------------------
+  # "less" is default, assumes q-values
+  outlier_fun <- switch(
+    sign_if[1],
+    less    = function(x) x < sign_th,
+    greater = function(x) x > sign_th
+  )
+
+  # ------------------------------------------------------------
+  # Detect ORs per column
+  # ------------------------------------------------------------
+
+
+  out <- apply(q_vals, 2, function(qs) {
+
+    outliers <- as.vector(na.omit(ids[!is.na(qs)][outlier_fun(qs[!is.na(qs)])]))
+
+    if (length(outliers) == 0)
       return(list())
-    }
 
     or_list <- list()
 
-    # loop chromosomes
-    # ch = "Chr1"
+    # Loop chromosomes
     for (ch in names(ld_struct$by_chr)) {
 
       snp_ids_chr <- ld_struct$by_chr[[ch]]$snp_ids
@@ -36,7 +64,8 @@ detect_or <- function(q_vals,
 
       # restrict to outliers on this chr
       out_chr <- intersect(outliers, snp_ids_chr)
-      if (length(out_chr) < l_min) next
+      if (length(out_chr) < l_min)
+        next
 
       # compute thresholds
       a_chr <- decay_obj$summary[Chr == ch, a]
@@ -54,7 +83,8 @@ detect_or <- function(q_vals,
         .(SNP1, SNP2)
       ]
 
-      if (nrow(ed) == 0) next
+      if (nrow(ed) == 0)
+        next
 
       g <- igraph::graph_from_data_frame(ed, directed = FALSE)
       comps <- igraph::components(g)
@@ -69,20 +99,23 @@ detect_or <- function(q_vals,
     or_list
   })
 
-
-
-
-  structure(
+  out <- structure(
     list(
-      ORs = out,
-      alpha = alpha,
-      rho_d = rho_d,
-      rho_ld = rho_ld,
-      l_min = l_min
+      ORs     = out,
+      sign_th = sign_th,
+      sign_if = sign_if,
+      rho_d   = rho_d,
+      rho_ld  = rho_ld,
+      l_min   = l_min
     ),
     class = "ld_or"
   )
+
+  ifelse(ret_table,return(or_to_table(out)),return(out))
+
+
 }
+
 
 or_draws <- function(q_vals,
                      ld_struct,
@@ -108,7 +141,7 @@ or_draws <- function(q_vals,
       q_vals,
       ld_struct,
       decay_obj,
-      alpha = alpha,
+      sign_th = alpha,
       rho_d = rho_d,
       rho_ld = rho_ld,
       l_min = l_min
@@ -121,3 +154,41 @@ or_draws <- function(q_vals,
   )
 }
 
+
+#' Convert ld_or object to long table
+#'
+#' @export
+or_to_table <- function(or_obj) {
+
+  if (!inherits(or_obj, "ld_or"))
+    stop("Input must be class 'ld_or'.")
+
+  res <- list()
+
+  for (method in names(or_obj$ORs)) {
+
+    or_list <- or_obj$ORs[[method]]
+    if (length(or_list) == 0) next
+
+    for (i in seq_along(or_list)) {
+
+      snps <- or_list[[i]]
+
+      # Extract chromosome from first SNP
+      chr <- sub(":.*", "", snps[1])
+
+      or_name <- paste0(chr, "_OR", i)
+
+      res[[length(res) + 1]] <- data.table::data.table(
+        SNP    = snps,
+        method = method,
+        OR_id  = or_name
+      )
+    }
+  }
+
+  if (length(res) == 0)
+    return(data.table::data.table(SNP=character(), method=character(), OR_id=character()))
+
+  data.table::rbindlist(res)
+}
