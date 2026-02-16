@@ -255,8 +255,7 @@ compute_ld_w <- function(ld_struct,
     sub <- el[d < d_th]
 
     if (nrow(sub) == 0) {
-      result[[ch]] <- rep(NA_real_,
-                          length(ld_struct$by_chr[[ch]]$snp_ids))
+      result[[ch]] <- rep(NA_real_,length(ld_struct$by_chr[[ch]]$snp_ids))
       next
     }
 
@@ -274,10 +273,6 @@ compute_ld_w <- function(ld_struct,
   unlist(result)
 }
 
-
-d_from_rho <- function(a, rho) {
-  (1 / a) * (1 / (1 - rho) - 1)
-}
 
 #' Plot LD-scaled quantile transformation
 #'
@@ -303,147 +298,6 @@ d_from_rho <- function(a, rho) {
 #' @return A patchwork ggplot object.
 #' @export
 #' @export
-
-# plot.ld_scan <- function(x, ...) {
-#
-#   if (!inherits(x, "ld_scan"))
-#     stop("Object must be of class 'ld_scan'.")
-#
-#   if (is.null(x$result[[1]]$qq_data))
-#     stop("QQ data not stored (run ld_scan with full = TRUE).")
-#
-#   method_names <- names(x$result)
-#   if (is.null(method_names))
-#     method_names <- paste0("Method_", seq_along(x$result))
-#
-#   ############################################################
-#   ## Stack QQ data across methods
-#   ############################################################
-#
-#   dt_all <- data.table::rbindlist(
-#     lapply(seq_along(x$result), function(i) {
-#       dt <- data.table::copy(x$result[[i]]$qq_data)
-#       dt[, method := method_names[i]]
-#       dt
-#     }),
-#     use.names = TRUE
-#   )
-#
-#   ############################################################
-#   ## PANEL 1 — LD distortion + signal
-#   ############################################################
-#
-#   dt_ribbon <- data.table::rbindlist(list(
-#     dt_all[, .(
-#       q = null_true,
-#       ymin = null_true,
-#       ymax = null_perm,
-#       type = "LD-induced distortion",
-#       method
-#     )],
-#     dt_all[, .(
-#       q = null_true,
-#       ymin = null_perm,
-#       ymax = F_prime_obs,
-#       type = "Selection-consistent excess",
-#       method
-#     )]
-#   ))
-#
-#   dt_lines <- data.table::rbindlist(list(
-#     dt_all[, .(q = null_true, value = null_true,
-#                curve = "Theoretical null", method)],
-#     dt_all[, .(q = null_true, value = null_perm,
-#                curve = "Permutation null", method)],
-#     dt_all[, .(q = null_true, value = F_prime_obs,
-#                curve = "Raw LD-weighted statistic", method)]
-#   ))
-#
-#   p1 <- ggplot2::ggplot() +
-#
-#     ggplot2::geom_ribbon(
-#       data = dt_ribbon,
-#       ggplot2::aes(q, ymin = ymin, ymax = ymax,
-#                    fill = type, group = interaction(type, method)),
-#       alpha = 0.25
-#     ) +
-#
-#     ggplot2::geom_line(
-#       data = dt_lines,
-#       ggplot2::aes(q, value,
-#                    colour = method,
-#                    linetype = curve),
-#       linewidth = 1
-#     ) +
-#
-#     ggplot2::labs(
-#       title = paste("Raw LD-weighted statistic vs permuted null:",
-#                     paste(method_names, collapse = ", ")),
-#       x = "Expected quantiles under null",
-#       y = "Observed quantiles"
-#     ) +
-#     ggplot2::coord_equal() +
-#     ggplot2::theme_bw(base_size = 11)
-#
-#   ############################################################
-#   ## PANEL 2 — LD-scaled vs original
-#   ############################################################
-#
-#   dt2 <- data.table::rbindlist(list(
-#     dt_all[, .(q = null_true, value = F_obs,
-#                curve = "Original F-value", method)],
-#     dt_all[, .(q = null_true, value = F_prime,
-#                curve = "LD-scaled statistic (F\u2032)", method)],
-#     dt_all[, .(q = null_true, value = null_true,
-#                curve = "Theoretical null", method)]
-#   ))
-#
-#   dt_excess2 <- dt_all[
-#     F_prime > null_true,
-#     .(q = null_true,
-#       ymin = null_true,
-#       ymax = F_prime,
-#       method)
-#   ]
-#
-#   p2 <- ggplot2::ggplot() +
-#
-#     ggplot2::geom_ribbon(
-#       data = dt_excess2,
-#       ggplot2::aes(q, ymin = ymin, ymax = ymax,
-#                    fill = method),
-#       alpha = 0.15
-#     ) +
-#
-#     ggplot2::geom_line(
-#       data = dt2,
-#       ggplot2::aes(q, value,
-#                    colour = method,
-#                    linetype = curve),
-#       linewidth = 1
-#     ) +
-#
-#     ggplot2::labs(
-#       title = paste("LD-scaled statistic (F\u2032) vs original:",
-#                     paste(method_names, collapse = ", ")),
-#       x = "Expected quantiles under null",
-#       y = "Observed quantiles"
-#     ) +
-#
-#     ggplot2::coord_equal() +
-#     ggplot2::theme_bw(base_size = 11)
-#
-#   ############################################################
-#   ## Combine
-#   ############################################################
-#
-#   combined <- (p1 | p2) +
-#     patchwork::plot_layout(guides = "collect") &
-#     ggplot2::theme(legend.position = "right")
-#
-#   return(combined)
-# }
-# method="lfmm_F"
 plot.ld_scan <- function(x, method) {
 
   if (!inherits(x, "ld_scan"))
@@ -714,16 +568,3 @@ print.ld_scan <- function(x, ...) {
 
   invisible(x)
 }
-
-# print.ld_scan <- function(x, ...) {
-#   cat("\nLD-scaled scan result\n")
-#   cat("----------------------\n")
-#   if (!is.null(x$call)) print(x$call)
-#
-#   cat("\nNumber of SNPs:", nrow(x$F_vals), "\n")
-#   for(i in seq_along(x$result)){
-#     cat("Min q-value","for",names(x$F_vals)[i],":", signif(min(x$result[[i]]$q_prime, na.rm=TRUE), 4), "\n")
-#   }
-#
-#   invisible(x)
-# }

@@ -70,9 +70,11 @@ detect_or <- function(q_vals,
       # compute thresholds
       a_chr <- decay_obj$summary[Chr == ch, a]
       b_chr <- decay_obj$summary[Chr == ch, b]
+      c_chr <- decay_obj$summary[Chr == ch, c]
+      d0_chr <- decay_obj$summary[Chr == ch, d0]
 
-      d_th  <- d_from_rho(a_chr, rho = rho_d)
-      ld_th <- b_chr + (1 - b_chr) * (1 - rho_ld)
+      d_th  <- d_from_rho(a_chr, rho = rho_d,d0 = d0_chr)
+      ld_th <- ld_from_rho(b_chr, c_chr, rho = rho_d)
 
       # filter edges
       ed <- el_chr[

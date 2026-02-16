@@ -1,10 +1,32 @@
-#' Estimate LD-decay parameters across the genome
+#' LD-decay model with short-range plateau
 #'
-#' Computes background LD (b) using inter-chromosomal SNP pairs and
-#' estimates LD-decay parameters (`c`, `a`) in sliding genomic windows.
+#' To accommodate situations where LD remains approximately constant
+#' over short physical distances (e.g., due to limited recombination or
+#' dense marker spacing), a plateau parameter \eqn{d_0} is
+#' included in the decay model. The LD-decay curve is then defined as
+#'
+#' \deqn{
+#' r^2(d) = b + \frac{c - b}{1 + a \max(d - d_0, 0)},
+#' }
+#'
+#' where \eqn{b} is the background LD level, \eqn{c} is the short-range
+#' LD plateau (bounded by 1), \eqn{a} controls the decay rate, and
+#' \eqn{d_0} represents the distance up to which LD remains approximately
+#' constant.
+#'
+#' The use of \code{pmax(d - d_0, 0)} ensures a continuous transition from
+#' the plateau region (\eqn{d \le d_0}) to the decay regime
+#' (\eqn{d > d_0}) without introducing discontinuities that may hinder
+#' numerical optimization.
+#'
+#' When SNP density is high, \eqn{d_0} captures the short-distance LD
+#' plateau explicitly and stabilizes estimation of \eqn{c}. In sparse
+#' marker datasets, \eqn{d_0} typically converges to zero, reducing the
+#' model to the standard hyperbolic decay formulation.
 #'
 #' @param gds An open GDS object.
 #' @param idx Optional vector of SNP indices.
+#' @param ld_struct Per chromosome edge list of LD-values produced e.g. by \code{compute_ld_structure}
 #' @param b Optional background LD value. If missing, estimated automatically.
 #' @param q Quantile used for LD summarization (default 0.95).
 #' @param n_sub Number of SNPs used to estimate background LD.
@@ -23,19 +45,20 @@
 #'
 #' @examples
 #' \dontrun{
-#' decay <- ld_decay(gds)
+#' decay <- ld_decay(gds,ld_struct)
 #' plot(decay)
 #' }
 #'
 #' @export
 ld_decay <- function(gds,
                      idx,
+                     ld_struct,
                      q = 0.95,
                      n_sub = 5000,
                      slide_win_ld = 1000,
                      window_size = 1e6,
                      step_size = 5e5,
-                     n_cores_ld = 8,
+                     cores = 1,
                      dist_unit = 5000) {
 
   t1 <- Sys.time()
@@ -50,20 +73,19 @@ ld_decay <- function(gds,
   message("Background LD (b) =", sprintf("%.4f", b))
 
   decay_data <- ld_decay_by_chr_win(
-    gds,
-    idx,
+    ld_struct,
     q = q,
     b = b,
-    slide_win_ld = slide_win_ld,
     window_size = window_size,
     step_size = step_size,
-    n_cores_ld = n_cores_ld
+    cores = cores
   )
 
   decay_summary <- decay_data[, .(
     Chr_size = max(end),
     c = median(c, na.rm=TRUE),
     a = median(a, na.rm=TRUE),
+    d0 = median(d0, na.rm=TRUE),
     b = b
   ), by=Chr]
 
@@ -86,24 +108,13 @@ ld_decay <- function(gds,
 }
 
 
-ld_decay_by_chr_win <- function(gds, idx, slide_win_ld = 10000, q = 0.95, dist_unit = 5000, window_size=1e7,
-                                step_size =5e+05,b = 0.05, n_cores_ld = 1) {
-  ids <- .read_gds_ids(gds)
-  chrs <- unique(ids$snp_chr[idx])
+ld_decay_by_chr_win <- function(ld_structure, q = 0.95, dist_unit = 5000, window_size=1e7,
+                                step_size =5e+05,b = 0.05,cores=1) {
 
-  out <- list()
-  #ch="Chr1"
-  for(ch in chrs){
+  rbindlist(parallel::mclapply(names(ld_struct$by_chr),function(ch){
     cat(ch,"..")
 
-
-    chr_idx <- idx[ids$snp_chr[idx] == ch]
-
-    el <- get_el(gds,
-                 slide_win_ld = slide_win_ld,
-                 idx = chr_idx,
-                 n_cores = n_cores_ld)
-
+    el <- ld_struct$by_chr[[ch]]$edges
 
     # get windows for ld-decay analyses
     min_pos <- min(el$pos1, el$pos2)
@@ -113,7 +124,7 @@ ld_decay_by_chr_win <- function(gds, idx, slide_win_ld = 10000, q = 0.95, dist_u
 
     #i <- 1
     # el_ld <- sub
-    out[[ch]] <- rbindlist(lapply(seq_along(starts),function(i) {
+    rbindlist(lapply(seq_along(starts),function(i) {
 
       sub <- el[pos1 >= starts[i] & pos1 < ends[i] & pos2 >= starts[i] & pos2 < ends[i]]
 
@@ -121,20 +132,18 @@ ld_decay_by_chr_win <- function(gds, idx, slide_win_ld = 10000, q = 0.95, dist_u
         coef_ld_dec(sub,q = 0.95, dist_unit = 5000, b = b)
       }, error = function(e) NULL)
 
-
       if(is.null(coefs)){
-        data.table(Chr = ch, start=starts[i],end=ends[i],c = NA, a = NA)
+        data.table(Chr = ch, start=starts[i],end=ends[i],c = NA, a = NA, d0=NA)
       }else{
         data.table(Chr = ch, start=starts[i],end=ends[i],t(coefs))
       }
     }))
 
-  }
+  },mc.cores=cores), use.names = TRUE, fill = TRUE)
 
-  rbindlist(out, use.names = TRUE, fill = TRUE)
 }
 
-
+# el_ld <- sub
 coef_ld_dec <- function(el_ld, q = 0.95, dist_unit = 5000, b = 0.05) {
 
   el_ld[, dist := abs(pos2 - pos1)]
@@ -146,28 +155,33 @@ coef_ld_dec <- function(el_ld, q = 0.95, dist_unit = 5000, b = 0.05) {
     dist_mean = mean(dist)
   ), by = dist_bin][order(dist_bin)]
 
-  if (nrow(bin_dt) < 5) return(c(c = NA, a = NA))
+  if (nrow(bin_dt) < 5)
+    return(c(c = NA, a = NA, d0 = NA))
 
-  starts <- c(
-    c = bin_dt$r2_q[1],
-    a = 1 / (median(bin_dt$dist_mean[bin_dt$dist_mean > 0], na.rm = TRUE) + 1e-6)
+  ## ---- starting values ----
+  starts <- list(
+    c  = min(1, bin_dt$r2_q[1]),  # avoid starting >1
+    a  = 1 / (median(bin_dt$dist_mean[bin_dt$dist_mean > 0], na.rm = TRUE) + 1e-6),
+    d0 = 0
   )
 
   fit <- tryCatch({
 
     nls(
-      r2_q ~ b + (c - b) / (1 + a * dist_mean),
+      r2_q ~ b + (c - b) / (1 + a * pmax(dist_mean - d0, 0)),
       data = bin_dt,
       start = starts,
       weights = w,
       algorithm = "port",
-      lower = c(b, 0),
-      upper = c(1.2, Inf)
+      lower = c(b, 0, 0),
+      upper = c(1, Inf, max(bin_dt$dist_mean)),
+      control = nls.control(warnOnly = TRUE)
     )
 
   }, error = function(e) NULL)
 
-  if (is.null(fit)) return(c(c = NA, a = NA))
+  if (is.null(fit))
+    return(c(c = NA, a = NA, d0 = NA))
 
   coef(fit)
 }
@@ -234,6 +248,13 @@ get_bg_ld <- function(gds,
 }
 
 
+d_from_rho <- function(a, rho, d0 = 0) {
+  d0 + (1 / a) * (1 / (1 - rho) - 1)
+}
+
+ld_from_rho <- function(b, c = 1, rho){
+  b + (c - b) * (1 - rho)
+}
 
 # ---- S3 methods ---- #
 #' @export
@@ -261,6 +282,7 @@ print.ld_decay <- function(x, ...) {
 
   cat("Genome-wide medians:\n")
   cat("  median(c): ", signif(median(x$data$c, na.rm=TRUE), 4), "\n")
+  cat("  median(d0): ", signif(median(x$data$d0, na.rm=TRUE), 4), "\n")
   cat("  median(a): ", signif(median(x$data$a, na.rm=TRUE), 4), "\n\n")
 
   invisible(x)
@@ -278,6 +300,7 @@ print.ld_decay <- function(x, ...) {
 #' @param ... Additional arguments.
 #'
 #' @export
+
 plot.ld_decay <- function(x,
                           chr = NULL,
                           max_dist = NULL,
@@ -308,18 +331,22 @@ plot.ld_decay <- function(x,
        else
          paste("LD-decay curve -", chr))
 
-  abline(h=x$b)
+  ## Background LD line
+  abline(h = x$b, lty = 2, col = "grey40")
+
   for (i in seq_len(nrow(summ))) {
 
-    a <- summ$a[i]
-    c_par <- summ$c[i]
-    b <- summ$b[i]
+    a      <- summ$a[i]
+    c_par  <- summ$c[i]
+    b      <- summ$b[i]
+    d0     <- if ("d0" %in% names(summ)) summ$d0[i] else 0
 
-    r2 <- b + (c_par - b) / (1 + a * d)
+    ## Shifted plateau model
+    r2 <- b + (c_par - b) / (1 + a * pmax(d - d0, 0))
 
     lines(d, r2,
           lwd = 2,
-          col = scales::alpha("steelblue", 0.4))
+          col = scales::alpha("steelblue", 0.5))
   }
 
   invisible(x)

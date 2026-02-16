@@ -22,41 +22,29 @@ map[,plot(-log10(lm_q))]
 
 gds_path = tempfile(fileext = ".gds")
 gds <- create_gds_from_geno(geno = sim_example$GTs, map=sim_example$map,gds_path)
-decay <- ld_decay(gds)
-ld_str <- compute_ld_structure(gds,slide_win_ld = 1000,n_cores = 8)
 
 
-
-scan <- ld_scan(ld_str,
-                decay,
-                SNP_ids = sim_example$map$marker,
-                F_vals = sim_example$map[,.(emx_F,lfmm_F)],
-                rho_w = 0.95,
-                n_inds = 125,
-                full = TRUE)
-
-plot(scan,method = "lfmm_F")
-plot(scan,method = "emx_F")
-
-
+t1 <- Sys.time()
 LDscn <- LDscn_pipeline(gds = gds,
                         F_vals=map[,.(emx_F,lfmm_F,lm_F)],
-                        q_vals=map[,.(emx_q,lfmm_q,lm_q)])
-
+                        q_vals=map[,.(emx_q,lfmm_q,lm_q)],
+                        cores=8)
+t2 <- Sys.time()
+difftime(t2,t1)
 
 
 map2 <- add_consistency_to_map(map, consistency_obj = LDscn$consistency)
 map2[,ld_w:=compute_ld_w(ld_str, decay, 0.9)]
 
 ORs_tbl <- detect_or(q_vals=map2[,.(C_mean)],
-          ld_struct=ld_str,
-          decay_obj=decay,
-          sign_th=0.05,
-          sign_if = "greater",
-          rho_d=0.9,
-          rho_ld=0.9,
-          l_min = 1,
-          ret_table = TRUE)
+                     ld_struct=ld_str,
+                     decay_obj=decay,
+                     sign_th=0.05,
+                     sign_if = "greater",
+                     rho_d=0.9,
+                     rho_ld=0.9,
+                     l_min = 1,
+                     ret_table = TRUE)
 
 
 ORs_tbl[!duplicated(SNP),table(OR_id,method)]
@@ -86,8 +74,8 @@ rect_dt <- layout$rect
 
 
 to_plot <- list(y=c("lfmm_q","emx_q","lm_q","lfmm_F_prime_C","emx_F_prime_C","lm_F_prime_C","C_mean","ld_w"),
-     lab=c("-log10(q) | LFMM","-log10(q) | EMX","-log10(q) | lm","LFMM´_C","EMX´_C","lm´_C","Joint_C","ld_w"),
-     th=c(-log10(0.05),-log10(0.05),-log10(0.05),0.05,0.05,0.05,0.05,NULL))
+                lab=c("-log10(q) | LFMM","-log10(q) | EMX","-log10(q) | lm","LFMM´_C","EMX´_C","lm´_C","Joint_C","ld_w"),
+                th=c(-log10(0.05),-log10(0.05),-log10(0.05),0.05,0.05,0.05,0.05,NULL))
 
 plots <- lapply(1:8,function(x){
   don[, yval := get(to_plot$y[x])]
@@ -141,3 +129,21 @@ plots <- lapply(1:8,function(x){
 })
 
 (plots[[1]] / plots[[2]] / plots[[3]] / plots[[4]]) | (plots[[5]] / plots[[6]] / plots[[7]] / plots[[8]])
+
+decay <- ld_decay(gds)
+ld_str <- compute_ld_structure(gds,slide_win_ld = 1000,n_cores = 8)
+
+
+
+scan <- ld_scan(ld_str,
+                decay,
+                SNP_ids = sim_example$map$marker,
+                F_vals = sim_example$map[,.(emx_F,lfmm_F)],
+                rho_w = 0.95,
+                n_inds = 125,
+                full = TRUE)
+
+plot(scan,method = "lfmm_F")
+plot(scan,method = "emx_F")
+
+

@@ -33,7 +33,7 @@ ld_rho_draws <- function(ld_struct,
                          rho_ld_lim=list(min=0.9,max=0.999),
                          alpha_lim=list(min=1.31,max=4),
                          lmin_lim=list(min=1,max=10),
-                         n_cores=8,
+                         cores=1,
                          seed = NULL) {
 
   if (!is.null(seed))
@@ -59,16 +59,6 @@ ld_rho_draws <- function(ld_struct,
     colnames(q_primes) <- paste0(colnames(q_primes),"_prime")
     qvals <- cbind(q_vals, q_primes)
 
-        # q_vals,
-    # ld_struct,
-    # decay_obj,
-    # sign_th,
-    # sign_if = c("less", "greater"),
-    # rho_d,
-    # rho_ld,
-    # l_min = 2,
-    # ret_table=FALSE
-
     or_draws(
       q_vals     = qvals,
       ld_struct  = ld_struct,
@@ -85,7 +75,7 @@ ld_rho_draws <- function(ld_struct,
     draws <- parallel::mclapply(
       seq_len(n_rho),
       run_one,
-      mc.cores = n_cores
+      mc.cores = cores
     )
   } else {
     warning("Parallel rho_w draws not supported on Windows; using single core.")

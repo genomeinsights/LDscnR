@@ -25,7 +25,9 @@ LDscn_pipeline <- function(geno = NULL,
                         rho_d_lim=list(min=0.5,max=0.999),
                         rho_ld_lim=list(min=0.9,max=0.999),
                         alpha_lim=list(min=1.31,max=4),
-                        lmin_lim=list(min=1,max=10)
+                        lmin_lim=list(min=1,max=10),
+                        cores=1,
+                        verbose=TRUE
                         ) {
 
   call <- match.call()
@@ -50,19 +52,19 @@ LDscn_pipeline <- function(geno = NULL,
   # ------------------------------------------------------------
 
   if (verbose)
-    message("Estimating background LD and LD-decay")
+    message("Estimating LD-structure")
 
-  decay  <- ld_decay(gds)
+  ld_str <- compute_ld_structure(gds)
+
+
+  if (verbose)
+    print(ld_str)
+
+  decay  <- ld_decay(gds,ld_struct = ld_str,cores=cores)
 
   if (verbose)
     print(decay)
 
-  if (verbose)
-    message("Estimating LD-structure")
-  ld_str <- compute_ld_structure(gds)
-
-  if (verbose)
-    print(ld_str)
   # ------------------------------------------------------------
   # 4. Multi-rho robustness
   # ------------------------------------------------------------
@@ -76,13 +78,14 @@ LDscn_pipeline <- function(geno = NULL,
     q_vals     = q_vals,
     n_inds     = n_inds,
     SNP_ids    = SNP_ids,
-    n_rho      = 40,
-    n_or_draws = 25,
+    n_rho      = n_rho,
+    n_or_draws = n_or_draws,
     rho_w_lim  = rho_w_lim,
     rho_d_lim  = rho_d_lim,
     rho_ld_lim = rho_ld_lim,
     alpha_lim  = alpha_lim,
-    lmin_lim   = lmin_lim
+    lmin_lim   = lmin_lim,
+    cores      = cores
   )
 
   consistency <- consistency_score(draws, combine = TRUE)
