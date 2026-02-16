@@ -94,3 +94,8 @@ get_el <- function(gds, idx, slide_win_ld = 1000, n_cores = 1) {
 
   el
 }
+
+
+.get_n_inds <- function(gds) {
+  length(read.gdsn(index.gdsn(gds, "sample.id")))
+}

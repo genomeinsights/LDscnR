@@ -1,0 +1,274 @@
+---
+  title: "LDscnR: LD-aware Genome Scans and Robust Outlier Detection"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{LDscnR: LD-aware Genome Scans}
+%\VignetteEngine{knitr::rmarkdown}
+%\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+collapse = TRUE,
+comment = "#>",
+fig.width = 6,
+fig.height = 5
+)
+```
+
+# 1. Introduction
+
+Genome scans based on $F$-statistics frequently exhibit **LD-induced inflation**, where correlated markers inflate test statistics and generate extended peaks of apparent signal.
+
+LDscnR provides a framework to:
+
+1.  Estimate LD-decay parameters,
+2.  Perform LD-weighted scaling of test statistics,
+3.  Correct quantiles via permutation,
+4.  Evaluate robustness across LD window scales,
+5.  Detect consistent outlier regions (ORs).
+
+This vignette demonstrates the complete workflow on a simulated dataset.
+
+------------------------------------------------------------------------
+
+\# 2. Example dataset
+
+We load an included simulated example:
+
+```{r}
+library(LDscnR)
+library(SNPRelate)
+library(data.table)
+
+data(sim_ex)
+```
+
+The dataset contains:
+
+-   `GTs`: genotype matrix ($n_{\text{ind}} \times n_{\text{SNP}}$)
+-   `SNP_res`: SNP metadata and test statistics
+
+We prepare the map:
+
+```{r}
+map <- copy(sim_ex$SNP_res[, .(
+Chr, Pos, marker, type,
+emx_F, lfmm_F
+)])
+
+GTs    <- sim_ex$GTs
+n_inds <- nrow(GTs)
+```
+
+Compute FDR-adjusted q-values:
+
+```{r}
+map[, emx_q  := p.adjust(pf(emx_F,  1, n_inds - 2, lower.tail = FALSE), "fdr")]
+map[, lfmm_q := p.adjust(pf(lfmm_F, 1, n_inds - 2, lower.tail = FALSE), "fdr")]
+```
+
+------------------------------------------------------------------------
+
+\# 3. LD-decay estimation
+
+LDscnR operates on GDS files via SNPRelate.
+
+```{r}
+gds_path <- tempfile(fileext = ".gds")
+gds <- create_gds_from_geno(geno = GTs, map = map, gds_path)
+
+decay  <- ld_decay(gds)
+ld_str <- compute_ld_structure(gds, slide_win_ld = 500)
+```
+
+The LD-decay model is:
+
+$$
+  r^2(d) = b + \frac{c - b}{1 + a d},
+$$
+
+where:
+
+-   $b$ is background LD,
+-   $a$ controls decay rate,
+-   $d$ is physical distance.
+
+------------------------------------------------------------------------
+
+\# 4. LD-weighted scaling
+
+For a chosen LD-decay quantile $\rho_w$, LDscnR computes an LD-weighted statistic:
+
+$$
+  F' = F \cdot \ell_w,
+  $$ where $\ell_w$ is a local LD weight derived from the decay model.
+
+Quantile correction is applied using permutation of LD weights, aligning the empirical LD-inflated null to the theoretical $F$-distribution.
+
+```{r}
+scan <- ld_scan(
+  ld_str,
+  decay,
+  SNP_ids = map$marker,
+  F_vals  = map[, .(emx_F, lfmm_F)],
+  rho_w   = 0.95,
+  n_inds  = n_inds,
+  full    = TRUE
+)
+```
+
+Visualize quantile decomposition:
+
+```{r}
+plot(scan, method = "lfmm_F")
+```
+
+The QQ decomposition separates:
+
+-   Theoretical null,
+-   LD-induced distortion,
+-   Raw LD-weighted statistic,
+-   LD-scaled statistic.
+
+------------------------------------------------------------------------
+
+# 5. Robustness across LD window scales
+
+Instead of fixing $\rho_w$, we evaluate robustness across a range:
+
+```{r}
+draws <- ld_rho_draws(
+  ld_struct = ld_str,
+  decay_obj = decay,
+  F_vals    = map[, .(emx_F, lfmm_F)],
+  q_vals    = map[, .(emx_q, lfmm_q)],
+  n_inds    = n_inds,
+  SNP_ids   = map$marker,
+  n_rho     = 3,
+  rho_w_lim = list(min = 0.8, max = 0.95),
+  n_or_draws = 5,
+  rho_d_lim  = list(min = 0.8, max = 0.95),
+  rho_ld_lim = list(min = 0.9, max = 0.99),
+  alpha_lim  = list(min = 1.5, max = 2),
+  lmin_lim   = list(min = 1, max = 5)
+)
+```
+
+------------------------------------------------------------------------
+
+# 6. Consistency score
+
+The consistency score (C-score) measures:
+
+$$
+C_i = \frac{\text{Number of draws where SNP } i \text{ is in an OR}}{\text{Total draws}}.
+$$
+
+```{r}
+C_obj <- consistency_score(draws, combine = TRUE)
+map   <- add_consistency_to_map(map, C_obj)
+```
+
+Interpretation:
+
+-   $C_i \approx 1$ indicates highly robust signal.
+-   $C_i \approx 0$ indicates instability across LD scales.
+
+------------------------------------------------------------------------
+
+# 7. Outlier region detection
+
+Outlier regions are defined as connected components under LD constraints:
+
+-   Distance threshold: $$
+    d < d_\rho
+    $$
+-   LD threshold: $$
+    r^2 > b + (1 - b)(1 - \rho_{\text{ld}})
+    $$
+
+Detection based on C-score:
+
+```{r}
+ORs <- detect_or(
+  q_vals   = map[, .(C_mean)],
+  ld_struct = ld_str,
+  decay_obj = decay,
+  sign_th   = 0.5,
+  sign_if   = "greater",
+  rho_d     = 0.9,
+  rho_ld    = 0.95,
+  l_min     = 2
+)
+```
+
+Convert to table and merge:
+
+```{r}
+OR_tbl <- or_to_table(ORs)
+map    <- OR_tbl[map, on = c("SNP" = "marker")]
+map[is.na(OR_id), OR_id := "ns"]
+```
+
+------------------------------------------------------------------------
+
+# 8. Visualization
+
+Prepare Manhattan layout:
+
+```{r}
+layout <- prep_manhattan(
+  map[, .(
+    bp = Pos,
+    Chr,
+    marker,
+    C_log = -log10(1 - C_mean + 1e-8),
+    OR_id
+  )],
+  spacer = 0
+)
+```
+
+Plot C-score landscape:
+
+```{r}
+plot_manhattan_gg(
+  layout,
+  y = "C_log",
+  sig_th = -log10(1 - 0.5)
+)
+```
+
+------------------------------------------------------------------------
+
+# 9. Interpretation
+
+LDscnR decomposes genome scan signals into:
+
+1.  LD-induced distortion,
+2.  True statistical signal,
+3.  Robust spatial signal.
+
+LD-scaling reduces structured noise from autocorrelation. The C-score quantifies robustness across LD window definitions. Outlier regions identify coherent clusters under explicit LD constraints.
+
+------------------------------------------------------------------------
+
+# 10. Reproducibility
+
+```{r}
+sessionInfo()
+```
+
+------------------------------------------------------------------------
+
+# Summary
+
+LDscnR provides an LD-aware framework for:
+
+-   Statistical correction,
+-   Robustness evaluation,
+-   Spatial clustering,
+-   Interpretable visualization.
+
+It allows genome scans to be interpreted under explicit modeling of linkage disequilibrium.
