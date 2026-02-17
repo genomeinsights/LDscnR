@@ -73,7 +73,7 @@ ld_decay <- function(gds,
   message("Background LD (b) =", sprintf("%.4f", b))
 
   decay_data <- ld_decay_by_chr_win(
-    ld_struct,
+    ld_struct=ld_struct,
     q = q,
     b = b,
     window_size = window_size,
@@ -108,7 +108,7 @@ ld_decay <- function(gds,
 }
 
 
-ld_decay_by_chr_win <- function(ld_structure, q = 0.95, dist_unit = 5000, window_size=1e7,
+ld_decay_by_chr_win <- function(ld_struct, q = 0.95, dist_unit = 5000, window_size=1e7,
                                 step_size =5e+05,b = 0.05,cores=1) {
 
   rbindlist(parallel::mclapply(names(ld_struct$by_chr),function(ch){
@@ -144,6 +144,7 @@ ld_decay_by_chr_win <- function(ld_structure, q = 0.95, dist_unit = 5000, window
 }
 
 # el_ld <- sub
+
 coef_ld_dec <- function(el_ld, q = 0.95, dist_unit = 5000, b = 0.05) {
 
   el_ld[, dist := abs(pos2 - pos1)]
@@ -185,6 +186,7 @@ coef_ld_dec <- function(el_ld, q = 0.95, dist_unit = 5000, b = 0.05) {
 
   coef(fit)
 }
+
 
 
 get_bg_ld <- function(gds,

@@ -32,7 +32,7 @@ ld_scan <- function(ld_struct,
     stop("`rho_w` must lie in (0,1).")
 
   ## 1️⃣ Compute ld_w from structure
-  ld_w <- compute_ld_w(ld_struct, decay_obj, rho_w)
+  ld_w <- compute_ld_w(ld_struct=ld_struct, decay_obj=decay_obj, rho_w)
 
   ## 2️⃣ Compute F' using existing logic
   scan_res <- .compute_Fprime(
@@ -160,132 +160,9 @@ ld_scan <- function(ld_struct,
   names(res) <- colnames(F_mat)
   res
 }
-#plot(res$emx_F$q_prime,res$lfmm_F$q_prime)
-
-#' @export
-compute_ld_structure <- function(gds,
-                                 slide_win_ld = 1000,
-                                 n_cores = 1) {
-
-  ids <- .read_gds_ids(gds)
-  chrs <- unique(ids$snp_chr)
-
-  out <- vector("list", length(chrs))
-  names(out) <- chrs
-
-  for (ch in chrs) {
-    chr_idx <- which(ids$snp_chr == ch)
-
-    el <- get_el(gds,
-                 idx = chr_idx,
-                 slide_win_ld = slide_win_ld,
-                 n_cores = n_cores)
-
-    data.table::setorder(el, d)  # sort by distance once
-
-    out[[ch]] <- list(
-      snp_ids = ids$snp_id[chr_idx],
-      edges   = el
-    )
-  }
-
-  structure(
-    list(
-      by_chr = out
-    ),
-    class = "ld_structure"
-  )
-}
-
-.unbiased_ld_w <- function(sub) {
-
-  sub <- data.table::rbindlist(list(
-    sub[, .(SNP = SNP1, OTHER = SNP2, pos = pos1, pos_other = pos2, r2)],
-    sub[, .(SNP = SNP2, OTHER = SNP1, pos = pos2, pos_other = pos1, r2)]
-  ))
-
-  sub[, d := abs(pos_other - pos)]
-  sub[, side := ifelse(pos_other > pos, "R", "L")]
-
-  sub[, `:=`(
-    maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
-    maxR = if (any(side == "R")) max(d[side == "R"]) else 0
-  ), by = SNP]
-
-  sub[, S := pmin(maxL, maxR)]
-
-  sub[, long_side := data.table::fifelse(
-    maxL > maxR, "L",
-    data.table::fifelse(maxR > maxL, "R", NA_character_)
-  )]
-
-  sub[, tail := (side == long_side & d > S)]
-  sub[is.na(tail), tail := FALSE]
-
-  use <- data.table::rbindlist(list(
-    sub[, .(SNP, r2)],
-    sub[tail == TRUE, .(SNP, r2)]
-  ))
-
-  ld_w2 <- use[, .(
-    ld_w = median(r2, na.rm = TRUE),
-    ld_w_mean = mean(r2, na.rm = TRUE),
-    N = .N
-  ), by = SNP]
-
-  return(ld_w2)
-}
 
 
-compute_ld_w <- function(ld_struct,
-                         decay_obj,
-                         rho_w) {
 
-  result <- vector("list", length(ld_struct$by_chr))
-  names(result) <- names(ld_struct$by_chr)
-
-  for (ch in names(ld_struct$by_chr)) {
-
-    a_chr <- decay_obj$summary[Chr == ch, a]
-    d_th  <- d_from_rho(a_chr, rho_w)
-
-    el <- ld_struct$by_chr[[ch]]$edges
-
-    # Filter by distance
-    sub <- el[d < d_th]
-
-    if (nrow(sub) == 0) {
-      result[[ch]] <- rep(NA_real_,length(ld_struct$by_chr[[ch]]$snp_ids))
-      next
-    }
-
-    ld_dt <- .unbiased_ld_w(sub)
-
-    res <- data.table::data.table(
-      SNP = ld_struct$by_chr[[ch]]$snp_ids
-    )
-
-    res <- ld_dt[res, on = "SNP"]
-
-    result[[ch]] <- res$ld_w
-  }
-
-  unlist(result)
-}
-
-
-#' Plot LD-scaled quantile transformation
-#'
-#' Visualizes the quantile transformation underlying the LD-scaled
-#' statistic, decomposing LD-induced distortion and
-#' selection-consistent excess.
-#'
-#' @param x An object of class `"ld_scan"`.
-#' @param method Optional method name if multiple statistics were supplied.
-#' @param ... Additional arguments.
-#'
-#' @return A ggplot object.
-#' @export
 #' #' Plot LD-scan results
 #'
 #' Produces a two-panel figure:
@@ -296,7 +173,6 @@ compute_ld_w <- function(ld_struct,
 #' @param ... Unused.
 #'
 #' @return A patchwork ggplot object.
-#' @export
 #' @export
 plot.ld_scan <- function(x, method) {
 

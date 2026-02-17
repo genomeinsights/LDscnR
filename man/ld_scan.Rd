@@ -4,7 +4,16 @@
 \alias{ld_scan}
 \title{LD-scaled genome scan}
 \usage{
-ld_scan(ld_struct, decay_obj, F_vals, rho_w, n_inds, n_rep = 10, full = TRUE)
+ld_scan(
+  ld_struct,
+  decay_obj,
+  SNP_ids,
+  F_vals,
+  rho_w,
+  n_inds,
+  n_rep = 10,
+  full = TRUE
+)
 }
 \arguments{
 \item{ld_struct}{An object of class \code{"ld_structure"}.}

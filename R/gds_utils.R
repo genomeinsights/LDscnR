@@ -2,7 +2,7 @@
 #' @export
 create_gds_from_geno <- function(geno, map, gds_path) {
   stopifnot(ncol(geno) == nrow(map))
-  snpgdsCreateGeno(
+  SNPRelate::snpgdsCreateGeno(
     gds_path,
     genmat         = t(round(geno)),     # SNPRelate expects SNP × sample if snpfirstdim=TRUE
     sample.id      = paste0("ind_", seq_len(nrow(geno))), ## sample name not important
@@ -11,15 +11,15 @@ create_gds_from_geno <- function(geno, map, gds_path) {
     snp.position   = map$Pos,
     snpfirstdim    = TRUE
   )
-  snpgdsOpen(gds_path)
+  SNPRelate::snpgdsOpen(gds_path)
 }
 
 
 .read_gds_ids <- function(gds) {
   list(
-    snp_id  = read.gdsn(index.gdsn(gds, "snp.id")),
-    snp_chr = read.gdsn(index.gdsn(gds, "snp.chromosome")),
-    snp_pos = read.gdsn(index.gdsn(gds, "snp.position"))
+    snp_id  = gdsfmt::read.gdsn(gdsfmt::index.gdsn(gds, "snp.id")),
+    snp_chr = gdsfmt::read.gdsn(gdsfmt::index.gdsn(gds, "snp.chromosome")),
+    snp_pos = gdsfmt::read.gdsn(gdsfmt::index.gdsn(gds, "snp.position"))
   )
 }
 
@@ -39,11 +39,11 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 #'   \code{Chr1}, \code{Chr2}, \code{pos1}, \code{pos2}, \code{SNP1}, \code{SNP2}, \code{d}.
 #'
 #' @export
-get_el <- function(gds, idx, slide_win_ld = 1000, n_cores = 1) {
+get_el <- function(gds, idx, slide_win_ld = 1000, cores = 1) {
 
   ids <- .read_gds_ids(gds)
 
-  if(missing(idx)){
+  if(missing(idx) | is.null(idx)){
     idx <- seq_along(ids$snp_id)
   }else{
     idx <- as.integer(idx)
@@ -61,7 +61,7 @@ get_el <- function(gds, idx, slide_win_ld = 1000, n_cores = 1) {
     method = "r",
     slide = slide,
     verbose = FALSE,
-    num.thread = as.integer(n_cores)
+    num.thread = as.integer(cores)
   )
 
   el <- data.table::as.data.table(
@@ -97,5 +97,5 @@ get_el <- function(gds, idx, slide_win_ld = 1000, n_cores = 1) {
 
 
 .get_n_inds <- function(gds) {
-  length(read.gdsn(index.gdsn(gds, "sample.id")))
+  length(gdsfmt::read.gdsn(gdsfmt::index.gdsn(gds, "sample.id")))
 }

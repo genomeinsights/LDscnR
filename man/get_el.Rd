@@ -4,7 +4,7 @@
 \alias{get_el}
 \title{Build an LD edge list for a subset of SNPs (unidirectional)}
 \usage{
-get_el(gds, idx, slide_win_ld = 1000, n_cores = 1)
+get_el(gds, idx, slide_win_ld = 1000, cores = 1)
 }
 \arguments{
 \item{gds}{An open GDS object.}

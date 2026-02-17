@@ -7,7 +7,7 @@
 #'
 #' @return Object of class "ld_consistency".
 #' @export
-consistency_score <- function(rho_draws_obj,combine=TRUE) {
+consistency_score <- function(rho_draws_obj) {
 
   if (!inherits(rho_draws_obj, "ld_rho_draws"))
     stop("Input must be of class 'ld_rho_draws'.")

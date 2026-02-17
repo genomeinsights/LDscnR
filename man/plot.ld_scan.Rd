@@ -2,22 +2,22 @@
 % Please edit documentation in R/ld_scan.R
 \name{plot.ld_scan}
 \alias{plot.ld_scan}
-\title{Plot LD-scaled quantile transformation}
+\title{#' Plot LD-scan results}
 \usage{
-\method{plot}{ld_scan}(x, method = NULL, ...)
+\method{plot}{ld_scan}(x, method)
 }
 \arguments{
-\item{x}{An object of class \code{"ld_scan"}.}
+\item{x}{An object of class "ld_scan".}
 
-\item{method}{Optional method name if multiple statistics were supplied.}
-
-\item{...}{Additional arguments.}
+\item{...}{Unused.}
 }
 \value{
-A ggplot object.
+A patchwork ggplot object.
 }
 \description{
-Visualizes the quantile transformation underlying the LD-scaled
-statistic, decomposing LD-induced distortion and
-selection-consistent excess.
+Produces a two-panel figure:
+\enumerate{
+\item Quantile decomposition (LD distortion + selection excess)
+\item Comparison of original, LD-weighted, and LD-scaled statistics
+}
 }

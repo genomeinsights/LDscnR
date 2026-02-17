@@ -8,8 +8,8 @@ col_vector <- c("#B2DF8A", "#FFD92F", "firebrick", "#33A02C", "#7FC97F", "#CAB2D
 
 
 prep_manhattan <- function(data_manh,
-                           spacer = 5e6,
-                           chr_cols = c("bisque", "white")) {
+                           spacer = 0,
+                           chr_cols = c("white", "grey50")) {
 
   stopifnot(all(c("Chr", "bp") %in% names(data_manh)))
 
@@ -54,61 +54,118 @@ prep_manhattan <- function(data_manh,
     class = "manhattan_layout"
   )
 }
+
 plot_manhattan_gg <- function(layout,
-                              y,
-                              point_size = 0.4,
-                              alpha = 0.8,
-                              color_vect=NULL,
-                              shape_vect=NULL) {
+                            y_vars,
+                            y_labels,
+                            thresholds = NULL,
+                            or_var = NULL,
+                            type_var = NULL,
+                            point_size = 1,
+                            ncol = NULL) {
 
-  stopifnot(inherits(layout, "manhattan_layout"))
+  if (!inherits(layout, "manhattan_layout"))
+    stop("layout must be from prep_manhattan().")
 
-  don      <- copy(layout$data)
+  don     <- data.table::copy(layout$data)
   axisdf  <- layout$axis
   rect_dt <- layout$rect
 
-  ## y aesthetic
-  don[, yval := get(y)]
+  n_panels <- length(y_vars)
 
-  ## significance coloring
-  if (is.null(color_vect)) {
-    don[, col_custom := "none"]
+  if (!is.null(thresholds) && length(thresholds) != n_panels)
+    stop("thresholds must match length of y_vars")
+
+  plots <- lapply(seq_len(n_panels), function(i) {
+
+    don[, yval := get(y_vars[i])]
+    don[is.na(yval), yval := 0]
+
+    p <- ggplot2::ggplot() +
+
+      # chromosome background
+      ggplot2::geom_rect(
+        data = rect_dt,
+        ggplot2::aes(xmin = x1, xmax = x2, ymin = -Inf, ymax = Inf),
+        fill = rect_dt$col,
+        alpha = 0.3,
+        inherit.aes = FALSE
+      )
+
+    # --- Non-OR points ---
+    if (!is.null(or_var)) {
+      p <- p +
+        ggplot2::geom_point(
+          data = don[get(or_var) == "ns"],
+          ggplot2::aes(BPcum, yval),
+          size = point_size,
+          colour = "grey50"
+        )
+    }
+
+    # --- OR coloured points ---
+    if (!is.null(or_var)) {
+      p <- p +
+        ggplot2::geom_point(
+          data = don[get(or_var) != "ns"],
+          ggplot2::aes(BPcum, yval, colour = get(or_var)),
+          size = point_size
+        )
+    } else {
+      p <- p +
+        ggplot2::geom_point(
+          data = don,
+          ggplot2::aes(BPcum, yval),
+          size = point_size,
+          colour = "grey50"
+        )
+    }
+
+    # --- QTN markers ---
+    if (!is.null(type_var)) {
+      p <- p +
+        ggplot2::geom_point(
+          data = don[get(type_var) == "QTN"],
+          ggplot2::aes(BPcum, yval),
+          shape = 3,
+          size = point_size * 3,
+          colour = "black"
+        )
+    }
+
+    # --- Threshold ---
+    if (!is.null(thresholds) && !is.na(thresholds[i])) {
+      p <- p +
+        ggplot2::geom_hline(
+          yintercept = thresholds[i],
+          linetype = 2,
+          colour = "grey30"
+        )
+    }
+
+    p +
+      ggplot2::scale_x_continuous(
+        breaks = axisdf$center,
+        labels = axisdf$Chr,
+        expand = ggplot2::expansion(mult = c(0.01, 0.01))
+      ) +
+      ggplot2::labs(
+        x = NULL,
+        y = y_labels[i]
+      ) +
+      ggplot2::theme_bw() +
+      ggplot2::theme(
+        panel.grid.major.x = ggplot2::element_blank(),
+        panel.grid.minor.x = ggplot2::element_blank(),
+        axis.text.x = ggplot2::element_text(angle = 90),
+        legend.position = "none",
+        aspect.ratio = 0.25
+      )
+  })
+
+  if(is.null(ncol)){
+    patchwork::wrap_plots(plots)
+  }else{
+    patchwork::wrap_plots(plots,ncol=ncol)
   }
-
-  if (is.null(shape_vect)) {
-    don[, shape_custom := "none"]
-  }
-
-  ggplot() +
-    ## chromosome background
-    geom_rect(
-      data = rect_dt,
-      aes(xmin = x1, xmax = x2, ymin = y1, ymax = y2),
-      fill = rect_dt$col,
-      alpha = 0.3,
-      inherit.aes = FALSE
-    ) +
-    ## points
-    geom_point(
-      data = don,
-      aes(BPcum, yval, color = col_custom,shape=shape_custom),
-      size = point_size,
-      alpha = alpha
-    ) +
-    scale_color_manual(values =c("black",rep(col_vector,3)),guide="none")+
-    scale_shape_manual(values =c(20,3),guide="none")+
-    scale_x_continuous(
-      breaks = axisdf$center,
-      labels = axisdf$Chr,
-      expand = expansion(mult = c(0.01, 0.01))
-    ) +
-    labs(x = NULL, y = y) +
-    theme_bw() +
-    theme(
-      panel.grid.major.x = element_blank(),
-      panel.grid.minor.x = element_blank(),
-      axis.text.x = element_text(angle = 0),
-      aspect.ratio = 0.25
-    )
 }
-

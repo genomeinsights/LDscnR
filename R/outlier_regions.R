@@ -19,9 +19,7 @@ detect_or <- function(q_vals,
   if (is.null(names(ld_struct$by_chr)))
     stop("ld_struct must contain chromosome-wise LD structure.")
 
-
   ids <- unlist(sapply(ld_struct$by_chr,function(x)x$snp_ids))
-
 
   # ------------------------------------------------------------
   # Ensure either all q-values or all C-values
@@ -132,21 +130,21 @@ or_draws <- function(q_vals,
   #i <- 13
   for (i in seq_len(n_draws)) {
 
-    rho_d  <- runif(1, rho_OR_lim$min, rho_OR_lim$max)
-    rho_ld  <- runif(1, rho_OR_lim$min, rho_OR_lim$max)
+    rho_d  <- runif(1, rho_d_lim$min, rho_d_lim$max)
+    rho_ld  <- runif(1, rho_ld_lim$min, rho_ld_lim$max)
 
 
     alpha  <- 1 / 10^(runif(1, alpha_lim$min, alpha_lim$max))
     l_min  <- sample(seq(lmin_lim$min, lmin_lim$max), 1)
 
     out[[i]] <- detect_or(
-      q_vals,
-      ld_struct,
-      decay_obj,
-      sign_th = alpha,
-      rho_d = rho_d,
-      rho_ld = rho_ld,
-      l_min = l_min
+      q_vals   = q_vals,
+      ld_struct = ld_struct,
+      decay_obj = decay_obj,
+      sign_th   = alpha,
+      rho_d     = rho_d,
+      rho_ld    = rho_ld,
+      l_min     = l_min
     )
   }
 

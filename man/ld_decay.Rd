@@ -2,17 +2,18 @@
 % Please edit documentation in R/ld_decay.R
 \name{ld_decay}
 \alias{ld_decay}
-\title{Estimate LD-decay parameters across the genome}
+\title{LD-decay model with short-range plateau}
 \usage{
 ld_decay(
   gds,
   idx,
+  ld_struct,
   q = 0.95,
   n_sub = 5000,
   slide_win_ld = 1000,
   window_size = 1e+06,
   step_size = 5e+05,
-  n_cores_ld = 8,
+  cores = 1,
   dist_unit = 5000
 )
 }
@@ -20,6 +21,8 @@ ld_decay(
 \item{gds}{An open GDS object.}
 
 \item{idx}{Optional vector of SNP indices.}
+
+\item{ld_struct}{Per chromosome edge list of LD-values produced e.g. by \code{compute_ld_structure}}
 
 \item{q}{Quantile used for LD summarization (default 0.95).}
 
@@ -31,11 +34,11 @@ ld_decay(
 
 \item{step_size}{Step size (bp) between windows.}
 
-\item{n_cores_ld}{Number of cores for LD computation.}
-
 \item{dist_unit}{Distance bin width (bp).}
 
 \item{b}{Optional background LD value. If missing, estimated automatically.}
+
+\item{n_cores_ld}{Number of cores for LD computation.}
 }
 \value{
 An object of class \code{"ld_decay"} containing:
@@ -46,12 +49,34 @@ An object of class \code{"ld_decay"} containing:
 }
 }
 \description{
-Computes background LD (b) using inter-chromosomal SNP pairs and
-estimates LD-decay parameters (\code{c}, \code{a}) in sliding genomic windows.
+To accommodate situations where LD remains approximately constant
+over short physical distances (e.g., due to limited recombination or
+dense marker spacing), a plateau parameter \eqn{d_0} is
+included in the decay model. The LD-decay curve is then defined as
+}
+\details{
+\deqn{
+r^2(d) = b + \frac{c - b}{1 + a \max(d - d_0, 0)},
+}
+
+where \eqn{b} is the background LD level, \eqn{c} is the short-range
+LD plateau (bounded by 1), \eqn{a} controls the decay rate, and
+\eqn{d_0} represents the distance up to which LD remains approximately
+constant.
+
+The use of \code{pmax(d - d_0, 0)} ensures a continuous transition from
+the plateau region (\eqn{d \le d_0}) to the decay regime
+(\eqn{d > d_0}) without introducing discontinuities that may hinder
+numerical optimization.
+
+When SNP density is high, \eqn{d_0} captures the short-distance LD
+plateau explicitly and stabilizes estimation of \eqn{c}. In sparse
+marker datasets, \eqn{d_0} typically converges to zero, reducing the
+model to the standard hyperbolic decay formulation.
 }
 \examples{
 \dontrun{
-decay <- ld_decay(gds)
+decay <- ld_decay(gds,ld_struct)
 plot(decay)
 }
 
