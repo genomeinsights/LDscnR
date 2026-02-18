@@ -1,80 +1,139 @@
 ---
-  title: "LDscnR: LD-aware Genome Scans and Robust Outlier Detection"
+title: "LDscnR: LD-aware Genome Scans and Robust Outlier Detection"
 output: rmarkdown::html_vignette
-vignette: >
-  %\VignetteIndexEntry{LDscnR: LD-aware Genome Scans}
-%\VignetteEngine{knitr::rmarkdown}
-%\VignetteEncoding{UTF-8}
+author: "Petri Kemppainen"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
 collapse = TRUE,
+message = FALSE,
+warning = FALSE,
+cache = TRUE,
 comment = "#>",
-fig.width = 6,
+fig.width = 7,
 fig.height = 5
 )
+
+library(LDscnR)
+#devtools::load_all()
+data(LDscn)
+data(ld_w_0.9)
+data(ORs_tbl)
 ```
 
 # 1. Introduction
 
-Genome scans based on $F$-statistics frequently exhibit **LD-induced inflation**, where correlated markers inflate test statistics and generate extended peaks of apparent signal.
+Genome scans and genotype-environment association methods are widely used to detect loci under selection, but by ignoring correlations among loci (linkage disequilibrium, LD) they typically have either low power or high false positive rates under strong population structure and complex demographic histories. Both selective sweeps and reduced effective recombination and gene flow between locally adapted populations can lead to locally elevated levels of LD. Thus, contrasting local LD patterns against background levels caused by population structuring and complex demographic history can help focus inference on genomic regions more likely to be under selection. This perspective naturally motivates treating clusters of correlated SNPs (outlier regions, ORs) as test units rather than individual markers, reducing dimensionality while retaining biologically meaningful signal. Defining ORs relies on single linkage clustering (SLC) with threshold values for how strongly correlated physically adjacent outlier SNPs should be to be considered a single coherent outlier region. To account for differences in background LD and LD-decay rates, these thresholds are expressed relative to empirically estimated values.
+
+LDscnR performs LD-aware scaling and quantile correction of genome scan statistics. The F-distribution provides a convenient and flexible reference family for one-degree-of-freedom tests commonly used in genome scans. The method is, however, agnostic to the specific test statistic used, and only assumes:
+
+1.  **Monotonicity**. Larger values of the statistic $S_i$ correspond to stronger evidence against the null hypothesis.
+
+2.  **Known null distribution**. Under the null hypothesis, $S_i$ can be mapped to a theoretical distribution with known quantiles.
+
+3.  **Independence of null distribution from LD correction**. The theoretical null distribution is defined independently of the LD-weighting procedure.
+
+Thus, the LD-scaling algorithm does not depend on the interpretation of $S_i$ itself, but rather on its null quantile structure.
+
+Because both LD-scaling and OR definition depend on multiple tuning parameters, and because different methods capture complementary aspects of genomic differentiation, this framework integrates evidence across parameter values and inference methods.
+
+This method is based on Kemppainen & Guillaume (2026a), but with speed and memory optimised functions and the additional improvements outlined in Kemppainen & Guillaume (2016b).
 
 LDscnR provides a framework to:
 
-1.  Estimate LD-decay parameters,
-2.  Perform LD-weighted scaling of test statistics,
-3.  Correct quantiles via permutation,
-4.  Evaluate robustness across LD window scales,
-5.  Detect consistent outlier regions (ORs).
-
-This vignette demonstrates the complete workflow on a simulated dataset.
+1.  Estimate LD-structure,
+2.  Estimate LD-decay parameters,
+3.  Perform LD-weighted scaling of test statistics,
+4.  Correct quantiles via permutation,
+5.  Evaluate robustness across LD window scales and clustering parameters,
+6.  Detect consistent outlier regions (ORs).
 
 ------------------------------------------------------------------------
 
-\# 2. Example dataset
+## Transformation to the F-scale
 
-We load an included simulated example:
+LDscnR expects statistics expressed as:
+
+$$
+F_i \sim F(df_1, df_2)
+$$
+
+under the null hypothesis. Many commonly used genome scan statistics satisfy this condition either directly or via transformation:
+
+| Original statistic   | Transformation to F-scale             |
+|----------------------|---------------------------------------|
+| p-value              | $F = F^{-1}(1 - p)$                   |
+| $\chi^2_1$ statistic | $\chi^2_1 = F(1, \infty)$             |
+| $t$-statistic        | $t^2 \sim F(1, df)$                   |
+| $z$-score            | $z^2 \sim \chi^2_1 \sim F(1, \infty)$ |
+| Likelihood ratio     | asymptotically $\chi^2 \rightarrow F$ |
+
+Thus, for most genome scan statistics, the transformation route is:
+
+$$
+\text{statistic} \rightarrow p\text{-value} \rightarrow F\text{-statistic}.
+$$
+
+Once transformed, the statistic can be passed to `LDscn_pipeline()`, a wrapper function that performs the entire pipeline from estimating LD-structure (`compute_ld_structure()`) and LD-decay (`ld_decay()`), performing quantile transformation and detecting outlier regions (`ld_rho_draws()`) and generating consistency scores as final output (`consistency_score()`).
+
+## Quick start: running an LD-scaled genome scan
+
+We load an included simulated example that contain the necessary data for this pipeline.
 
 ```{r}
 library(LDscnR)
-library(SNPRelate)
-library(data.table)
-
 data(sim_ex)
 ```
 
 The dataset contains:
 
 -   `GTs`: genotype matrix ($n_{\text{ind}} \times n_{\text{SNP}}$)
--   `SNP_res`: SNP metadata and test statistics
+-   `map`: SNP metadata and test statistics that includes at least one F-based (pre-transformed, if necessary) and optionally `fdr` corrected p-values for the original test (q-values).
+-   `env`: The environmental variable to be used in other optional outlier methods (not required for `LDscn_pipeline()`).
 
-We prepare the map:
+For completeness, in the below example include q-values as well.
 
-```{r}
-map <- copy(sim_ex$SNP_res[, .(
-Chr, Pos, marker, type,
-emx_F, lfmm_F
-)])
-
-GTs    <- sim_ex$GTs
-n_inds <- nrow(GTs)
+```{r eval=FALSE}
+LDscn <- LDscn_pipeline(geno = sim_ex$GTs,
+                        map = sim_ex$map,
+                        F_cols=c("emx_F","lfmm_F"),
+                        q_cols=c("emx_q","lfmm_q"),
+                        cores=8)
 ```
 
-Compute FDR-adjusted q-values:
+The object `LDscn` is created that contains the following slots:
+
+1.  **Decay**. Contains information about LD-decay and background LD
+2.  **ld_struct**. Edge lists of pairwise LD-values ($r^2$) per chromosome.
+3.  **draws**. Outlier regions F-scaled statistics based on a range of parameter values.
+4.  **consistency**. Consistency based statistics.
+5.  **call**. Parameter settings used.
+
+Next we can plot and inspect LD-structure.
 
 ```{r}
-map[, emx_q  := p.adjust(pf(emx_F,  1, n_inds - 2, lower.tail = FALSE), "fdr")]
-map[, lfmm_q := p.adjust(pf(lfmm_F, 1, n_inds - 2, lower.tail = FALSE), "fdr")]
-```
+# Plots LD-decay and fitted line for one chromosome at a time
+plot_ld_decay(LDscn,chr = "Chr1")
 
-------------------------------------------------------------------------
+# Zoomed in
+plot_ld_decay(LDscn,max_dist = 5e5) 
+
+# Plot only d vs r^2 but for one chromosome at a time
+plot(LDscn$ld_struct,chr = "Chr1")
+
+# Plot fitted LD-decay curves for all chromosomes
+plot(LDscn$decay)
+
+```
+# rests (not ready yeat)
+## Next we want to add the $F´$-statistics and C-scores to the map file
 
 \# 3. LD-decay estimation
 
 LDscnR operates on GDS files via SNPRelate.
 
-```{r}
+```{r, eval=FALSE}
 gds_path <- tempfile(fileext = ".gds")
 gds <- create_gds_from_geno(geno = GTs, map = map, gds_path)
 
@@ -106,7 +165,7 @@ $$
 
 Quantile correction is applied using permutation of LD weights, aligning the empirical LD-inflated null to the theoretical $F$-distribution.
 
-```{r}
+```{r, eval=FALSE}
 scan <- ld_scan(
   ld_str,
   decay,
@@ -120,7 +179,7 @@ scan <- ld_scan(
 
 Visualize quantile decomposition:
 
-```{r}
+```{r, eval=FALSE}
 plot(scan, method = "lfmm_F")
 ```
 
@@ -137,7 +196,7 @@ The QQ decomposition separates:
 
 Instead of fixing $\rho_w$, we evaluate robustness across a range:
 
-```{r}
+```{r, eval=FALSE}
 draws <- ld_rho_draws(
   ld_struct = ld_str,
   decay_obj = decay,
@@ -165,7 +224,7 @@ $$
 C_i = \frac{\text{Number of draws where SNP } i \text{ is in an OR}}{\text{Total draws}}.
 $$
 
-```{r}
+```{r, eval=FALSE}
 C_obj <- consistency_score(draws, combine = TRUE)
 map   <- add_consistency_to_map(map, C_obj)
 ```
@@ -190,7 +249,7 @@ Outlier regions are defined as connected components under LD constraints:
 
 Detection based on C-score:
 
-```{r}
+```{r, eval=FALSE}
 ORs <- detect_or(
   q_vals   = map[, .(C_mean)],
   ld_struct = ld_str,
@@ -205,7 +264,7 @@ ORs <- detect_or(
 
 Convert to table and merge:
 
-```{r}
+```{r, eval=FALSE}
 OR_tbl <- or_to_table(ORs)
 map    <- OR_tbl[map, on = c("SNP" = "marker")]
 map[is.na(OR_id), OR_id := "ns"]
@@ -217,7 +276,7 @@ map[is.na(OR_id), OR_id := "ns"]
 
 Prepare Manhattan layout:
 
-```{r}
+```{r, eval=FALSE}
 layout <- prep_manhattan(
   map[, .(
     bp = Pos,
@@ -232,7 +291,7 @@ layout <- prep_manhattan(
 
 Plot C-score landscape:
 
-```{r}
+```{r, eval=FALSE}
 plot_manhattan_gg(
   layout,
   y = "C_log",
@@ -256,7 +315,7 @@ LD-scaling reduces structured noise from autocorrelation. The C-score quantifies
 
 # 10. Reproducibility
 
-```{r}
+```{r, eval=FALSE}
 sessionInfo()
 ```
 

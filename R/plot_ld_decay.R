@@ -120,7 +120,7 @@ plot_ld_decay <- function(x,
            lwd = 2)
   }
 
-  legend(x=max_dist*0.7,
+  legend(x=max_dist*0.6,
          y=1,
          legend = c("LD pairs",
                     "Fitted decay",

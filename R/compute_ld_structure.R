@@ -44,6 +44,7 @@ compute_ld_structure <- function(gds,
   names(out) <- chrs
 
   for (ch in chrs) {
+    message(ch,"..")
     chr_idx <- which(ids$snp_chr == ch)
 
     el <- get_el(gds,

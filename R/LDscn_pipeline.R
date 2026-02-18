@@ -61,7 +61,7 @@ LDscn_pipeline <- function(geno = NULL,
   if (verbose)
     message("Estimating LD-structure")
 
-  ld_str <- compute_ld_structure(gds,slide_win_ld = slide_win_ld,cores=cores)
+  ld_str <- compute_ld_structure(gds,slide_win_ld = slide_win_ld,cores=1)
 
 
   if (verbose)
@@ -109,5 +109,3 @@ LDscn_pipeline <- function(geno = NULL,
   class(out) <- "LDscn"
   out
 }
-
-
