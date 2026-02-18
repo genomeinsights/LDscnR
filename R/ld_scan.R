@@ -32,7 +32,7 @@ ld_scan <- function(ld_struct,
     stop("`rho_w` must lie in (0,1).")
 
   ## 1️⃣ Compute ld_w from structure
-  ld_w <- compute_ld_w(ld_struct=ld_struct, decay_obj=decay_obj, rho_w)
+  ld_w <- compute_ld_w(ld_struct=ld_struct, decay_obj=decay_obj, rho_w,r2_lower_lim = 0.03)
 
   ## 2️⃣ Compute F' using existing logic
   scan_res <- .compute_Fprime(

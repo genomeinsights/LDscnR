@@ -7,83 +7,33 @@
 #'
 #' @return Object of class "ld_consistency".
 #' @export
-consistency_score <- function(rho_draws_obj) {
+consistency_score <- function(or_dt,combine=TRUE) {
 
-  if (!inherits(rho_draws_obj, "ld_rho_draws"))
-    stop("Input must be of class 'ld_rho_draws'.")
+  long_dt <- or_dt$draws[
+    , .(SNP = unlist(OR)),
+    by = .(method)
+  ]
 
-  rho_draws <- rho_draws_obj$draws
-  n_rho     <- rho_draws_obj$n_rho
-  n_or      <- rho_draws_obj$n_or_draws
+  C_dt <- long_dt[, .N, by = .(SNP,method)]
 
-  total_draws <- n_rho * n_or
+  total_draws <- or_dt$n_rho*or_dt$n_or_draws
 
-  if (total_draws == 0)
-    stop("No draws found.")
+  C_dt[, C := N / total_draws]
 
-  # Determine method names from first element
-  first_or_draw <- rho_draws[[1]]$draws[[1]]
-  methods <- names(first_or_draw$ORs)
-  if (is.null(methods))
-    methods <- paste0("Method_", seq_along(first_or_draw$ORs))
-
-  # Collect all SNPs that ever appear
-  all_snps <- unique(unlist(
-    lapply(rho_draws, function(rho_obj)
-      unlist(
-        lapply(rho_obj$draws, function(or_obj)
-          unlist(or_obj$ORs)
-        )
-      )
-    )
-  ))
-
-  if (length(all_snps) == 0) {
-    return(structure(
-      list(consistency = list(), total_draws = total_draws),
-      class = "ld_consistency"
-    ))
-  }
-
-  out_list <- vector("list", length(methods))
-  names(out_list) <- methods
-
-  for (m in methods) {
-
-    counts <- integer(length(all_snps))
-    names(counts) <- all_snps
-
-    for (rho_obj in rho_draws) {
-      for (or_obj in rho_obj$draws) {
-
-        snps_in_draw <- unique(unlist(or_obj$ORs[[m]]))
-
-        if (length(snps_in_draw) > 0)
-          counts[snps_in_draw] <- counts[snps_in_draw] + 1
-      }
-    }
-
-    out_list[[m]] <- data.table::data.table(
-      SNP = names(counts),
-      consistency = counts / total_draws
-    )
-  }
-
-  names(out_list) <- paste0(methods,"_C")
 
   C_obj <- structure(
     list(
-      consistency = out_list,
+      consistency = C_dt,
       total_draws = total_draws,
-      n_rho       = n_rho,
-      n_or        = n_or
+      n_rho       = or_dt$n_rho,
+      n_or        = or_dt$n_or_draws
     ),
     class = "ld_consistency"
   )
-
-  C_obj <- combine_consistency(C_obj)
+  if(combine) C_obj <- combine_consistency(C_obj)
+  return(C_obj)
 }
-
+#C_obj$consistency[,unique(method)]
 #' @export
 add_consistency_to_map <- function(map, consistency_obj) {
 
@@ -105,7 +55,7 @@ add_consistency_to_map <- function(map, consistency_obj) {
   return(out[,..new_col_order])
 
 }
-
+#consistency_obj <- C_obj
 
 #' @export
 print.ld_consistency <- function(x, ...) {
@@ -118,13 +68,14 @@ print.ld_consistency <- function(x, ...) {
   if (!is.null(x$combined)) {
     cat("Combined C-score available\n")
   }
-  for (m in names(x$consistency)) {
+  for (m in x$consistency[,unique(method)]) {
 
-    dt <- x$consistency[[m]]
+    dt <- x$consistency[method==m]
 
     cat(m, "\n")
-    cat("  SNPs with C > 0:", sum(dt$consistency > 0), "\n")
-    cat("  Max C:", round(max(dt$consistency), 3), "\n\n")
+    cat("  SNPs with C > 0:", sum(dt$C > 0), "\n")
+    cat("  Max C:", round(max(dt$C), 3), "\n\n")
+
   }
 
   invisible(x)
@@ -144,27 +95,68 @@ combine_consistency <- function(consistency_obj) {
   if (!inherits(consistency_obj, "ld_consistency"))
     stop("Input must be of class 'ld_consistency'.")
 
-  per_method <- consistency_obj$consistency
+  library(data.table)
 
-  renamed <- Map(function(dt, nm) {
-    dt2 <- data.table::copy(dt)
-    data.table::setnames(dt2, "consistency", nm)
-    dt2
-  }, per_method, names(per_method))
+  dt <- as.data.table(consistency_obj$consistency)
 
-  merged <- Reduce(function(x, y)
-    merge(x, y, by = "SNP", all = TRUE),
-    renamed
+  if (!all(c("SNP", "method", "C") %in% names(dt)))
+    stop("consistency table must contain columns: SNP, method, C")
+
+  # Wide format: one column per method
+  wide <- dcast(
+    dt,
+    SNP ~ method,
+    value.var = "C",
+    fill = NA_real_
   )
 
-  X <- as.matrix(merged[, -1, with = FALSE])
 
-  merged[, C_mean := rowMeans(X, na.rm = TRUE)]
-  merged[, C_min  := do.call(pmin, c(as.data.frame(X), na.rm = TRUE))]
-  merged[, C_max  := do.call(pmax, c(as.data.frame(X), na.rm = TRUE))]
+  # Extract method columns
+  method_cols <- setdiff(names(wide), "SNP")
 
-  consistency_obj$combined <- merged
+  if (length(method_cols) == 0)
+    stop("No method columns found.")
 
-  consistency_obj
+  X <- as.matrix(wide[, ..method_cols])
+
+  # Combined summaries
+  wide[, C_mean := rowMeans(X, na.rm = TRUE)]
+  wide[, C_min  := do.call(pmin, c(as.data.frame(X), na.rm = TRUE))]
+  wide[, C_max  := do.call(pmax, c(as.data.frame(X), na.rm = TRUE))]
+
+  setnames(wide, method_cols,paste(method_cols,"C",sep="_"))
+  consistency_obj$combined <- wide
+
+  return(consistency_obj)
+
+
 }
 
+# combine_consistency <- function(consistency_obj) {
+#
+#   if (!inherits(consistency_obj, "ld_consistency"))
+#     stop("Input must be of class 'ld_consistency'.")
+#
+#   dt <- consistency_obj$consistency
+#
+#   renamed <- Map(function(dt, nm) {
+#     dt2 <- data.table::copy(dt)
+#     data.table::setnames(dt2, "consistency", nm)
+#     dt2
+#   }, per_method, names(per_method))
+#
+#   merged <- Reduce(function(x, y)
+#     merge(x, y, by = "SNP", all = TRUE),
+#     renamed
+#   )
+#
+#   X <- as.matrix(merged[, -1, with = FALSE])
+#
+#   merged[, C_mean := rowMeans(X, na.rm = TRUE)]
+#   merged[, C_min  := do.call(pmin, c(as.data.frame(X), na.rm = TRUE))]
+#   merged[, C_max  := do.call(pmax, c(as.data.frame(X), na.rm = TRUE))]
+#
+#   consistency_obj$combined <- merged
+#
+#   consistency_obj
+# }

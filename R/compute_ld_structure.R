@@ -110,7 +110,8 @@ compute_ld_structure <- function(gds,
 #' @export
 compute_ld_w <- function(ld_struct,
                          decay_obj,
-                         rho_w) {
+                         rho_w,
+                         r2_lower_lim=0) {
 
   result <- vector("list", length(ld_struct$by_chr))
   names(result) <- names(ld_struct$by_chr)
@@ -123,7 +124,7 @@ compute_ld_w <- function(ld_struct,
 
     el <- ld_struct$by_chr[[ch]]$edges
 
-    sub <- el[d < d_th]
+    sub <- el[d < d_th & r2>r2_lower_lim]
 
     med_dt <- data.table::rbindlist(list(
       sub[, .(SNP = SNP1, r2)],

@@ -40,7 +40,6 @@ ld_rho_draws <- function(ld_struct,
     set.seed(seed)
 
   rho_values <- runif(n_rho, rho_w_lim$min, rho_w_lim$max)
-
   run_one <- function(i) {
 
     cat("rho_w draw", i, "..\n")
@@ -59,7 +58,7 @@ ld_rho_draws <- function(ld_struct,
     colnames(q_primes) <- paste0(colnames(q_primes),"_prime")
     qvals <- cbind(q_vals, q_primes)
 
-    or_draws(
+    out <- or_draws(
       q_vals     = qvals,
       ld_struct  = ld_struct,
       decay_obj  = decay_obj,
@@ -69,27 +68,24 @@ ld_rho_draws <- function(ld_struct,
       alpha_lim  = alpha_lim,
       lmin_lim   = lmin_lim
     )
+    cbind(rho_w=rho_values[i],out)
   }
 
   if (.Platform$OS.type == "unix") {
-    draws <- parallel::mclapply(
+    draws <- rbindlist(parallel::mclapply(
       seq_len(n_rho),
       run_one,
       mc.cores = cores
-    )
+    ))
   } else {
     warning("Parallel rho_w draws not supported on Windows; using single core.")
-    draws <- lapply(seq_len(n_rho), run_one)
+    draws <- rbindlist(lapply(seq_len(n_rho), run_one))
   }
 
   structure(
-    list(
-      rho_w_values = rho_values,
-      rho_w_lim    = rho_w_lim,
-      draws        = draws,
-      n_rho        = n_rho,
-      n_or_draws   = n_or_draws
-    ),
+    list(draws=draws,
+         n_rho=n_rho,
+         n_or_draws=n_or_draws),
     class = "ld_rho_draws"
   )
 }
@@ -98,13 +94,11 @@ ld_rho_draws <- function(ld_struct,
 
 #' @export
 print.ld_rho_draws <- function(x, ...) {
-  methods <- names((x$draws[[1]]$draws[[1]]$ORs))
+  methods <- unique(x$draws$method)
   cat("\nLD rho-window draws\n")
   cat("--------------------\n")
   cat("Number of rho_w draws:", x$n_rho, "\n")
   cat("OR draws per rho_w:", x$n_or_draws, "\n")
-  cat("rho_w range:",
-      paste0("[", x$rho_w_lim$min, ", ", x$rho_w_lim$max, "]"), "\n\n")
 
   cat("Included methods:", paste(methods,collapse="/"), "\n")
   invisible(x)

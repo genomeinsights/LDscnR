@@ -33,7 +33,7 @@ LDscn_pipeline <- function(geno = NULL,
                         lmin_lim=list(min=1,max=10),
                         cores=1,
                         verbose=TRUE,
-                        keep_draws = FALSE,
+                        keep_draws = TRUE,
                         keep_ld_str = TRUE,
                         keep_ld_decay = TRUE) {
 
@@ -95,6 +95,7 @@ LDscn_pipeline <- function(geno = NULL,
     lmin_lim   = lmin_lim,
     cores      = cores
   )
+
 
   consistency <- consistency_score(draws)
 

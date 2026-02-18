@@ -19,7 +19,7 @@ LDscn_pipeline(
   lmin_lim = list(min = 1, max = 10),
   cores = 1,
   verbose = TRUE,
-  keep_draws = FALSE,
+  keep_draws = TRUE,
   keep_ld_str = TRUE,
   keep_ld_decay = TRUE
 )

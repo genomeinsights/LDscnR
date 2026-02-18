@@ -1,12 +1,13 @@
 
 data(sim_ex)
 
+
 t1 <- Sys.time()
 LDscn <- LDscn_pipeline(geno = sim_ex$GTs,
                         map = sim_ex$map,
                         F_cols=c("emx_F","lfmm_F"),
                         q_cols=c("emx_q","lfmm_q"),
-                        cores=1,
+                        cores=8,
                         slide_win_ld = 1000
                         )
 t2 <- Sys.time()
@@ -27,14 +28,16 @@ plot(LDscn$ld_struct)
 
 
 map[,ld_w:=ld_w_0.9]
-plot_ldscn_manhattan(LDscn,SNP_res = map,compute_ld_w = FALSE,y_vars = c("C_mean","ld_w"))
+plot_ldscn_manhattan(LDscn,SNP_res = sim_ex$map,compute_ld_w = FALSE,y_vars = c("C_mean","ld_w"))
 
 LDscn$decay
 saveRDS(ld_w_0.9,"ld_w_0.9.rds")
 #saveRDS(LDscn, "LDscn_res.rds")
 
 map2 <- add_consistency_to_map(sim_ex$map, consistency_obj = LDscn$consistency)
-map2[,ld_w:=compute_ld_w(LDscn$ld_str, LDscn$decay, 0.9)]
+map2[,ld_w:=compute_ld_w(LDscn$ld_str, LDscn$decay, 0.9,r2_lower_lim = 0.03)]
+
+map2[,plot(-log10(lfmm_q))]
 
 ORs_tbl <- detect_or(q_vals=map2[,.(C_mean)],
                      ld_struct=LDscn$ld_str,

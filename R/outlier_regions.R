@@ -117,28 +117,32 @@ detect_or <- function(q_vals,
 }
 
 
+#' Draw ORs across parameter space (flat output)
+#'
 or_draws <- function(q_vals,
                      ld_struct,
                      decay_obj,
                      n_draws = 25,
-                     rho_d_lim=list(min=0.5,max=0.999),
-                     rho_ld_lim=list(min=0.9,max=0.999),
-                     alpha_lim=list(min=1.31,max=4),
-                     lmin_lim=list(min=1,max=10)) {
+                     rho_d_lim = list(min=0.5,max=0.999),
+                     rho_ld_lim = list(min=0.9,max=0.999),
+                     alpha_lim = list(min=1.31,max=4),
+                     lmin_lim = list(min=1,max=10)) {
 
-  out <- vector("list", n_draws)
-  #i <- 13
-  for (i in seq_len(n_draws)) {
+  if (is.null(colnames(q_vals)))
+    stop("q_vals must have column names.")
+
+  out_list <- vector("list", n_draws)
+
+  methods <- colnames(q_vals)
+  out_list <- rbindlist(lapply(seq_len(n_draws),function(i) {
 
     rho_d  <- runif(1, rho_d_lim$min, rho_d_lim$max)
-    rho_ld  <- runif(1, rho_ld_lim$min, rho_ld_lim$max)
-
-
+    rho_ld <- runif(1, rho_ld_lim$min, rho_ld_lim$max)
     alpha  <- 1 / 10^(runif(1, alpha_lim$min, alpha_lim$max))
     l_min  <- sample(seq(lmin_lim$min, lmin_lim$max), 1)
 
-    out[[i]] <- detect_or(
-      q_vals   = q_vals,
+    or_obj <- detect_or(
+      q_vals    = q_vals,
       ld_struct = ld_struct,
       decay_obj = decay_obj,
       sign_th   = alpha,
@@ -146,14 +150,55 @@ or_draws <- function(q_vals,
       rho_ld    = rho_ld,
       l_min     = l_min
     )
-  }
 
-  structure(
-    list(draws = out),
-    class = "ld_or_draws"
-  )
+    # or_obj$ORs is a list per method
+    if (all(lengths(or_obj$ORs) == 0)) {
+      data.table(
+        draw_id = i,
+        method  = methods,
+        rho_d   = rho_d,
+        rho_ld  = rho_ld,
+        alpha   = alpha,
+        l_min   = l_min,
+        OR      = replicate(length(methods), list(list()), simplify = FALSE),
+        OR_size = 0L
+      )
+    }else{
+        rbindlist(lapply(methods, function(method) {
+
+          or_list <- or_obj$ORs[[method]]
+          if (length(or_list) == 0) return(
+            data.table(
+              draw_id = i,
+              method  = method,
+              rho_d   = rho_d,
+              rho_ld  = rho_ld,
+              alpha   = alpha,
+              l_min   = l_min,
+              OR      = list(list()),
+              OR_size = 0L
+            ))
+
+          data.table(
+            draw_id = i,
+            method  = method,
+            rho_d   = rho_d,
+            rho_ld  = rho_ld,
+            alpha   = alpha,
+            l_min   = l_min,
+            OR      = list(or_list),
+            OR_size = length(or_list)
+          )
+
+        }), fill = TRUE)
+      }
+
+
+
+
+  }))
+
 }
-
 
 #' Convert ld_or object to long table
 #'
