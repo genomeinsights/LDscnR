@@ -1,4 +1,3 @@
-
 #' @export
 create_gds_from_geno <- function(geno, map, gds_path) {
   stopifnot(ncol(geno) == nrow(map))

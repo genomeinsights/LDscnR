@@ -7,33 +7,101 @@
 #'
 #' @return Object of class "ld_consistency".
 #' @export
-consistency_score <- function(or_dt,combine=TRUE) {
+consistency_score <- function(or_dt) {
 
-  long_dt <- or_dt$draws[
-    , .(SNP = unlist(OR)),
-    by = .(method)
+if (!inherits(or_dt, "ld_rho_draws"))
+  stop("Input must be class 'ld_rho_draws'.")
+
+dt <- or_dt$draws
+
+if (!all(c("draw_id","method","OR") %in% names(dt)))
+  stop("draws table must contain draw_id, method, OR columns.")
+
+# Total draws per method
+total_draws_dt <- dt[, .(total_draws = uniqueN(draw_id)), by = method]
+
+# ------------------------------------------------------------
+# Expand OR list column safely
+# ------------------------------------------------------------
+long_dt <- dt[
+  ,
+  {
+    # OR is stored as list of ORs
+    # Each OR is a character vector of SNPs
+    snps <- unique(unlist(OR))
+
+    if (length(snps) == 0)
+      NULL
+    else
+      .(SNP = snps)
+  },
+  by = .(draw_id, method)
+]
+
+if (nrow(long_dt) == 0) {
+
+  C_dt <- data.table::data.table(
+    SNP = character(),
+    method = character(),
+    C = numeric()
+  )
+
+} else {
+
+  # Count in how many draws each SNP appears
+  C_dt <- long_dt[
+    ,
+    .(N = uniqueN(draw_id)),
+    by = .(SNP, method)
   ]
 
-  C_dt <- long_dt[, .N, by = .(SNP,method)]
-
-  total_draws <- or_dt$n_rho*or_dt$n_or_draws
+  # Attach denominator
+  C_dt <- merge(C_dt, total_draws_dt, by = "method")
 
   C_dt[, C := N / total_draws]
 
-
-  C_obj <- structure(
-    list(
-      consistency = C_dt,
-      total_draws = total_draws,
-      n_rho       = or_dt$n_rho,
-      n_or        = or_dt$n_or_draws
-    ),
-    class = "ld_consistency"
-  )
-  if(combine) C_obj <- combine_consistency(C_obj)
-  return(C_obj)
+  C_dt[, c("N","total_draws") := NULL]
 }
-#C_obj$consistency[,unique(method)]
+
+# Store consistency object
+C_obj <- structure(
+  list(
+    consistency = C_dt,
+    total_draws = unique(total_draws_dt$total_draws),
+    mode        = unique(dt$method)
+  ),
+  class = "ld_consistency"
+)
+
+C_obj
+}
+# consistency_score <- function(or_dt,combine=TRUE) {
+#
+#   long_dt <- or_dt$draws[
+#     , .(SNP = unlist(OR)),
+#     by = .(method)
+#   ]
+#
+#   C_dt <- long_dt[, .N, by = .(SNP,method)]
+#
+#   total_draws <- or_dt$n_rho*or_dt$n_or_draws
+#
+#   C_dt[, C := N / total_draws]
+#
+#
+#   C_obj <- structure(
+#     list(
+#       consistency = C_dt,
+#       total_draws = total_draws,
+#       n_rho       = or_dt$n_rho,
+#       n_or        = or_dt$n_or_draws
+#     ),
+#     class = "ld_consistency"
+#   )
+#   if(combine) C_obj <- combine_consistency(C_obj)
+#   return(C_obj)
+# }
+
 #' @export
 add_consistency_to_map <- function(map, consistency_obj) {
 

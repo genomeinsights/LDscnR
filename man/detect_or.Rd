@@ -5,14 +5,16 @@
 \title{Detect outlier regions from LD-scaled scan}
 \usage{
 detect_or(
+  gds,
   q_vals,
   ld_struct,
-  decay_obj,
-  sign_th,
+  sign_th = 0.05,
   sign_if = c("less", "greater"),
-  rho_d,
-  rho_ld,
-  l_min = 2,
+  use = c("robust", "median"),
+  rho_d = 0.99,
+  rho_ld = 0.99,
+  l_min = 1,
+  mode = c("per_method", "joint"),
   ret_table = FALSE
 )
 }

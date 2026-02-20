@@ -7,21 +7,27 @@
 LDscn_pipeline(
   geno = NULL,
   map,
+  q = 0.95,
+  n_sub = 5000,
+  window_size = 1e+06,
+  step_size = 5e+05,
+  dist_unit = 5000,
+  K_target = 1000,
+  n_win = 1000,
+  prob_robust = 0.5,
+  use = "robust",
   F_cols,
   q_cols = NULL,
-  slide_win_ld = 1000,
   n_rho = 40,
   n_or_draws = 25,
-  rho_w_lim = list(min = 0.8, max = 0.99),
+  rho_w_lim = list(min = 0.5, max = 0.95),
   rho_d_lim = list(min = 0.9, max = 0.999),
   rho_ld_lim = list(min = 0.5, max = 0.999),
   alpha_lim = list(min = 1.31, max = 4),
   lmin_lim = list(min = 1, max = 10),
   cores = 1,
-  verbose = TRUE,
-  keep_draws = TRUE,
-  keep_ld_str = TRUE,
-  keep_ld_decay = TRUE
+  max_rho = 0.99,
+  verbose = TRUE
 )
 }
 \arguments{
@@ -43,13 +49,13 @@ LDscn_pipeline(
 
 \item{cores}{N cores.}
 
+\item{rho_w}{LD-decay quantile for single LD-scaled scan.}
+
 \item{keep_draws}{keep draws.}
 
 \item{keep_ld_str}{keep ld_structure.}
 
 \item{keep_ld_decay}{keep decay.}
-
-\item{rho_w}{LD-decay quantile for single LD-scaled scan.}
 
 \item{detect_OR}{Logical; whether to detect ORs.}
 

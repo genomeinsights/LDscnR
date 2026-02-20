@@ -14,7 +14,6 @@
 #' @return An object of class `"ld_scan"`.
 #' @export
 ld_scan <- function(ld_struct,
-                    decay_obj,
                     SNP_ids,
                     F_vals,
                     rho_w,
@@ -25,16 +24,13 @@ ld_scan <- function(ld_struct,
   if (!inherits(ld_struct, "ld_structure"))
     stop("`ld_struct` must be of class 'ld_structure'.")
 
-  if (!inherits(decay_obj, "ld_decay"))
-    stop("`decay_obj` must be of class 'ld_decay'.")
-
   if (!is.finite(rho_w) || rho_w <= 0 || rho_w >= 1)
     stop("`rho_w` must lie in (0,1).")
 
-  ## 1️⃣ Compute ld_w from structure
-  ld_w <- compute_ld_w(ld_struct=ld_struct, decay_obj=decay_obj, rho_w,r2_lower_lim = 0.03)
+  ## 1 Compute ld_w from structure
+  ld_w <- compute_ld_w(ld_struct=ld_struct, rho_w)
 
-  ## 2️⃣ Compute F' using existing logic
+  ## 2 Compute F' using existing logic
   scan_res <- .compute_Fprime(
     F_vals = F_vals,
     ld_w   = ld_w,
@@ -43,7 +39,7 @@ ld_scan <- function(ld_struct,
     full   = full
   )
 
-  ## 3️⃣ Wrap into S3 object
+  ## 3 Wrap into S3 object
   out <- list(
     rho_w   = rho_w,
     F_vals  = F_vals,
@@ -57,7 +53,6 @@ ld_scan <- function(ld_struct,
   class(out) <- "ld_scan"
   out
 }
-
 .compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, full) {
 
   F_mat <- as.matrix(F_vals)
@@ -160,8 +155,6 @@ ld_scan <- function(ld_struct,
   names(res) <- colnames(F_mat)
   res
 }
-
-
 
 #' #' Plot LD-scan results
 #'

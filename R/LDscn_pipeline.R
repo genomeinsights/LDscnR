@@ -21,21 +21,31 @@
 #' @export
 LDscn_pipeline <- function(geno = NULL,
                         map,
+                        ## for LD-structure estimation
+                        q = 0.95,
+                        n_sub = 5000,
+                        window_size = 1e6,
+                        step_size = 5e5,
+                        dist_unit = 5000,
+                        K_target = 1000,
+                        n_win = 1000,
+                        prob_robust = 0.5,
+                        use="robust",
+                        ## input F and q-values
                         F_cols,
                         q_cols=NULL,
-                        slide_win_ld=1000,
+                        ## Draw parameters
                         n_rho = 40,
                         n_or_draws = 25,
-                        rho_w_lim = list(min=0.8,max=0.99),
+                        rho_w_lim = list(min=0.5,max=0.95),
                         rho_d_lim=list(min=0.9,max=0.999),
                         rho_ld_lim=list(min=0.5,max=0.999),
                         alpha_lim=list(min=1.31,max=4),
                         lmin_lim=list(min=1,max=10),
                         cores=1,
-                        verbose=TRUE,
-                        keep_draws = TRUE,
-                        keep_ld_str = TRUE,
-                        keep_ld_decay = TRUE) {
+                        max_rho=0.99,
+                        ## output
+                        verbose=TRUE) {
 
   call <- match.call()
 
@@ -58,20 +68,20 @@ LDscn_pipeline <- function(geno = NULL,
   # 2. LD decay + structure
   # ------------------------------------------------------------
 
-  if (verbose)
-    message("Estimating LD-structure")
+  ld_struct <-  compute_ld_structure(gds,
+                                     q           = q,
+                                     n_sub       = n_sub,
+                                     window_size = window_size,
+                                     step_size   = step_size,
+                                     cores       = cores,
+                                     dist_unit   = dist_unit,
+                                     K_target    = K_target,
+                                     n_win       = n_win,
+                                     prob_robust = prob_robust,
+                                     use         = use,
+                                     max_rho     = max_rho)
 
-  ld_str <- compute_ld_structure(gds,slide_win_ld = slide_win_ld,cores=1)
-
-
-  if (verbose)
-    print(ld_str)
-
-  decay  <- ld_decay(gds,ld_struct = ld_str,cores=cores)
-
-  if (verbose)
-    print(decay)
-
+  #plot(ld_struct,type = "decay")
   # ------------------------------------------------------------
   # 4. Multi-rho robustness
   # ------------------------------------------------------------
@@ -80,8 +90,7 @@ LDscn_pipeline <- function(geno = NULL,
     message("Getting draws")
 
   draws <- ld_rho_draws(
-    ld_struct  = ld_str,
-    decay_obj  = decay,
+    ld_struct  = ld_struct,
     F_vals     = map[,..F_cols],
     q_vals     = map[,..q_cols],
     n_inds     = n_inds,
@@ -93,16 +102,16 @@ LDscn_pipeline <- function(geno = NULL,
     rho_ld_lim = rho_ld_lim,
     alpha_lim  = alpha_lim,
     lmin_lim   = lmin_lim,
-    cores      = cores
+    cores      = cores,
+    mode       = c("per_method","joint")
   )
 
 
   consistency <- consistency_score(draws)
 
   out <- list(
-    decay       = if (keep_ld_decay) decay else NULL,
-    ld_struct   = if (keep_ld_str) ld_str else NULL,
-    draws       = if (keep_draws) draws else NULL,
+    ld_struct   = ld_struct,
+    draws       = ld_struct,
     consistency = consistency,
     call        = call
   )

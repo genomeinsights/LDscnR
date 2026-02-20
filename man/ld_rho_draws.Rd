@@ -6,7 +6,6 @@
 \usage{
 ld_rho_draws(
   ld_struct,
-  decay_obj,
   SNP_ids,
   n_inds,
   F_vals,
@@ -19,13 +18,12 @@ ld_rho_draws(
   alpha_lim = list(min = 1.31, max = 4),
   lmin_lim = list(min = 1, max = 10),
   cores = 1,
-  seed = NULL
+  seed = NULL,
+  mode = c("per_method", "joint")
 )
 }
 \arguments{
 \item{ld_struct}{Object of class "ld_structure".}
-
-\item{decay_obj}{Object of class "ld_decay".}
 
 \item{SNP_ids}{Vector of SNP IDs in correct order.}
 
@@ -50,6 +48,8 @@ ld_rho_draws(
 \item{lmin_lim}{List(min,max) for minimum OR size.}
 
 \item{seed}{Optional random seed.}
+
+\item{decay_obj}{Object of class "ld_decay".}
 }
 \value{
 Object of class "ld_rho_draws".

@@ -2,45 +2,76 @@
 % Please edit documentation in R/compute_ld_structure.R
 \name{compute_ld_structure}
 \alias{compute_ld_structure}
-\title{Compute chromosome-wise LD structure}
+\title{Compute LD Structure and Decay Parameters}
 \usage{
-compute_ld_structure(gds, slide_win_ld = 1000, cores = 1)
+compute_ld_structure(
+  gds,
+  q = 0.95,
+  n_sub = 5000,
+  window_size = 1e+06,
+  step_size = 5e+05,
+  cores = 1,
+  dist_unit = 5000,
+  K_target = 1000,
+  n_win = 1000,
+  prob_robust = 0.5,
+  use = "robust",
+  max_rho = 0.99
+)
 }
 \arguments{
-\item{gds}{An open GDS object created with \code{SNPRelate}.}
+\item{gds}{GDS file handle containing genotype data.}
 
-\item{slide_win_ld}{Integer. Sliding window size (number of SNPs)
-used when computing LD via \code{snpgdsLDMat}.}
+\item{q}{Quantile used for LD-decay fitting (default 0.95).}
 
-\item{cores}{Integer. Number of cores used for LD computation.}
+\item{n_sub}{Number of SNPs used for background LD estimation.}
+
+\item{window_size}{Physical window size (bp) for decay fitting.}
+
+\item{step_size}{Step size (bp) for sliding decay windows.}
+
+\item{cores}{Number of CPU cores for LD computation.}
+
+\item{dist_unit}{Distance bin size (bp) used for decay fitting.}
+
+\item{K_target}{Target number of pairwise LD comparisons per SNP.}
+
+\item{n_win}{Target number of SNPs per decay window.}
+
+\item{prob_robust}{Quantile threshold for excluding slowest-decaying
+windows in robust estimation.}
 }
 \value{
-An object of class \code{"ld_structure"} containing:
+An object of class \code{"ld_structure"} containing per-chromosome:
 \describe{
-\item{by_chr}{Named list with one element per chromosome.}
-\item{by_chr[\link{ch}]$snp_ids}{Vector of SNP identifiers for chromosome \code{ch}.}
-\item{by_chr[\link{ch}]$edges}{A \code{data.table} with pairwise LD information,
-including at least \code{SNP1}, \code{SNP2}, \code{r2}, and \code{d}.}
+\item{edges}{Filtered LD edge lists for LD-weighted statistics.}
+\item{decay}{Window-wise decay fits.}
+\item{summary}{Median and robust decay summaries.}
 }
 }
 \description{
-Computes and stores pairwise LD information for each chromosome in a GDS
-object. For each chromosome, all SNP pairs within a sliding window are
-extracted together with their physical distance and LD measure.
+Computes chromosome-wise linkage disequilibrium (LD) structure,
+including LD-decay estimation and filtered edge lists for LD-weighted
+statistics.
 }
 \details{
-The resulting object is of class \code{"ld_structure"} and is designed to
-be reused across downstream analyses such as LD-decay estimation,
-LD-weight computation, and outlier region detection.
-
-The LD structure is computed once and can be reused across multiple
-LD-scaling and outlier detection analyses, avoiding repeated LD
-recalculation.
-}
-\examples{
-\dontrun{
-ld_struct <- compute_ld_structure(gds, slide_win_ld = 1000)
-ld_struct
+The function performs the following steps:
+\enumerate{
+\item Estimates background LD from genome-wide or inter-chromosomal pairs.
+\item Fits LD-decay curves in sliding windows per chromosome.
+\item Computes both median and robust decay summaries.
+\item Derives a maximum LD distance (\eqn{W_{\max}}) from the decay model.
+\item Constructs reduced LD edge lists for downstream LD-weighted analysis.
 }
 
+LD decay is modeled as:
+\deqn{f(d) = b + \frac{c - b}{1 + a d}}
+
+where:
+\itemize{
+\item \eqn{b} is background LD,
+\item \eqn{a} is the decay rate,
+\item \eqn{c} is short-distance LD,
+\item \eqn{d} is physical distance (bp).
+}
 }

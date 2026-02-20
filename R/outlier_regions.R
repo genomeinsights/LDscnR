@@ -1,39 +1,28 @@
 #' Detect outlier regions from LD-scaled scan
 #'
 #' @export
-detect_or <- function(q_vals,
+detect_or <- function(gds,
+                      q_vals,
                       ld_struct,
-                      decay_obj,
-                      sign_th,
+                      sign_th = 0.05,
                       sign_if = c("less", "greater"),
-                      rho_d,
-                      rho_ld,
-                      l_min = 2,
-                      ret_table=FALSE) {
+                      use = c("robust","median"),
+                      rho_d = 0.99,
+                      rho_ld = 0.99,
+                      l_min = 1,
+                      mode = c("per_method","joint"),
+                      ret_table = FALSE) {
 
-  #sign_if <- match.arg(sign_if,c("less", "greater"))
+  mode <- match.arg(mode)
+  use  <- use[1]
+
+  ids  <- .read_gds_ids(gds)
+  chrs <- unique(ids$snp_chr)
 
   if (is.null(colnames(q_vals)))
     stop("q_vals must have column names.")
 
-  if (is.null(names(ld_struct$by_chr)))
-    stop("ld_struct must contain chromosome-wise LD structure.")
-
-  ids <- unlist(sapply(ld_struct$by_chr,function(x)x$snp_ids))
-
-  # ------------------------------------------------------------
-  # Ensure either all q-values or all C-values
-  # ------------------------------------------------------------
-  is_C <- grepl("^C", colnames(q_vals))
-  value_types <- table(is_C) / ncol(q_vals)
-
-  if (length(value_types) > 1)
-    stop("Must be either only q-values or only C-values.")
-
-  # ------------------------------------------------------------
-  # Define outlier rule
-  # ------------------------------------------------------------
-  # "less" is default, assumes q-values
+  # Outlier rule
   outlier_fun <- switch(
     sign_if[1],
     less    = function(x) x < sign_th,
@@ -41,41 +30,34 @@ detect_or <- function(q_vals,
   )
 
   # ------------------------------------------------------------
-  # Detect ORs per column
+  # Helper: build ORs from SNP set
   # ------------------------------------------------------------
-
-
-  out <- apply(q_vals, 2, function(qs) {
-
-    outliers <- as.vector(na.omit(ids[!is.na(qs)][outlier_fun(qs[!is.na(qs)])]))
+  build_or_from_snps <- function(outliers) {
 
     if (length(outliers) == 0)
       return(list())
 
+    idx <- which(ids$snp_id %in% outliers)
+    el  <- get_el(gds, idx, slide_win_ld = -1)
+
     or_list <- list()
 
-    # Loop chromosomes
-    for (ch in names(ld_struct$by_chr)) {
+    for (ch in chrs) {
 
-      snp_ids_chr <- ld_struct$by_chr[[ch]]$snp_ids
-      el_chr      <- ld_struct$by_chr[[ch]]$edges
-
-      # restrict to outliers on this chr
-      out_chr <- intersect(outliers, snp_ids_chr)
+      out_chr <- ids$snp_id[idx][ids$snp_chr[idx] == ch]
       if (length(out_chr) < l_min)
         next
 
-      # compute thresholds
-      a_chr <- decay_obj$summary[Chr == ch, a]
-      b_chr <- decay_obj$summary[Chr == ch, b]
-      c_chr <- decay_obj$summary[Chr == ch, c]
-      d0_chr <- decay_obj$summary[Chr == ch, d0]
+      # thresholds
+      a_chr  <- ld_struct$summary[[use]][Chr == ch, a]
+      b_chr  <- ld_struct$summary[[use]][Chr == ch, b]
+      c_chr  <- ld_struct$summary[[use]][Chr == ch, c]
+      d0_chr <- ld_struct$summary[[use]][Chr == ch, d0]
 
-      d_th  <- d_from_rho(a_chr, rho = rho_d,d0 = d0_chr)
-      ld_th <- ld_from_rho(b_chr, c_chr, rho = rho_d)
+      d_th  <- d_from_rho(a_chr, rho = rho_d, d0 = d0_chr)
+      ld_th <- ld_from_rho(b_chr, c_chr, rho = rho_ld)
 
-      # filter edges
-      ed <- el_chr[
+      ed <- el[
         d < d_th &
           r2 > ld_th &
           SNP1 %in% out_chr &
@@ -86,7 +68,7 @@ detect_or <- function(q_vals,
       if (nrow(ed) == 0)
         next
 
-      g <- igraph::graph_from_data_frame(ed, directed = FALSE)
+      g     <- igraph::graph_from_data_frame(ed, directed = FALSE)
       comps <- igraph::components(g)
 
       ors_chr <- split(names(comps$membership), comps$membership)
@@ -97,7 +79,38 @@ detect_or <- function(q_vals,
     }
 
     or_list
-  })
+  }
+
+  # ------------------------------------------------------------
+  # PER-METHOD MODE (existing behavior)
+  # ------------------------------------------------------------
+  if (mode == "per_method") {
+
+    out <- apply(q_vals, 2, function(qs) {
+
+      outliers <- ids$snp_id[!is.na(qs) & outlier_fun(qs)]
+      build_or_from_snps(outliers)
+    })
+
+  }
+
+  # ------------------------------------------------------------
+  # JOINT MODE (UNION BEFORE CLUSTERING)
+  # ------------------------------------------------------------
+  if (mode == "joint") {
+
+    # union of outliers across methods
+    outlier_matrix <- apply(q_vals, 2, function(qs) {
+      ids$snp_id[!is.na(qs) & outlier_fun(qs)]
+    })
+
+    union_outliers <- unique(unlist(outlier_matrix))
+
+    joint_or <- build_or_from_snps(union_outliers)
+
+    # return as single named element
+    out <- list(Joint = joint_or)
+  }
 
   out <- structure(
     list(
@@ -106,23 +119,28 @@ detect_or <- function(q_vals,
       sign_if = sign_if,
       rho_d   = rho_d,
       rho_ld  = rho_ld,
-      l_min   = l_min
+      l_min   = l_min,
+      mode    = mode
     ),
     class = "ld_or"
   )
 
-  ifelse(ret_table,return(or_to_table(out)),return(out))
+  if (ret_table)
+    return(or_to_table(out))
 
-
+  out
 }
+
 
 
 #' Draw ORs across parameter space (flat output)
 #'
-or_draws <- function(q_vals,
+or_draws <- function(gds,
+                     q_vals,
                      ld_struct,
-                     decay_obj,
+                     use = c("robust","median"),
                      n_draws = 25,
+                     mode = c("per_method","joint"),
                      rho_d_lim = list(min=0.5,max=0.999),
                      rho_ld_lim = list(min=0.9,max=0.999),
                      alpha_lim = list(min=1.31,max=4),
@@ -131,7 +149,7 @@ or_draws <- function(q_vals,
   if (is.null(colnames(q_vals)))
     stop("q_vals must have column names.")
 
-  out_list <- vector("list", n_draws)
+
 
   methods <- colnames(q_vals)
   out_list <- rbindlist(lapply(seq_len(n_draws),function(i) {
@@ -142,16 +160,20 @@ or_draws <- function(q_vals,
     l_min  <- sample(seq(lmin_lim$min, lmin_lim$max), 1)
 
     or_obj <- detect_or(
+      gds       = gds,
       q_vals    = q_vals,
       ld_struct = ld_struct,
-      decay_obj = decay_obj,
       sign_th   = alpha,
       rho_d     = rho_d,
       rho_ld    = rho_ld,
-      l_min     = l_min
+      l_min     = l_min,
+      use       = use[1],
+      mode      = mode[1],
+      ret_table = FALSE
     )
 
-    # or_obj$ORs is a list per method
+    methods <- names(or_obj$ORs)
+
     if (all(lengths(or_obj$ORs) == 0)) {
       data.table(
         draw_id = i,
@@ -163,6 +185,7 @@ or_draws <- function(q_vals,
         OR      = replicate(length(methods), list(list()), simplify = FALSE),
         OR_size = 0L
       )
+      #method  <- "C_mean"
     }else{
         rbindlist(lapply(methods, function(method) {
 

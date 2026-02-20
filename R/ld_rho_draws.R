@@ -21,7 +21,6 @@
 #' @return Object of class "ld_rho_draws".
 #' @export
 ld_rho_draws <- function(ld_struct,
-                         decay_obj,
                          SNP_ids,
                          n_inds,
                          F_vals,
@@ -34,19 +33,21 @@ ld_rho_draws <- function(ld_struct,
                          alpha_lim=list(min=1.31,max=4),
                          lmin_lim=list(min=1,max=10),
                          cores=1,
-                         seed = NULL) {
+                         seed = NULL,
+                         mode = c("per_method","joint")
+                         ){
 
   if (!is.null(seed))
     set.seed(seed)
 
   rho_values <- runif(n_rho, rho_w_lim$min, rho_w_lim$max)
+  # i <- 1
   run_one <- function(i) {
 
     cat("rho_w draw", i, "..\n")
 
     scan <- ld_scan(
       ld_struct = ld_struct,
-      decay_obj = decay_obj,
       SNP_ids   = SNP_ids,
       F_vals    = F_vals,
       rho_w     = rho_values[i],
@@ -59,14 +60,15 @@ ld_rho_draws <- function(ld_struct,
     qvals <- cbind(q_vals, q_primes)
 
     out <- or_draws(
+      gds        = gds,
       q_vals     = qvals,
       ld_struct  = ld_struct,
-      decay_obj  = decay_obj,
       n_draws    = n_or_draws,
       rho_d_lim  = rho_d_lim,
       rho_ld_lim = rho_ld_lim,
       alpha_lim  = alpha_lim,
-      lmin_lim   = lmin_lim
+      lmin_lim   = lmin_lim,
+      mode       = mode
     )
     cbind(rho_w=rho_values[i],out)
   }
