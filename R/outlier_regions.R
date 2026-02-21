@@ -1,9 +1,11 @@
 #' Detect outlier regions from LD-scaled scan
 #'
 #' @export
-detect_or <- function(gds,
+detect_or <- function(el,
                       q_vals,
                       ld_struct,
+                      SNP_ids,
+                      SNP_chr,
                       sign_th = 0.05,
                       sign_if = c("less", "greater"),
                       use = c("robust","median"),
@@ -16,9 +18,8 @@ detect_or <- function(gds,
   mode <- match.arg(mode)
   use  <- use[1]
 
-  ids  <- .read_gds_ids(gds)
-  chrs <- unique(ids$snp_chr)
 
+  chrs <- unique(SNP_chr)
   if (is.null(colnames(q_vals)))
     stop("q_vals must have column names.")
 
@@ -37,22 +38,23 @@ detect_or <- function(gds,
     if (length(outliers) == 0)
       return(list())
 
-    idx <- which(ids$snp_id %in% outliers)
-    el  <- get_el(gds, idx, slide_win_ld = -1)
+    idx <- which(SNP_ids %in% outliers)
 
     or_list <- list()
-
+    #ch = "Chr3"
     for (ch in chrs) {
 
-      out_chr <- ids$snp_id[idx][ids$snp_chr[idx] == ch]
+
+      out_chr <- SNP_ids[idx][SNP_chr[idx] == ch]
+
       if (length(out_chr) < l_min)
         next
 
       # thresholds
-      a_chr  <- ld_struct$summary[[use]][Chr == ch, a]
-      b_chr  <- ld_struct$summary[[use]][Chr == ch, b]
-      c_chr  <- ld_struct$summary[[use]][Chr == ch, c]
-      d0_chr <- ld_struct$summary[[use]][Chr == ch, d0]
+      a_chr  <- ld_struct$summary[[use[1]]][Chr == ch, a]
+      b_chr  <- ld_struct$summary[[use[1]]][Chr == ch, b]
+      c_chr  <- ld_struct$summary[[use[1]]][Chr == ch, c]
+      d0_chr <- ld_struct$summary[[use[1]]][Chr == ch, d0]
 
       d_th  <- d_from_rho(a_chr, rho = rho_d, d0 = d0_chr)
       ld_th <- ld_from_rho(b_chr, c_chr, rho = rho_ld)
@@ -88,7 +90,7 @@ detect_or <- function(gds,
 
     out <- apply(q_vals, 2, function(qs) {
 
-      outliers <- ids$snp_id[!is.na(qs) & outlier_fun(qs)]
+      outliers <- SNP_ids[!is.na(qs) & outlier_fun(qs)]
       build_or_from_snps(outliers)
     })
 
@@ -100,13 +102,16 @@ detect_or <- function(gds,
   if (mode == "joint") {
 
     # union of outliers across methods
-    outlier_matrix <- apply(q_vals, 2, function(qs) {
-      ids$snp_id[!is.na(qs) & outlier_fun(qs)]
-    })
+    # outlier_matrix <- apply(q_vals, 2, function(qs) {
+    #   ids$snp_id[!is.na(qs) & outlier_fun(qs)]
+    # })
+    qs <- apply(q_vals, 1, min)
 
-    union_outliers <- unique(unlist(outlier_matrix))
+    outlers <- SNP_ids[!is.na(qs) & outlier_fun(qs)]
 
-    joint_or <- build_or_from_snps(union_outliers)
+    #union_outliers <- unique(unlist(outlier_matrix))
+
+    joint_or <- build_or_from_snps(outlers)
 
     # return as single named element
     out <- list(Joint = joint_or)
@@ -121,6 +126,7 @@ detect_or <- function(gds,
       rho_ld  = rho_ld,
       l_min   = l_min,
       mode    = mode
+
     ),
     class = "ld_or"
   )
@@ -135,8 +141,10 @@ detect_or <- function(gds,
 
 #' Draw ORs across parameter space (flat output)
 #'
-or_draws <- function(gds,
+or_draws <- function(el,
                      q_vals,
+                     SNP_ids,
+                     SNP_chr,
                      ld_struct,
                      use = c("robust","median"),
                      n_draws = 25,
@@ -160,8 +168,10 @@ or_draws <- function(gds,
     l_min  <- sample(seq(lmin_lim$min, lmin_lim$max), 1)
 
     or_obj <- detect_or(
-      gds       = gds,
+      el        = el,
       q_vals    = q_vals,
+      SNP_ids   = SNP_ids,
+      SNP_chr   = SNP_chr,
       ld_struct = ld_struct,
       sign_th   = alpha,
       rho_d     = rho_d,
@@ -169,6 +179,7 @@ or_draws <- function(gds,
       l_min     = l_min,
       use       = use[1],
       mode      = mode[1],
+      sign_if   = "less",
       ret_table = FALSE
     )
 

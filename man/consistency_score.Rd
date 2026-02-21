@@ -4,7 +4,7 @@
 \alias{consistency_score}
 \title{Compute consistency score across rho_w and OR draws}
 \usage{
-consistency_score(or_dt)
+consistency_score(or_dt, combine = TRUE)
 }
 \arguments{
 \item{rho_draws_obj}{Object of class "ld_rho_draws".}

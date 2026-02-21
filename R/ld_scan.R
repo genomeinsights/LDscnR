@@ -19,7 +19,8 @@ ld_scan <- function(ld_struct,
                     rho_w,
                     n_inds,
                     n_rep = 10,
-                    full = TRUE) {
+                    full = TRUE,
+                    use = "robust") {
 
   if (!inherits(ld_struct, "ld_structure"))
     stop("`ld_struct` must be of class 'ld_structure'.")
@@ -28,8 +29,11 @@ ld_scan <- function(ld_struct,
     stop("`rho_w` must lie in (0,1).")
 
   ## 1 Compute ld_w from structure
-  ld_w <- compute_ld_w(ld_struct=ld_struct, rho_w)
-
+  #rho_w <- 0.9
+  #ld_struct$by_chr$Chr1$edges
+  ld_w <- compute_ld_w(ld_struct=ld_struct, rho_w,use)
+  #length(ld_w)
+  #cor.test(map$max_LD_with_QTN,ld_w)
   ## 2 Compute F' using existing logic
   scan_res <- .compute_Fprime(
     F_vals = F_vals,
@@ -38,7 +42,9 @@ ld_scan <- function(ld_struct,
     n_inds = n_inds,
     full   = full
   )
+  #plot(-log10(scan_res$lfmm_F$q_prime))
 
+  #
   ## 3 Wrap into S3 object
   out <- list(
     rho_w   = rho_w,
@@ -53,6 +59,7 @@ ld_scan <- function(ld_struct,
   class(out) <- "ld_scan"
   out
 }
+
 .compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, full) {
 
   F_mat <- as.matrix(F_vals)

@@ -5,6 +5,7 @@
 \title{Perform multiple LD-window (rho_w) draws with OR detection}
 \usage{
 ld_rho_draws(
+  gds,
   ld_struct,
   SNP_ids,
   n_inds,

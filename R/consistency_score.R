@@ -7,101 +7,33 @@
 #'
 #' @return Object of class "ld_consistency".
 #' @export
-consistency_score <- function(or_dt) {
+consistency_score <- function(or_dt,combine=TRUE) {
 
-if (!inherits(or_dt, "ld_rho_draws"))
-  stop("Input must be class 'ld_rho_draws'.")
-
-dt <- or_dt$draws
-
-if (!all(c("draw_id","method","OR") %in% names(dt)))
-  stop("draws table must contain draw_id, method, OR columns.")
-
-# Total draws per method
-total_draws_dt <- dt[, .(total_draws = uniqueN(draw_id)), by = method]
-
-# ------------------------------------------------------------
-# Expand OR list column safely
-# ------------------------------------------------------------
-long_dt <- dt[
-  ,
-  {
-    # OR is stored as list of ORs
-    # Each OR is a character vector of SNPs
-    snps <- unique(unlist(OR))
-
-    if (length(snps) == 0)
-      NULL
-    else
-      .(SNP = snps)
-  },
-  by = .(draw_id, method)
-]
-
-if (nrow(long_dt) == 0) {
-
-  C_dt <- data.table::data.table(
-    SNP = character(),
-    method = character(),
-    C = numeric()
-  )
-
-} else {
-
-  # Count in how many draws each SNP appears
-  C_dt <- long_dt[
-    ,
-    .(N = uniqueN(draw_id)),
-    by = .(SNP, method)
+  long_dt <- or_dt$draws[
+    , .(SNP = unlist(OR)),
+    by = .(method)
   ]
 
-  # Attach denominator
-  C_dt <- merge(C_dt, total_draws_dt, by = "method")
+  C_dt <- long_dt[, .N, by = .(SNP,method)]
+
+  total_draws <- or_dt$n_rho*or_dt$n_or_draws
 
   C_dt[, C := N / total_draws]
 
-  C_dt[, c("N","total_draws") := NULL]
+  C_obj <- structure(
+    list(
+      consistency = C_dt,
+      total_draws = total_draws,
+      n_rho       = or_dt$n_rho,
+      n_or        = or_dt$n_or_draws
+    ),
+    class = "ld_consistency"
+  )
+
+  return(C_obj)
 }
 
-# Store consistency object
-C_obj <- structure(
-  list(
-    consistency = C_dt,
-    total_draws = unique(total_draws_dt$total_draws),
-    mode        = unique(dt$method)
-  ),
-  class = "ld_consistency"
-)
-
-C_obj
-}
-# consistency_score <- function(or_dt,combine=TRUE) {
-#
-#   long_dt <- or_dt$draws[
-#     , .(SNP = unlist(OR)),
-#     by = .(method)
-#   ]
-#
-#   C_dt <- long_dt[, .N, by = .(SNP,method)]
-#
-#   total_draws <- or_dt$n_rho*or_dt$n_or_draws
-#
-#   C_dt[, C := N / total_draws]
-#
-#
-#   C_obj <- structure(
-#     list(
-#       consistency = C_dt,
-#       total_draws = total_draws,
-#       n_rho       = or_dt$n_rho,
-#       n_or        = or_dt$n_or_draws
-#     ),
-#     class = "ld_consistency"
-#   )
-#   if(combine) C_obj <- combine_consistency(C_obj)
-#   return(C_obj)
-# }
-
+# consistency_obj <- consistency
 #' @export
 add_consistency_to_map <- function(map, consistency_obj) {
 
@@ -111,18 +43,33 @@ add_consistency_to_map <- function(map, consistency_obj) {
   if (!"marker" %in% names(map))
     stop("map must contain column 'marker'.")
 
-  cons_dt <- data.table::copy(consistency_obj$combined)
-
-  data.table::setnames(cons_dt, "SNP", "marker")
-
   setDT(map)
-  setDT(cons_dt)
 
-  out <- cons_dt[map, on = "marker"]
-  new_col_order <- unique(c(colnames(map),colnames(cons_dt)))
-  return(out[,..new_col_order])
 
+  # Combine on the fly
+  cons_raw <- data.table::copy(consistency_obj$consistency)
+
+  cons_raw[,method:=paste(method,"C",sep="_")]
+  # Wide format
+  cons_dt <- data.table::dcast(
+    cons_raw,
+    SNP ~ method,
+    value.var = "C"
+  )
+
+  # Rename SNP → marker
+  setnames(cons_dt, "SNP", "marker")
+
+  # Merge (left join preserving map order)
+  out <- merge(map, cons_dt, by = "marker", all.x = TRUE, sort = FALSE)
+
+  # Preserve original map column order first
+  new_cols <- setdiff(names(out), names(map))
+  out <- out[, c(names(map), new_cols), with = FALSE]
+
+  out
 }
+
 #consistency_obj <- C_obj
 
 #' @export

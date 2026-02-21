@@ -20,8 +20,8 @@
 #'
 #' @return Object of class "ld_rho_draws".
 #' @export
-ld_rho_draws <- function(ld_struct,
-                         SNP_ids,
+ld_rho_draws <- function(gds,
+                         ld_struct,
                          n_inds,
                          F_vals,
                          q_vals=NULL,
@@ -34,42 +34,65 @@ ld_rho_draws <- function(ld_struct,
                          lmin_lim=list(min=1,max=10),
                          cores=1,
                          seed = NULL,
-                         mode = c("per_method","joint")
+                         mode = c("joint","per_method"),
+                         use = c("robust","median")
                          ){
 
   if (!is.null(seed))
     set.seed(seed)
 
   rho_values <- runif(n_rho, rho_w_lim$min, rho_w_lim$max)
+  ids <- .read_gds_ids(gds)
+
   # i <- 1
+
   run_one <- function(i) {
 
     cat("rho_w draw", i, "..\n")
 
     scan <- ld_scan(
       ld_struct = ld_struct,
-      SNP_ids   = SNP_ids,
+      SNP_ids   = ids$snp_id,
       F_vals    = F_vals,
       rho_w     = rho_values[i],
       n_inds    = n_inds,
-      full      = FALSE
+      full      = TRUE,
+      use       = use
     )
-
+    #plot(scan,method="lfmm_F")
+    #x <- scan()
     q_primes <- do.call(cbind,lapply(scan$result,function(x) x$q_prime))
+
+    #plot(-log10(q_primes[,2]),-log10(q_vals[,lfmm_q]))
+    #abline(0,1)
+    #plot(-log10(q_vals[,lfmm_q]))
+    #
     colnames(q_primes) <- paste0(colnames(q_primes),"_prime")
     qvals <- cbind(q_vals, q_primes)
+    q_min <- apply(qvals,1,min)
+
+    #plot(-log10(q_min))
+
+
+    idx <- which(q_min<1/10^alpha_lim$min)
+    el  <- get_el(gds, idx, slide_win_ld = -1,by_chr = TRUE)
+
 
     out <- or_draws(
-      gds        = gds,
+      el         = el,
       q_vals     = qvals,
+      SNP_ids    = ids$snp_id,
+      SNP_chr    = ids$snp_chr,
       ld_struct  = ld_struct,
       n_draws    = n_or_draws,
       rho_d_lim  = rho_d_lim,
       rho_ld_lim = rho_ld_lim,
       alpha_lim  = alpha_lim,
       lmin_lim   = lmin_lim,
-      mode       = mode
+      mode       = mode[1]
     )
+    #mode="joint"
+
     cbind(rho_w=rho_values[i],out)
   }
 

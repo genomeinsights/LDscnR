@@ -105,6 +105,7 @@ compute_ld_structure <- function(gds,
       K_target = K_target,
       cores = cores
     )
+    edges[,r2:=r2-min(r2)]
 
     out$by_chr[[ch]] <- list(
       snp_ids = ids$snp_id[chr_idx],
@@ -184,7 +185,9 @@ build_ld_edges_chr <- function(gds,
     )[r2 > b & abs(pos2 - pos1) <= W_max]
   }
 
-  rbindlist(edge_list)
+  edge_list <- rbindlist(edge_list)
+  edge_list[,r2:=r2-b]
+  return(edge_list)
 }
 #' Summarize LD Decay Parameters
 #'
@@ -811,8 +814,8 @@ compute_ld_w <- function(ld_struct,
   #ch = "Chr1"
   for (ch in names(ld_struct$by_chr)) {
 
-    a_chr <- ld_struct$summary[[use]][Chr == ch, a]
-    d0_chr <- ld_struct$summary[[use]][Chr == ch, d0]
+    a_chr <- ld_struct$summary[[use[1]]][Chr == ch, a]
+    d0_chr <- ld_struct$summary[[use[1]]][Chr == ch, d0]
     d_th  <- d_from_rho(a_chr, rho_w,d0 = d0_chr)
 
     el <- ld_struct$by_chr[[ch]]$edges

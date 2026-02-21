@@ -38,60 +38,91 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 #'   \code{Chr1}, \code{Chr2}, \code{pos1}, \code{pos2}, \code{SNP1}, \code{SNP2}, \code{d}.
 #'
 #' @export
-get_el <- function(gds, idx, slide_win_ld = 1000, cores = 1) {
+get_el <- function(gds,
+                   idx = NULL,
+                   slide_win_ld = 1000,
+                   cores = 1,
+                   by_chr = FALSE) {
 
   ids <- .read_gds_ids(gds)
 
-  if(missing(idx) | is.null(idx)){
+  if (missing(idx) || is.null(idx)) {
     idx <- seq_along(ids$snp_id)
-  }else{
+  } else {
     idx <- as.integer(idx)
   }
 
-  if (anyNA(idx) || length(idx) == 0L) stop("`idx` must be a non-empty integer vector.")
-  if (min(idx) < 1L || max(idx) > length(ids$snp_id)) stop("`idx` is out of range for this GDS.")
+  if (anyNA(idx) || length(idx) == 0L)
+    stop("`idx` must be a non-empty integer vector.")
+  if (min(idx) < 1L || max(idx) > length(ids$snp_id))
+    stop("`idx` is out of range for this GDS.")
 
-  snp_ids <- ids$snp_id[idx]
   slide <- if (slide_win_ld > 0) as.integer(slide_win_ld) else -1L
 
-  ldmat <- SNPRelate::snpgdsLDMat(
-    gds,
-    snp.id = snp_ids,
-    method = "r",
-    slide = slide,
-    verbose = FALSE,
-    num.thread = as.integer(cores)
-  )
+  # ------------------------------------------------------------
+  # Helper to compute LD for one index subset
+  # ------------------------------------------------------------
+  compute_one <- function(local_idx) {
 
-  el <- data.table::as.data.table(
-    reshape2::melt(ldmat$LD^2, value.name = "r2")
-  )
+    snp_ids <- ids$snp_id[local_idx]
 
-  ## Sliding-window LDMat uses a banded/offset representation: Var2 is an offset.
-  ## Convert to absolute indices within the SNP subset.
-  if (slide_win_ld > 0) {
-    el[, Var1 := Var1 + Var2]
+    ldmat <- SNPRelate::snpgdsLDMat(
+      gds,
+      snp.id = snp_ids,
+      method = "r",
+      slide = slide,
+      verbose = FALSE,
+      num.thread = as.integer(cores)
+    )
+
+    el <- data.table::as.data.table(
+      reshape2::melt(ldmat$LD^2, value.name = "r2")
+    )
+
+    if (slide_win_ld > 0) {
+      el[, Var1 := Var1 + Var2]
+    }
+
+    el <- el[Var1 > Var2]
+    el <- el[is.finite(r2)]
+
+    el[, Chr1 := ids$snp_chr[local_idx][Var1]]
+    el[, Chr2 := ids$snp_chr[local_idx][Var2]]
+    el[, pos1 := ids$snp_pos[local_idx][Var1]]
+    el[, pos2 := ids$snp_pos[local_idx][Var2]]
+    el[, SNP1 := ids$snp_id[local_idx][Var1]]
+    el[, SNP2 := ids$snp_id[local_idx][Var2]]
+    el[, d := abs(pos1 - pos2)]
+
+    el
   }
 
-  ## Keep only one copy per pair (drop diagonal + duplicates)
-  ## Choose one triangle consistently; here: Var1 > Var2
-  el <- el[Var1 > Var2]
+  # ------------------------------------------------------------
+  # by_chr = FALSE → original behavior
+  # ------------------------------------------------------------
+  if (!by_chr) {
+    return(compute_one(idx))
+  }
 
-  ## Drop missing/non-finite r2
-  el <- el[is.finite(r2)]
+  # ------------------------------------------------------------
+  # by_chr = TRUE → split per chromosome
+  # ------------------------------------------------------------
+  chr_vec <- ids$snp_chr[idx]
+  chr_levels <- unique(chr_vec)
 
-  ## Attach metadata
-  el[, Chr1 := ids$snp_chr[idx][Var1]]
-  el[, Chr2 := ids$snp_chr[idx][Var2]]
-  el[, pos1 := ids$snp_pos[idx][Var1]]
-  el[, pos2 := ids$snp_pos[idx][Var2]]
-  el[, SNP1 := ids$snp_id[idx][Var1]]
-  el[, SNP2 := ids$snp_id[idx][Var2]]
+  el_list <- vector("list", length(chr_levels))
 
-  ## Physical distance
-  el[, d := abs(pos1 - pos2)]
+  for (i in seq_along(chr_levels)) {
+    ch <- chr_levels[i]
+    local_idx <- idx[chr_vec == ch]
 
-  el
+    if (length(local_idx) < 2L)
+      next
+
+    el_list[[i]] <- compute_one(local_idx)
+  }
+
+  data.table::rbindlist(el_list, use.names = TRUE)
 }
 
 
