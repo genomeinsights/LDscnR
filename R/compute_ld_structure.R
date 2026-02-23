@@ -55,6 +55,8 @@ compute_ld_structure <- function(gds,
                                  n_win = 1000,
                                  prob_robust = 0.5,
                                  use="robust",
+                                 adapt_thin = TRUE,
+                                 slide_win = 1000,
                                  max_rho=0.99) {
 
   ids  <- .read_gds_ids(gds)
@@ -85,7 +87,7 @@ compute_ld_structure <- function(gds,
     # ---- 2. Summarize decay
     decay_sum <- summarize_decay(decay, prob_robust)
     # add chromosome
-    decay_sum <- lapply(decay_sum,function(x)cbind(Chr=ch,x))
+    decay_sum <- lapply(decay_sum,function(x) cbind(Chr=ch,x))
 
     if (is.null(decay_sum))
       next
@@ -96,16 +98,26 @@ compute_ld_structure <- function(gds,
 
 
     # ---- 4. Build ld_w edges
-    edges <- build_ld_edges_chr(
-      gds,
-      chr_idx,
-      pos_chr,
-      b,
-      W_max = decay_sum[[use]]$W_max,
-      K_target = K_target,
-      cores = cores
-    )
-    edges[,r2:=r2-min(r2)]
+    if(adapt_thin){
+      edges <- build_ld_edges_chr(
+        gds,
+        chr_idx,
+        pos_chr,
+        b,
+        W_max = decay_sum[[use]]$W_max,
+        K_target = K_target,
+        cores = cores
+      )
+      edges[,r2:=r2-min(r2)]
+    }else{
+      edges <- get_el(gds = gds,
+                      idx = chr_idx,
+                      slide_win_ld = slide_win,
+                      cores = cores)
+      edges <- edges[d < decay_sum[[use]]$W_max]
+      edges[,r2:=r2-min(r2)]
+    }
+
 
     out$by_chr[[ch]] <- list(
       snp_ids = ids$snp_id[chr_idx],
@@ -806,7 +818,7 @@ plot.ld_structure <- function(x,
 #' @export
 compute_ld_w <- function(ld_struct,
                          rho_w,
-                         use="robust") {
+                         use = c("robust", "median")) {
 
   result <- vector("list", length(ld_struct$by_chr))
   names(result) <- names(ld_struct$by_chr)
@@ -837,9 +849,6 @@ compute_ld_w <- function(ld_struct,
   unlist(result)
 }
 
-d_from_rho <- function(a, rho, d0 = 0) {
-  d0 + (1 / a) * (1 / (1 - rho) - 1)
-}
 
 ld_from_rho <- function(b, c = 1, rho){
   b + (c - b) * (1 - rho)
