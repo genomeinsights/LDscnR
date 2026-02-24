@@ -55,7 +55,7 @@ compute_ld_structure <- function(gds,
                                  n_win = 1000,
                                  prob_robust = 0.5,
                                  use="robust",
-                                 adapt_thin = TRUE,
+                                 compress=TRUE,
                                  slide_win = 1000,
                                  max_rho=0.99) {
 
@@ -96,35 +96,37 @@ compute_ld_structure <- function(gds,
     decay_sum$robust[,W_max:=d_from_rho(a=decay_sum$robust$a,  d0 = decay_sum$robust$d0, rho = max_rho)]
     decay_sum$median[,W_max:=d_from_rho(a=decay_sum$median$a, d0 = decay_sum$median$d0, rho = max_rho)]
 
+    edges <- get_el(gds = gds,
+                    idx = chr_idx,
+                    slide_win_ld = slide_win,
+                    cores = cores)
+    edges <- edges[d < decay_sum[[use]]$W_max]
 
-    # ---- 4. Build ld_w edges
-    if(adapt_thin){
-      edges <- build_ld_edges_chr(
-        gds,
-        chr_idx,
-        pos_chr,
-        b,
-        W_max = decay_sum[[use]]$W_max,
-        K_target = K_target,
-        cores = cores
-      )
-      edges[,r2:=r2-min(r2)]
-    }else{
-      edges <- get_el(gds = gds,
-                      idx = chr_idx,
-                      slide_win_ld = slide_win,
-                      cores = cores)
-      edges <- edges[d < decay_sum[[use]]$W_max]
-      edges[,r2:=r2-min(r2)]
+    edges[,r2:=r2-min(r2)]
+
+    if(compress){
+      message("Compressing edge list \n")
+      #focal <- ids$snp_id[chr_idx][1]
+      cum_histograms2d <- parallel::mclapply(ids$snp_id[chr_idx],function(focal) {
+
+        build_2d_ld_hist(
+
+            el = edges,
+            focal = focal,
+            dist_unit = 1e6,
+            r2_unit = 0.001
+
+          )},mc.cores=cores)
     }
-
 
     out$by_chr[[ch]] <- list(
       snp_ids = ids$snp_id[chr_idx],
-      edges   = edges,
+      edges   = if(!compress) edges else NULL,
+      cum_histograms2d   = if(compress) cum_histograms2d else NULL,
       decay   = decay,
       summary = decay_sum
     )
+
   }
   out$summary <- list()
   out$summary$median <- rbindlist(lapply(out$by_chr,function(x)x$summary$median))
@@ -138,6 +140,7 @@ compute_ld_structure <- function(gds,
                      K_target = K_target,
                      n_win = n_win,
                      prob_robust = prob_robust,
+                     compress = compress,
                      use=use)
 
   class(out) <- "ld_structure"
@@ -220,8 +223,7 @@ build_ld_edges_chr <- function(gds,
 #' }
 #'
 #' @keywords internal
-summarize_decay <- function(decay_dt,
-                            prob_robust = 0.5) {
+summarize_decay <- function(decay_dt, prob_robust = 0.5) {
 
   decay_valid <- decay_dt[!is.na(a) & a > 0 & !is.na(c)]
 
@@ -361,40 +363,6 @@ estimate_background_ld <- function(gds,
 }
 
 
-#' Adaptive Pairwise Thinning
-#'
-#' Determines thinning partitions to control the expected number of
-#' pairwise LD comparisons per SNP.
-#'
-#' @param pos SNP physical positions (bp).
-#' @param W_max Maximum LD distance.
-#' @param K_target Target number of pairwise comparisons.
-#'
-#' @return List with thinning partitions and factor.
-#'
-#' @keywords internal
-adaptive_thin_pairs <- function(pos,
-                                W_max = 1e7,
-                                K_target = 1000) {
-
-  mean_spacing <- median(diff(pos))
-  K_raw <- (2 * W_max) / mean_spacing
-
-  if (K_raw <= K_target)
-    return(list(keep = list(seq_along(pos)),
-                thin_factor = 1))
-
-  thin_factor <- ceiling(sqrt(K_raw / K_target))
-
-  keep_list <- lapply(seq_len(thin_factor), function(o) {
-    seq(o, length(pos), by = thin_factor)
-  })
-
-  list(keep = keep_list,
-       thin_factor = thin_factor)
-}
-
-
 #' Adaptive SNP Thinning for Decay Estimation
 #'
 #' Reduces SNP density to maintain approximately constant SNP counts
@@ -500,6 +468,10 @@ coef_ld_dec <- function(el_ld, q = 0.95, dist_unit = 5000, b = 0.05) {
 #' @keywords internal
 d_from_rho <- function(a, rho, d0 = 0) {
   d0 + (1 / a) * (1 / (1 - rho) - 1)
+}
+
+ld_from_rho <- function(b, c = 1, rho){
+  b + (c - b) * (1 - rho)
 }
 
 #' Convert Relative LD Threshold to Distance
@@ -627,6 +599,7 @@ print.ld_structure <- function(x, ...) {
   cat("  K_target    =", x$params$K_target, "\n")
   cat("  n_win       =", x$params$n_win, "\n")
   cat("  prob_robust =", x$params$prob_robust, "\n")
+  cat("  Compressed  =", x$params$compress, "\n")
   cat("  use         =", x$params$use, "\n")
 
 
@@ -777,80 +750,224 @@ plot.ld_structure <- function(x,
   invisible(x)
 }
 
-.unbiased_ld_w <- function(sub) {
 
-  sub <- data.table::rbindlist(list(
-    sub[, .(SNP = SNP1, OTHER = SNP2, pos = pos1, pos_other = pos2, r2)],
-    sub[, .(SNP = SNP2, OTHER = SNP1, pos = pos2, pos_other = pos1, r2)]
-  ))
 
-  sub[, d := abs(pos_other - pos)]
-  sub[, side := ifelse(pos_other > pos, "R", "L")]
+#el = edges
+build_2d_ld_hist <- function(el, focal,
+                             dist_unit = 1e6,
+                             r2_unit   = 0.001) {
 
-  sub[, `:=`(
-    maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
-    maxR = if (any(side == "R")) max(d[side == "R"]) else 0
-  ), by = SNP]
 
-  sub[, S := pmin(maxL, maxR)]
+  # 1️⃣ Symmetric neighbor extraction
+  dt <- rbind(
+    el[SNP1 == focal,.(pos = pos1, pos_other = pos2, r2)],
+    el[SNP2 == focal,.(pos = pos2, pos_other = pos1, r2)]
+  )
 
-  sub[, long_side := data.table::fifelse(
-    maxL > maxR, "L",
-    data.table::fifelse(maxR > maxL, "R", NA_character_)
-  )]
+  if (nrow(dt) == 0)
+    return(NULL)
 
-  sub[, tail := (side == long_side & d > S)]
-  sub[is.na(tail), tail := FALSE]
+  # 2️⃣ Distance + side
+  dt[, d := abs(pos_other - pos)]
+  dt[, side := ifelse(pos_other > pos, "R", "L")]
 
-  use <- data.table::rbindlist(list(
-    sub[, .(SNP, r2)],
-    sub[tail == TRUE, .(SNP, r2)]
-  ))
+  # 3️⃣ Compute maxL / maxR
+  maxL <- if (any(dt$side == "L")) max(dt$d[dt$side == "L"]) else 0
+  maxR <- if (any(dt$side == "R")) max(dt$d[dt$side == "R"]) else 0
 
-  ld_w <- use[, .(
-    ld_w = median(r2, na.rm = TRUE),
-    N = .N
-  ), by = SNP]
+  S <- min(maxL, maxR)
 
-  return(ld_w)
-}
-
-#' @export
-compute_ld_w <- function(ld_struct,
-                         rho_w,
-                         use = c("robust", "median")) {
-
-  result <- vector("list", length(ld_struct$by_chr))
-  names(result) <- names(ld_struct$by_chr)
-
-  #ch = "Chr1"
-  for (ch in names(ld_struct$by_chr)) {
-
-    a_chr <- ld_struct$summary[[use[1]]][Chr == ch, a]
-    d0_chr <- ld_struct$summary[[use[1]]][Chr == ch, d0]
-    d_th  <- d_from_rho(a_chr, rho_w,d0 = d0_chr)
-
-    el <- ld_struct$by_chr[[ch]]$edges
-
-    sub <- el[d < d_th]
-
-    ld_w <- .unbiased_ld_w(sub)
-
-    res <- data.table::data.table(
-      SNP = ld_struct$by_chr[[ch]]$snp_ids
-    )
-
-    res <- ld_w[res, on="SNP"]
-    res[is.na(ld_w),ld_w := 0]
-
-    result[[ch]] <- res$ld_w
+  # 4️⃣ Identify long side
+  if (maxL > maxR) {
+    long_side <- "L"
+  } else if (maxR > maxL) {
+    long_side <- "R"
+  } else {
+    long_side <- NA_character_
   }
 
-  unlist(result)
+  # 5️⃣ Reweight: duplicate tail beyond S on long side
+  if (!is.na(long_side) && S > 0) {
+
+    tail_dt <- dt[side == long_side & d > S]
+
+    if (nrow(tail_dt) > 0)
+      dt <- rbind(dt, tail_dt)
+  }
+  #dist_unit <- 1000
+  # 6️⃣ Bin distance + r2
+  dt[, dist_bin := floor(d / dist_unit) * dist_unit]
+  dt[, r2_bin   := round(r2 / r2_unit) * r2_unit]
+
+
+  # 7️⃣ Build 2D histogram
+  hist2d <- dt[, .N, by = .(dist_bin, r2_bin)]
+
+  hist_mat <- dcast(hist2d,
+                    dist_bin ~ r2_bin,
+                    value.var = "N",
+                    fill = 0)
+
+  mat <- as.matrix(hist_mat[, -1])
+  rownames(mat) <- hist_mat$dist_bin
+
+  # Ensure sorted rows
+  ord <- order(as.numeric(rownames(mat)))
+  mat <- mat[ord, , drop = FALSE]
+
+  # 8️⃣ Convert to cumulative along distance
+
+
+  cum_mat <- apply(mat, 2, cumsum)
+
+  rownames(cum_mat) <- rownames(mat)
+  colnames(cum_mat) <- colnames(mat)
+
+  return(cum_mat)
+
 }
 
+#b
 
-ld_from_rho <- function(b, c = 1, rho){
-  b + (c - b) * (1 - rho)
+el <- edges
+compute_ld_auc_norm <- function(el) {
+  print(focal)
+  # 1️⃣ Symmetric neighbor extraction
+  dt <- rbind(
+    el[,.(SNP=SNP1, pos = pos1, pos_other = pos2, r2,d)],
+    el[,.(SNP=SNP2, pos = pos2, pos_other = pos1, r2,d)]
+  )
+
+  if (nrow(dt) == 0)
+    return(NULL)
+
+  # 2️⃣ Distance + side
+  dt[, side := ifelse(pos_other > pos, "R", "L")]
+
+  # 3️⃣ Compute maxL / maxR
+  maxL <- if (any(dt$side == "L")) max(dt$d[dt$side == "L"]) else 0
+  maxR <- if (any(dt$side == "R")) max(dt$d[dt$side == "R"]) else 0
+
+  S <- min(maxL, maxR)
+
+  # 4️⃣ Identify long side
+  if (maxL > maxR) {
+    long_side <- "L"
+  } else if (maxR > maxL) {
+    long_side <- "R"
+  } else {
+    long_side <- NA_character_
+  }
+
+  # 5️⃣ Reweight: duplicate tail beyond S on long side
+  if (!is.na(long_side) && S > 0) {
+
+    tail_dt <- dt[side == long_side & d > S]
+
+    if (nrow(tail_dt) > 0)
+      dt <- rbind(dt, tail_dt)
+  }
+
+  AUC_LD <- dt[, .(
+    LD_AUC = mean(pmax(r2 - b, 0))
+  ), by = SNP]
+
+
+  res <- data.table::data.table(
+    SNP = map[Chr==ch,marker]
+  )
+
+  AUC_LD <- AUC_LD[res, on="SNP"]
+
+
+  # rho_w <- 0.95
+  # rho_Ws <- c()
+  # a_chr <-decay_sum$robust[Chr == ch, a]
+  # d0_chr <- decay_sum$robust[Chr == ch, d0]
+  # d_th  <- d_from_rho(a_chr, rho_w,d0 = d0_chr)
+  #
+  # ldw <- dt[d<d_th, .(
+  #   ld_w = median(r2,na.rm = TRUE)
+  # ), by = SNP]
+  #
+  #
+  # res <- data.table::data.table(
+  #   SNP = map[Chr==ch,marker]
+  # )
+  #
+  # ldw <- ldw[res, on="SNP"]
+  #
+  # map[Chr==ch,LD_AUC := AUC_LD[,LD_AUC]]
+  # map[Chr==ch,ld_w := ldw[,ld_w]]
+  #
+  # map[Chr==ch,plot(ld_w,max_LD_with_QTN)]
+  #
+  #
+  # map[Chr==ch,summary(lm(max_LD_with_QTN~LD_AUC))]
+  # map[Chr==ch,summary(lm(max_LD_with_QTN~LD_AUC))]
+  #
+  # plot(AUC_LD[,LD_AUC],map[Chr==ch,max_LD_with_QTN])
+  # plot(AUC_LD[,LD_AUC],map[Chr==ch,max_LD_with_QTN])
+  # abline(v=0.025)
+  #AUC_LD[,table(LD_AUC>0.025)]
+  #plot(AUC_LD[,ld_w],map[Chr==ch,max_LD_with_QTN])
+
+  return(AUC_LD)
 }
 
+sapply(SNP)
+AUC_LD <-
+
+AUC_LD <-  rbindlist(parallel::mclapply(ids$snp_id[chr_idx],compute_ld_auc_norm,el,mc.cores=8))
+
+
+
+
+
+lapply(compute_ld_auc_norm(dt))
+compute_ld_auc <- function(hist_mat, b = 0) {
+
+  r2_vals <- as.numeric(colnames(hist_mat))
+
+  # subtract background
+  r2_excess <- pmax(r2_vals - b, 0)
+
+  # weighted sum
+  ld_auc <- sum(hist_mat %*% r2_excess)
+
+
+
+  return(as.numeric(ld_auc))
+}
+
+focal <- ids$snp_id[chr_idx][10000]
+r2_counts <- cum_mat[1,]
+ids$snp_id[c]
+
+compress_cum_mat <- function(cum_mat) {
+  # drop zero columns
+  keep_cols <- colSums(cum_mat) > 0
+  cum_mat <- cum_mat[, keep_cols, drop = FALSE]
+
+  # drop redundant rows
+  keep_rows <- c(TRUE, rowSums(abs(diff(cum_mat))) > 0)
+  cum_mat <- cum_mat[keep_rows, , drop = FALSE]
+}
+cum_mat <- compress_cum_mat(cum_mat)
+dim(cum_mat)
+plot(apply(cum_mat,1,function(r2_counts){
+  median_pos <- ceiling(sum(r2_counts) / 2)
+  cum_r2 <- cumsum(r2_counts)
+  j <- which(cum_r2 >= median_pos)[1]
+  as.numeric(colnames(cum_mat))[j]
+}),type="l")
+
+medians <- apply(cum_mat,1,function(r2_counts){
+  median_pos <- ceiling(sum(r2_counts) / 2)
+  cum_r2 <- cumsum(r2_counts)
+  j <- which(cum_r2 >= median_pos)[1]
+  as.numeric(colnames(cum_mat))[j]
+})
+keep_rows <- c(TRUE, abs(diff(medians)) > 0)
+
+plot(names(medians[keep_rows]),medians[keep_rows],type="l")

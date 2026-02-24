@@ -48,15 +48,17 @@ gds <- create_gds_from_geno(geno, map, gds_path)
 # ------------------------------------------------------------
 max_rho = 0.999
 t1 <- Sys.time()
-ld_struct_w1000 <-  compute_ld_structure(gds,
+ld_struct_compressed <-  compute_ld_structure(gds,
                                    use         = "robust",
                                    max_rho     = max_rho,
-                                   adapt_thin  = FALSE
+                                   compress    = TRUE,
+                                   cores=8
                                    )
 t2 <- Sys.time()
 difftime(t2,t1)
 plot(ld_struct)
 
+ld_struct_compressed$by_chr$Chr1$cum_histograms2d[[2]]
 # draws_per_method <- ld_rho_draws(
 #   ld_struct  = ld_struct,
 #   F_vals     = map[,..F_cols],
@@ -74,8 +76,8 @@ plot(ld_struct)
 #   mode       = "per_method"
 #
 # )
-
-ld_struct <- ld_struct_w1000
+ld_struct$by_chr$Chr1$cum_histograms2[[1]]
+ld_struct <- ld_struct_compressed
 draws_joint <- ld_rho_draws(gds,
                             ld_struct  = ld_struct,
                             F_vals     = map[,..F_cols],
@@ -89,11 +91,9 @@ draws_joint <- ld_rho_draws(gds,
                             alpha_lim  = list(min=1.31,max=4),
                             lmin_lim   = list(min=1,max=10),
                             cores      = 8,
-                            use        = "robust",
                             mode       = "joint"
 
 )
-
 
 #draws_joint$draws[,plot(OR_size)]
 map2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_joint))
@@ -101,8 +101,8 @@ map2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_jo
 map2[,ld_w:=compute_ld_w(ld_struct,max_rho)]
 
 
-#map2[,cor.test(ld_w,lfmm_F)]
-#map2[,plot(ld_w)]
+#map2[,plot(ld_w,max_LD_with_QTN )]
+#map2[,plot(Joint_C)]
 
 #map2[!is.na(Joint_C),plot(Joint_C)]
 sign_th = 0.05

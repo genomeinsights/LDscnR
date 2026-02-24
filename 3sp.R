@@ -10,13 +10,15 @@ map_3sp <- map_3sp[maf>0.1]
 gds_3sp <- create_gds_from_geno(geno = GTs_3sp, map=map_3sp,"gds_3sp.gds")
 
 #------------------------------------------------------------
+#gds <- gds_3sp
 t1 <- Sys.time()
-max_rho = 0.9
-ld_struct_3sp_w1000 <-  compute_ld_structure(gds_3sp,
+max_rho = 0.99
+ld_struct_3sp <-  compute_ld_structure(gds_3sp,
                                        use         = "robust",
                                        max_rho     = max_rho,
-                                       adapt_thin = FALSE,
+                                       compress = TRUE,
                                        cores       = 8
+
 )
 t2 <- Sys.time()
 difftime(t2,t1)
@@ -24,6 +26,7 @@ plot(ld_struct_3sp_w1000)
 #rm(ld_struct_3sp_w1000)
 gc()
 
+ld_struct_3sp$
 map_3sp[,emx_F:=readRDS("../LD-scaling-genome-scans/empirical_data/3sp/emx_3sp.rds")$F] ## add to map
 emx_gif = map_3sp[,median(emx_F)/qf(0.5,1,115,lower.tail = FALSE)] ## inflation factor
 map_3sp[,emx_F_GC:=emx_F/emx_gif]  ## genomic control
@@ -57,10 +60,12 @@ table(ld_struct_3sp_w1000$by_chr$Chr1$edges$SNP1 %in% map_3sp$marker)
 #                                        max_rho     = max_rho,
 #                                        cores       = 8
 # )
-
+ld_struct <- ld_struct_3sp
+ld_struct$params
+gds <- gds_3sp
 t1 <- Sys.time()
-draws_3sp_000 <- ld_rho_draws(gds = gds_3sp,
-                            ld_struct  = ld_struct_3sp_w1000,
+draws_3sp <- ld_rho_draws(gds = gds_3sp,
+                            ld_struct  = ld_struct_3sp,
                             F_vals     = map_3sp[,.(emx_F_GC,lfmm_F)],
                             q_vals     = map_3sp[,.(emx_q,lfmm_q)],
                             n_inds     = nrow(GTs_3sp),
@@ -71,7 +76,7 @@ draws_3sp_000 <- ld_rho_draws(gds = gds_3sp,
                             rho_ld_lim = list(min=0,max=max_rho),
                             alpha_lim  = list(min=1.31,max=4),
                             lmin_lim   = list(min=1,max=30),
-                            cores      = 1,
+                            cores      = 8,
                             use        = "robust",
                             mode       = "joint"
 
@@ -100,13 +105,13 @@ difftime(t2,t1)
 #saveRDS(draws_3sp,"draws_3sp.rds")
 #draws_wide$draws[OR_size>0,hist(l)]
 #tmp <- consistency_score(draws_3s)
-table(unique(unlist(draws_3sp$draws$OR)) %in% map_3sp$marker)
+#table(unique(unlist(draws_3sp_000$draws$OR)) %in% map_3sp$marker)
 
 # table(tmp$consistency[,SNP] %in% map_3sp$marker)
 # tmp$consistency$C[match(map_3sp$marker,tmp$consistency[,SNP])])
 
 
-map2 <- add_consistency_to_map(map_3sp, consistency_obj = consistency_score(draws_3sp_03_05_05))
+map2 <- add_consistency_to_map(map_3sp, consistency_obj = consistency_score(draws_3sp_000))
 map2[,ld_w:=compute_ld_w(ld_struct_3sp_w1000,0.3)]
 
 #map2[,plot(lfmm_F,ld_w)]
