@@ -1,8 +1,18 @@
 library(LDscnR)
+library(ggplot2)
+
+tmp <- readRDS("../LD-scaling-genome-scans/results_sim/c1_V0.5_rep4.rds")
+map_org <- tmp$SNP_res[,.(V,c,rep,Chr,Pos,marker,type, Chr_type,max_LD_with_QTN, bp_to_focal_QTN, focal_QTN, p_Va,emx_F,lfmm_F,emx_q,lfmm_q,a,b,c )]
+map <- tmp$SNP_res[,.(V,c,rep,Chr,Pos,marker,type, Chr_type,max_LD_with_QTN, bp_to_focal_QTN, focal_QTN, p_Va,emx_F,lfmm_F,emx_q,lfmm_q )]
+geno <- tmp$GTs
 data(sim_ex)
 
 geno = sim_ex$GTs
-map = sim_ex$map
+#map = sim_ex$map
+
+## generate ld_w for draws
+
+
 F_cols=c("emx_F","lfmm_F")
 q_cols=c("emx_q","lfmm_q")
 F_vals     = map[,..F_cols]
@@ -46,123 +56,171 @@ gds <- create_gds_from_geno(geno, map, gds_path)
 # ------------------------------------------------------------
 # 2. LD decay + structure
 # ------------------------------------------------------------
-max_rho = 0.999
 t1 <- Sys.time()
-ld_struct_compressed <-  compute_ld_structure(gds,
-                                   use         = "robust",
-                                   max_rho     = max_rho,
-                                   compress    = TRUE,
-                                   cores=8
+ld_struct <-  compute_ld_structure(gds,
+                                  rho_w       = c(seq(0.7,0.95,by=0.05),0.99),
+                                  prob_robust = 0,
+                                  cores       = 8
                                    )
-t2 <- Sys.time()
-difftime(t2,t1)
-plot(ld_struct)
 
-ld_struct_compressed$by_chr$Chr1$cum_histograms2d[[2]]
-# draws_per_method <- ld_rho_draws(
-#   ld_struct  = ld_struct,
-#   F_vals     = map[,..F_cols],
-#   q_vals     = map[,..q_cols],
-#   n_inds     = n_inds,
-#   SNP_ids    = SNP_ids,
-#   n_rho      = n_rho,
-#   n_or_draws = n_or_draws,
-#   rho_w_lim  = list(min=0.9,max=max_rho),
-#   rho_d_lim  = list(min=0.9,max=max_rho),
-#   rho_ld_lim = list(min=0.5,max=max_rho),
-#   alpha_lim  = list(min=1.31,max=3),
-#   lmin_lim   = list(min=1,max=5),
-#   cores      = cores,
-#   mode       = "per_method"
-#
-# )
-ld_struct$by_chr$Chr1$cum_histograms2[[1]]
-ld_struct <- ld_struct_compressed
+#plot(ld_struct)
+
+par(mfcol=c(4,1))
+plot(ld_struct$ld_w_dt$ldw_rho_0.7)
+plot(ld_struct$ld_w_dt$ldw_rho_0.95)
+plot(ld_struct$ld_w_dt$ldexc_rho_0.7)
+plot(ld_struct$ld_w_dt$ldexc_rho_0.95)
+
+plot(ld_struct$ld_w_dt$ldw_rho_0.7,ld_struct$ld_w_dt$ldw_rho_0.95)
+plot(ld_struct$ld_w_dt$ldexc_rho_0.7,ld_struct$ld_w_dt$ldexc_rho_0.95)
+
+
 draws_joint <- ld_rho_draws(gds,
                             ld_struct  = ld_struct,
                             F_vals     = map[,..F_cols],
                             q_vals     = map[,..q_cols],
                             n_inds     = nrow(geno),
-                            n_rho      = 40,
-                            n_or_draws = 25,
-                            rho_w_lim  = list(min=0,max=max_rho),
-                            rho_d_lim  = list(min=0,max=max_rho),
-                            rho_ld_lim = list(min=0,max=max_rho),
+                            n_draws    = 1000,
+                            rho_d_lim  = list(min=0.9,max=0.99),
+                            rho_ld_lim = list(min=0.5,max=0.99),
                             alpha_lim  = list(min=1.31,max=4),
                             lmin_lim   = list(min=1,max=10),
                             cores      = 8,
                             mode       = "joint"
 
 )
+#draws_joint$draws
+#or_dt <- draws_joint$
+#draws_joint$draws[2,OR]
+#draws_joint$draws
+## add decay info to map
 
-#draws_joint$draws[,plot(OR_size)]
-map2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_joint))
-#map2 <- add_consistency_to_map(map2, consistency_obj = consistency_score(draws_per_method))
-map2[,ld_w:=compute_ld_w(ld_struct,max_rho)]
+as <- setNames(ld_struct$decay_summary$a,ld_struct$decay_summary$Chr)
+bs <- setNames(ld_struct$decay_summary$b,ld_struct$decay_summary$Chr)
+cs <- setNames(ld_struct$decay_summary$c, ld_struct$decay_summary$Chr)
+C <- cs[map$Chr]
+a <- as[map$Chr]
+b <- bs[map$Chr]
 
+map[,rho_ld := 1 - (max_LD_with_QTN - b) / (C - b)]
+map[,rho_d := a*bp_to_focal_QTN/(a*bp_to_focal_QTN+1)]
+abline(0,1)
 
-#map2[,plot(ld_w,max_LD_with_QTN )]
-#map2[,plot(Joint_C)]
+#nrow(draws_joint$draws[[1]])
+PR <- rbindlist(lapply(draws_joint$draws,function(draws){
+  rbindlist(parallel::mclapply(seq_len(nrow(draws)),function(draw){
+    get_PR(draws[draw,],map = map)
+  },mc.cores=cores))
+}))
+t2 <- Sys.time()
+difftime(t2,t1)
 
-#map2[!is.na(Joint_C),plot(Joint_C)]
-sign_th = 0.05
-idx <- which(map2[,Joint_C>sign_th])
-el  <- get_el(gds, idx, slide_win_ld = -1,by_chr = TRUE)
+tmp <- do.call(rbind,strsplit(PR$rho_w,"_"))
+PR[,stat:=tmp[,1]]
+PR[,rho_w:=as.numeric(tmp[,3])]
 
+saveRDS("./PR_out/")PR
 
-ORs_tbl <- detect_or(el,
-                     q_vals=map2[,.(Joint_C)],
-                     SNP_ids = map$marker,
-                     SNP_chr = map$Chr,
-                     ld_struct=ld_struct,
-                     sign_th=sign_th,
-                     sign_if = "greater",
-                     rho_d=0.99,
-                     rho_ld=0.99,
-                     l_min = 1,
-                     ret_table = TRUE)
+#PR[,plot(-log10(alpha),PR)]
+#PR[,plot(l_min,PR)]
 
+ggplot(PR,aes(factor(rho_w),PR,fill=stat)) +
+  geom_violin() +
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 90))
 
-#ORs_tbl[,table(do.call(rbind, strsplit(SNP,":"))[,1],OR_id)]
-map2 <- merge(map2,
-              ORs_tbl,
-              by.x = "marker",
-              by.y = "SNP",
-              all.x = TRUE)
-map2 <-  map2[order(as.numeric(gsub("Chr","",map2$Chr), map2$Pos))]
-map2[is.na(OR_id),OR_id:="ns"]
-map2[,table(OR_id,Chr)]
+PR[which.max(PR)]
 
-unique_ORs <- unique(na.omit(map2$OR_id))
-#unique_ORs <- unique_ORs[unique_ORs != "Chr12_OR10"]
-
-map2[, OR_factor := factor(OR_id, levels = sample(unique_ORs))]
-
-map2[!is.na(OR_factor),.(max(max_LD_with_QTN),.N,focal_QTN[which.max(max_LD_with_QTN)]),by=OR_factor]
-
-layout <- prep_manhattan(
-  map2[, .(
-    bp = Pos,
-    Chr,
-    marker,
-    Joint_C,
-    lfmm_q = -log10(lfmm_q),
-    ld_w,
-    OR_factor,
-    type
-  )],spacer = 1e6
-)
+draws_joint$draws$joint_ldw <- rbindlist(draws_joint$draws[grep("ldw",names(draws_joint$draws))])
+draws_joint$draws$joint_ldexc <- rbindlist(draws_joint$draws[grep("ldexc",names(draws_joint$draws))])
 
 
-plot_manhattan_gg(
-  layout,
-  y_vars = c("lfmm_q","Joint_C","ld_w"),
-  y_labels = c("-log10(q) | LFMM","Joint_C","ld_w"),
-  thresholds = c(-log10(0.05),0.05, NA),
-  or_var = "OR_factor",
-  type_var = "type",
-  ncol=1
-)
+draws <- draws_joint$draws[[1]]
+x <- 1
+rho_name <- names(draws_joint$draws)[1]
+
+draws_joint$draws$joint <- rbindlist(draws_joint$draws)
+
+plots <- lapply(names(draws_joint$draws)[],function(rho_name){
+  map2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_joint$draws[[rho_name]]))
+  #map2 <- add_consistency_to_map(map2, consistency_obj = consistency_score(draws_per_method))
+  #ldw = unlist(ld_struct$ld_w_dt[,..rho_name])
+  #map2[,ld_w:=ldw]
+  #map2[,plot(LD_AUC)]
+  #plot(unlist(lapply(ld_struct$by_chr, function(x) x$LD_AUC$LD_AUC)))
+  #map2[,plot(ld_w,max_LD_with_QTN )]
+  #map2[,plot(Joint_C)]
+
+  #map2[!is.na(Joint_C)]
+
+  #map2[!is.na(Joint_C),plot(Joint_C)]
+  sign_th = 0.01
+  idx <- which(map2[,Joint_C>sign_th])
+  el  <- get_el(gds, idx, slide_win_ld = -1,by_chr = TRUE)
+
+
+  ORs_tbl <- detect_or(el,
+                       q_vals=map2[,.(Joint_C)],
+                       SNP_ids = map$marker,
+                       SNP_chr = map$Chr,
+                       ld_struct=ld_struct,
+                       sign_th=sign_th,
+                       sign_if = "greater",
+                       rho_d=0.99,
+                       rho_ld=0.99,
+                       l_min = 1,
+                       ret_table = TRUE)
+
+
+  #ORs_tbl[,table(do.call(rbind, strsplit(SNP,":"))[,1],OR_id)]
+  map2 <- merge(map2,
+                ORs_tbl,
+                by.x = "marker",
+                by.y = "SNP",
+                all.x = TRUE)
+  map2 <-  map2[order(as.numeric(gsub("Chr","",map2$Chr), map2$Pos))]
+  map2[is.na(OR_id),OR_id:="ns"]
+  map2[,table(OR_id,Chr)]
+
+  unique_ORs <- unique(na.omit(map2$OR_id))
+  #unique_ORs <- unique_ORs[unique_ORs != "Chr12_OR10"]
+
+  map2[, OR_factor := factor(OR_id, levels = sample(unique_ORs))]
+
+  map2[!is.na(OR_factor),.(max(max_LD_with_QTN),.N,focal_QTN[which.max(max_LD_with_QTN)]),by=OR_factor]
+
+  layout <- prep_manhattan(
+    map2[, .(
+      bp = Pos,
+      Chr,
+      marker,
+      Joint_C,
+      lfmm_q = -log10(lfmm_q),
+      ld_w,
+      OR_factor,
+      type
+    )],spacer = 1e6
+  )
+
+
+  plot_manhattan_gg(
+    layout,
+    y_vars = c("Joint_C"),
+    y_labels = c("Joint_C"),
+    thresholds = c(0.05),
+    or_var = "OR_factor",
+    type_var = "type",
+    ncol=1
+  )+ggplot2::ggtitle(rho_name)
+})
+
+wrap_plots(plots, ncol = 3)
+
+(plots[[1]] | plots[[2]] | plots[[3]] | plots[[4]]) /
+  (plots[[5]] | plots[[6]] | plots[[7]])
+
+(plots[[8]] | plots[[9]] | plots[[10]] | plots[[11]]) /
+  (plots[[12]] | plots[[13]] | plots[[14]])
 
 map2[OR_factor=="Chr13_OR10"]
 

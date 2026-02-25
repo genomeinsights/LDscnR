@@ -22,12 +22,12 @@
 #' @export
 ld_rho_draws <- function(gds,
                          ld_struct,
+                         method=c("auc","median"),
                          n_inds,
                          F_vals,
                          q_vals=NULL,
-                         n_rho = 25,
-                         n_or_draws = 25,
-                         rho_w_lim = list(min=0.8,max=0.99),
+                         n_draws = 100,
+                         #rho_w_lim = list(min=0.8,max=0.99),
                          rho_d_lim=list(min=0.5,max=0.999),
                          rho_ld_lim=list(min=0.9,max=0.999),
                          alpha_lim=list(min=1.31,max=4),
@@ -41,20 +41,22 @@ ld_rho_draws <- function(gds,
   if (!is.null(seed))
     set.seed(seed)
 
-  rho_values <- runif(n_rho, rho_w_lim$min, rho_w_lim$max)
+  ld_w_dt <- ld_struct$ld_w_dt[,-1]
+
+
   ids <- .read_gds_ids(gds)
 
-  # i <- 1
-  # rho_w <- 0.9
-  run_one <- function(i) {
+  ld_w_names <- colnames(ld_w_dt)
 
-    cat("rho_w draw", i, "..\n")
+  #ld_w <- unlist(ld_w_dt[,1])
+
+  draws <- apply(ld_w_dt,2,function(ld_w){
 
     scan <- ld_scan(
       ld_struct = ld_struct,
       SNP_ids   = ids$snp_id,
       F_vals    = F_vals,
-      rho_w     = rho_values[i],
+      ld_w      = ld_w,
       n_inds    = n_inds,
       full      = TRUE,
       use       = ld_struct$params$use
@@ -69,40 +71,31 @@ ld_rho_draws <- function(gds,
     idx <- which(q_min<1/10^alpha_lim$min)
     el  <- get_el(gds, idx, slide_win_ld = -1,by_chr = TRUE)
 
-
-    out <- or_draws(
+    #n_or_draws=100
+    draws <- or_draws(
       el         = el,
       q_vals     = qvals,
       SNP_ids    = ids$snp_id,
       SNP_chr    = ids$snp_chr,
       ld_struct  = ld_struct,
-      n_draws    = n_or_draws,
+      n_draws    = n_draws,
       rho_d_lim  = rho_d_lim,
       rho_ld_lim = rho_ld_lim,
       alpha_lim  = alpha_lim,
       lmin_lim   = lmin_lim,
-      mode       = mode[1]
+      mode       = mode[1],
+      cores      = cores
     )
-    #mode="joint"
+  })
 
-    cbind(rho_w=rho_values[i],out)
-  }
-
-  if (.Platform$OS.type == "unix") {
-    draws <- rbindlist(parallel::mclapply(
-      seq_len(n_rho),
-      run_one,
-      mc.cores = cores
-    ))
-  } else {
-    warning("Parallel rho_w draws not supported on Windows; using single core.")
-    draws <- rbindlist(lapply(seq_len(n_rho), run_one))
-  }
+  lapply(1:length(ld_w_names),function(x){
+    draws[[x]][,rho_w:=ld_w_names[x]]
+  })
+  #mode="joint"
+  #out
 
   structure(
-    list(draws=draws,
-         n_rho=n_rho,
-         n_or_draws=n_or_draws),
+    list(draws=draws),
     class = "ld_rho_draws"
   )
 }

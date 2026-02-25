@@ -8,7 +8,6 @@ detect_or <- function(el,
                       SNP_chr,
                       sign_th = 0.05,
                       sign_if = c("less", "greater"),
-                      use = c("robust","median"),
                       rho_d = 0.99,
                       rho_ld = 0.99,
                       l_min = 1,
@@ -16,7 +15,7 @@ detect_or <- function(el,
                       ret_table = FALSE) {
 
   mode <- match.arg(mode)
-  use  <- use[1]
+
 
 
   chrs <- unique(SNP_chr)
@@ -41,7 +40,7 @@ detect_or <- function(el,
     idx <- which(SNP_ids %in% outliers)
 
     or_list <- list()
-    #ch = "Chr3"
+    #ch = "Chr1"
     for (ch in chrs) {
 
 
@@ -51,10 +50,10 @@ detect_or <- function(el,
         next
 
       # thresholds
-      a_chr  <- ld_struct$summary[[use[1]]][Chr == ch, a]
-      b_chr  <- ld_struct$summary[[use[1]]][Chr == ch, b]
-      c_chr  <- ld_struct$summary[[use[1]]][Chr == ch, c]
-      d0_chr <- ld_struct$summary[[use[1]]][Chr == ch, d0]
+      a_chr  <- ld_struct$decay_summary[Chr == ch, a]
+      b_chr  <- ld_struct$decay_summary[Chr == ch, b]
+      c_chr  <- ld_struct$decay_summary[Chr == ch, c]
+      d0_chr <- ld_struct$decay_summary[Chr == ch, d0]
 
       d_th  <- d_from_rho(a_chr, rho = rho_d, d0 = d0_chr)
       ld_th <- ld_from_rho(b_chr, c_chr, rho = rho_ld)
@@ -87,8 +86,9 @@ detect_or <- function(el,
   # PER-METHOD MODE (existing behavior)
   # ------------------------------------------------------------
   if (mode == "per_method") {
+    #qs <- unlist(q_vals[,1])
 
-    out <- apply(q_vals, 2, function(qs) {
+    out <- apply(as.matrix(q_vals), 2, function(qs) {
 
       outliers <- SNP_ids[!is.na(qs) & outlier_fun(qs)]
       build_or_from_snps(outliers)
@@ -120,12 +120,12 @@ detect_or <- function(el,
   out <- structure(
     list(
       ORs     = out,
-      sign_th = sign_th,
-      sign_if = sign_if,
-      rho_d   = rho_d,
-      rho_ld  = rho_ld,
-      l_min   = l_min,
-      mode    = mode
+      params= list (sign_th = sign_th,
+                    sign_if = sign_if,
+                    rho_d   = rho_d,
+                    rho_ld  = rho_ld,
+                    l_min   = l_min,
+                    mode    = mode)
 
     ),
     class = "ld_or"
@@ -146,13 +146,13 @@ or_draws <- function(el,
                      SNP_ids,
                      SNP_chr,
                      ld_struct,
-                     use = c("robust","median"),
                      n_draws = 25,
                      mode = c("per_method","joint"),
                      rho_d_lim = list(min=0.5,max=0.999),
                      rho_ld_lim = list(min=0.9,max=0.999),
                      alpha_lim = list(min=1.31,max=4),
-                     lmin_lim = list(min=1,max=10)) {
+                     lmin_lim = list(min=1,max=10),
+                     cores = 1) {
 
   if (is.null(colnames(q_vals)))
     stop("q_vals must have column names.")
@@ -160,7 +160,7 @@ or_draws <- function(el,
 
 
   methods <- colnames(q_vals)
-  out_list <- rbindlist(lapply(seq_len(n_draws),function(i) {
+  out_list <- rbindlist(parallel::mclapply(seq_len(n_draws),function(i) {
 
     rho_d  <- runif(1, rho_d_lim$min, rho_d_lim$max)
     rho_ld <- runif(1, rho_ld_lim$min, rho_ld_lim$max)
@@ -177,9 +177,8 @@ or_draws <- function(el,
       rho_d     = rho_d,
       rho_ld    = rho_ld,
       l_min     = l_min,
-      use       = use[1],
-      mode      = mode[1],
       sign_if   = "less",
+      mode      = mode[1],
       ret_table = FALSE
     )
 
@@ -198,7 +197,7 @@ or_draws <- function(el,
       )
       #method  <- "C_mean"
     }else{
-        rbindlist(lapply(methods, function(method) {
+        rbindlist(parallel::mclapply(methods, function(method) {
 
           or_list <- or_obj$ORs[[method]]
           if (length(or_list) == 0) return(
@@ -224,13 +223,13 @@ or_draws <- function(el,
             OR_size = length(or_list)
           )
 
-        }), fill = TRUE)
+        },mc.cores=cores), fill = TRUE)
       }
 
 
 
 
-  }))
+  },mc.cores=cores))
 
 }
 

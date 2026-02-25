@@ -16,25 +16,11 @@
 ld_scan <- function(ld_struct,
                     SNP_ids,
                     F_vals,
-                    rho_w,
+                    ld_w,
                     n_inds,
                     n_rep = 10,
                     full = TRUE,
                     use = "robust") {
-
-  if (!inherits(ld_struct, "ld_structure"))
-    stop("`ld_struct` must be of class 'ld_structure'.")
-
-  if (!is.finite(rho_w) || rho_w <= 0 || rho_w >= 1)
-    stop("`rho_w` must lie in (0,1).")
-
-  ## 1 Compute ld_w from structure
-  #rho_w <- 0.9
-  #ld_struct$by_chr$Chr1$edges
-  ld_w <- compute_ld_w(ld_struct=ld_struct, rho_w)
-  #plot(ld_w)
-  #cor.test(map$max_LD_with_QTN,ld_w)
-  ## 2 Compute F' using existing logic
 
 
   scan_res <- .compute_Fprime(
@@ -44,12 +30,9 @@ ld_scan <- function(ld_struct,
     n_inds = n_inds,
     full   = full
   )
-  #plot(-log10(scan_res$lfmm_F$q_prime))
 
-  #
   ## 3 Wrap into S3 object
   out <- list(
-    rho_w   = rho_w,
     F_vals  = F_vals,
     n_inds  = n_inds,
     SNP_ids = SNP_ids,
@@ -71,8 +54,6 @@ ld_scan <- function(ld_struct,
     stop("Length of `ld_w` must match nrow(F_vals).")
 
   df2 <- as.integer(n_inds - 2)
-
-  ld_w <- as.numeric(ld_w)
 
   take_sorted_quantiles <- function(sorted_x, n_out) {
     m <- length(sorted_x)
@@ -165,108 +146,6 @@ ld_scan <- function(ld_struct,
   res
 }
 
-.unbiased_ld_w <- function(sub) {
-
-  sub <- data.table::rbindlist(list(
-    sub[, .(SNP = SNP1, OTHER = SNP2, pos = pos1, pos_other = pos2, r2)],
-    sub[, .(SNP = SNP2, OTHER = SNP1, pos = pos2, pos_other = pos1, r2)]
-  ))
-
-  sub[, d := abs(pos_other - pos)]
-  sub[, side := ifelse(pos_other > pos, "R", "L")]
-
-  sub[, `:=`(
-    maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
-    maxR = if (any(side == "R")) max(d[side == "R"]) else 0
-  ), by = SNP]
-
-  sub[, S := pmin(maxL, maxR)]
-
-  sub[, long_side := data.table::fifelse(
-    maxL > maxR, "L",
-    data.table::fifelse(maxR > maxL, "R", NA_character_)
-  )]
-
-  sub[, tail := (side == long_side & d > S)]
-  sub[is.na(tail), tail := FALSE]
-
-  use <- data.table::rbindlist(list(
-    sub[, .(SNP, r2)],
-    sub[tail == TRUE, .(SNP, r2)]
-  ))
-
-  ld_w <- use[, .(
-    ld_w = median(r2, na.rm = TRUE),
-    N = .N
-  ), by = SNP]
-
-  return(ld_w)
-}
-
-#hist2d <- ld_struct$by_chr[[ch]]$cum_histograms2d[[1]]
-ld_w_from_hist <- function(hist2d, d_th) {
-
-  dist_bins <- as.numeric(rownames(hist2d))
-  idx <- max(which(dist_bins <= d_th))
-  if (length(idx) == 0 || is.infinite(idx))
-    return(NA_real_)
-
-  r2_counts <- hist2d[idx, ]
-  total_n <- sum(r2_counts)
-  if (total_n == 0)
-    return(NA_real_)
-
-  cum_r2 <- cumsum(r2_counts)
-  median_pos <- ceiling(total_n / 2)
-  j <- which(cum_r2 >= median_pos)[1]
-
-  as.numeric(colnames(hist2d))[j]
-}
-
-#' @export
-compute_ld_w <- function(ld_struct,rho_w,cores=1) {
-
-
-  out <- vector("list", length(ld_struct$by_chr))
-  names(out) <- names(ld_struct$by_chr)
-
-  #ch = "Chr1"
-  for (ch in names(ld_struct$by_chr)) {
-
-    a_chr <- ld_struct$summary[[ld_struct$params$use]][Chr == ch, a]
-    d0_chr <- ld_struct$summary[[ld_struct$params$use]][Chr == ch, d0]
-    d_th  <- d_from_rho(a_chr, rho_w,d0 = d0_chr)
-
-    if(ld_struct$params$compress){
-
-
-      #ld_w_from_hist(ld_struct$by_chr[[ch]]$cum_histograms2d[[2]],d_th)
-      ld_w_from_hist <- sapply(ld_struct$by_chr[[ch]]$cum_histograms2d,ld_w_from_hist,d_th)
-
-
-      out[[ch]] <-ld_w_from_hist
-
-    }else{
-      el <- ld_struct$by_chr[[ch]]$edges
-
-      sub <- el[d < d_th]
-
-      ld_w <- .unbiased_ld_w(sub)
-
-      res <- data.table::data.table(
-        SNP = ld_struct$by_chr[[ch]]$snp_ids
-      )
-
-      res <- ld_w[res, on="SNP"]
-      res[is.na(ld_w),ld_w := 0]
-      out[[ch]] <- res$ld_w
-    }
-
-
-  }
-
-  unlist(out)
-}
 
 #' #' Plot LD-scan results
 #'

@@ -7,25 +7,24 @@
 #'
 #' @return Object of class "ld_consistency".
 #' @export
-consistency_score <- function(or_dt,combine=TRUE) {
+consistency_score <- function(draws,combine=TRUE) {
 
-  long_dt <- or_dt$draws[
+  long_dt <- draws[
     , .(SNP = unlist(OR)),
     by = .(method)
   ]
 
+  n_draws <- draws[method==method[1],.N]
   C_dt <- long_dt[, .N, by = .(SNP,method)]
 
-  total_draws <- or_dt$n_rho*or_dt$n_or_draws
+  #total_draws <- or_dt$n_rho*or_dt$n_or_draws
 
-  C_dt[, C := N / total_draws]
+  C_dt[, C := N / n_draws]
 
   C_obj <- structure(
     list(
       consistency = C_dt,
-      total_draws = total_draws,
-      n_rho       = or_dt$n_rho,
-      n_or        = or_dt$n_or_draws
+      total_draws = n_draws
     ),
     class = "ld_consistency"
   )
