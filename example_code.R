@@ -1,5 +1,7 @@
-library(LDscnR)
+#library(LDscnR)
 library(ggplot2)
+library(data.table)
+library(SNPRelate)
 
 tmp <- readRDS("../LD-scaling-genome-scans/results_sim/c1_V0.5_rep4.rds")
 map_org <- tmp$SNP_res[,.(V,c,rep,Chr,Pos,marker,type, Chr_type,max_LD_with_QTN, bp_to_focal_QTN, focal_QTN, p_Va,emx_F,lfmm_F,emx_q,lfmm_q,a,b,c )]
@@ -7,7 +9,7 @@ map <- tmp$SNP_res[,.(V,c,rep,Chr,Pos,marker,type, Chr_type,max_LD_with_QTN, bp_
 geno <- tmp$GTs
 data(sim_ex)
 
-geno = sim_ex$GTs
+#geno = sim_ex$GTs
 #map = sim_ex$map
 
 ## generate ld_w for draws
@@ -57,13 +59,119 @@ gds <- create_gds_from_geno(geno, map, gds_path)
 # 2. LD decay + structure
 # ------------------------------------------------------------
 t1 <- Sys.time()
-ld_struct <-  compute_ld_structure(gds,
-                                  rho_w       = c(seq(0.7,0.95,by=0.05),0.99),
-                                  prob_robust = 0,
-                                  cores       = 8
+ld_struct <-  compute_ld_structure( gds,
+                                    q = 0.95,
+                                    n_sub = 5000,
+                                    window_size = 1e6,
+                                    step_size = 5e5,
+                                    cores = 8,
+                                    dist_unit = 5000,
+                                    n_dist_target = 100,
+                                    rho_max = 0.99,
+                                    r2_unit = 0.001,
+                                    prob_robust = 0.95,
+                                    slide_win = 1000
                                    )
 
+#ld_struct$histograms$Chr1
 #plot(ld_struct)
+t2 <- Sys.time()
+difftime(t2,t1)
+
+str(el$SNP)
+str(snps_chr)
+
+
+
+
+a <- ld_struct$decay_summary[Chr=="Chr1",a]
+
+rho_max <- 0.5
+
+d_min <- d_from_rho(a, rho_min)
+d_max <- d_from_rho(a, rho_max)
+
+par(mfcol=c(4,2))
+
+LD_star <- do.call(cbind,lapply(seq(0.25,0.95,by=0.1),function(rho_max){
+  LD_star <- sapply(ld_struct$histograms$Chr1,function(hist_mat){
+    dist_bin <- as.numeric(rownames(hist_mat))
+    keep_rows <- dist_bin <= d_from_rho(a, rho_max)
+    shell_mat <- hist_mat <- hist_mat[keep_rows, , drop = FALSE]
+    shell_mat[-1, ] <- hist_mat[-1, ] - hist_mat[-nrow(hist_mat), ]
+    r2_vals <- as.numeric(colnames(shell_mat))
+    excess <- pmax(r2_vals - b, 0)
+    sum(shell_mat * matrix(excess, nrow=nrow(shell_mat),ncol=ncol(shell_mat),byrow=TRUE)) / sum(shell_mat)
+  })
+  plot(LD_star,main=paste("rho_max =",rho_max),pch=20)
+  return(LD_star)
+}))
+
+colnames(LD_rho) <- seq(0.25,0.95,by=0.1)
+pairs(LD_star)
+
+LD_rho <- do.call(cbind,
+                  lapply(seq(0.25, 0.95, by = 0.1), function(rho_w){
+
+                    LD_val <- sapply(ld_struct$histograms$Chr1, function(hist_mat){
+
+                      if (is.null(hist_mat)) return(NA_real_)
+
+                      dist_bin <- as.numeric(rownames(hist_mat))
+
+                      # distance threshold for this rho
+                      d_th <- d_from_rho(a, rho_w)
+
+                      keep_rows <- dist_bin <= d_th
+                      if (!any(keep_rows)) return(NA_real_)
+
+                      sub_mat <- hist_mat[keep_rows, , drop = FALSE]
+
+                      # convert cumulative to shell counts
+                      shell_mat <- sub_mat
+                      if (nrow(shell_mat) > 1) {
+                        shell_mat[-1, ] <- sub_mat[-1, ] - sub_mat[-nrow(sub_mat), ]
+                      }
+
+                      r2_vals <- as.numeric(colnames(shell_mat))
+                      excess  <- pmax(r2_vals - b, 0)
+
+                      weighted_sum <- sum(
+                        shell_mat *
+                          matrix(excess,
+                                 nrow = nrow(shell_mat),
+                                 ncol = ncol(shell_mat),
+                                 byrow = TRUE)
+                      )
+
+                      weighted_sum / sum(shell_mat)
+                    })
+
+                    plot(LD_val,
+                         main = paste("rho_w =", rho_w),
+                         pch = 20)
+
+                    LD_val
+                  })
+)
+colnames()
+pairs(LD_rho)
+
+
+cor(LD_rho[,1],LD_star[,1],use = "pair")^2
+
+plot(LD_star_075_075)
+par(mfcol=c(4,1))
+plot(LD_star_0_1,pch=20)
+plot(LD_star_05_1,pch=20)
+plot(LD_star_09_1,pch=20)
+plot(LD_star_05_075,pch=20)
+
+plot(LD_star_0_1,LD_star_0_075)
+
+abline(0,1)
+
+shell_mat
 
 par(mfcol=c(4,1))
 plot(ld_struct$ld_w_dt$ldw_rho_0.7)
