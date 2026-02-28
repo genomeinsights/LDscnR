@@ -2,22 +2,25 @@
 % Please edit documentation in R/compute_ld_structure.R
 \name{adaptive_thinning}
 \alias{adaptive_thinning}
-\title{Adaptive SNP Thinning for Decay Estimation}
+\title{Adaptive SNP Thinning}
 \usage{
 adaptive_thinning(pos, W_LD, n_snps_for_decay = 1000)
 }
 \arguments{
-\item{pos}{SNP physical positions.}
+\item{pos}{SNP physical positions (bp).}
 
-\item{W_LD}{LD window size.}
+\item{W_LD}{Target LD window size (bp).}
 
-\item{n_snps_for_decay}{Target SNP count per window.}
+\item{n_snps_for_decay}{Desired number of SNPs per window.}
 }
 \value{
-List with retained SNP indices and slide window size.
+A list containing:
+\describe{
+\item{keep}{Indices of retained SNPs.}
+\item{k_star}{Effective sliding window size (in SNP count).}
+}
 }
 \description{
 Reduces SNP density to maintain approximately constant SNP counts
 within LD-decay windows.
 }
-\keyword{internal}

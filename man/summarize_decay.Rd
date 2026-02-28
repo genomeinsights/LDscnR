@@ -9,22 +9,18 @@ summarize_decay(decay_dt, prob_robust = 0.95)
 \arguments{
 \item{decay_dt}{Data table containing window-wise decay parameters.}
 
-\item{prob_robust}{Quantile threshold for robust filtering
-(default 0.5 keeps upper 50\% of \eqn{a} values).}
+\item{prob_robust}{Central proportion of windows retained
+(e.g. 0.95 keeps the central 95\% of \eqn{a} values).}
 }
 \value{
-A list with elements:
-\describe{
-\item{median}{Median decay parameters.}
-\item{robust}{Robust decay parameters.}
-}
+A \code{data.table} with robust median estimates of
+\code{a}, \code{b}, and \code{c}.
 }
 \description{
-Computes median and robust summaries of LD-decay parameters
-across sliding windows.
+Computes robust summary estimates of LD-decay parameters across
+sliding windows within a chromosome.
 }
 \details{
-Robust estimates exclude the slowest-decaying windows based on
-a quantile threshold of parameter \eqn{a}.
+Windows with extreme decay rates are excluded based on symmetric
+quantile trimming of parameter \eqn{a}.
 }
-\keyword{internal}

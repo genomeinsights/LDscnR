@@ -1,10 +1,15 @@
 #' LD-scaled genome scan
 #'
-#' Computes LD-scaled F statistics (F') for a given LD-decay object
-#' and LD-structure, using a decay quantile \eqn{\rho_w}.
+#' Performs LD-weighted and LD-scaled genome scan statistics
+#' by combining association statistics with pre-computed
+#' LD summary values.
 #'
-#' @param ld_struct An object of class `"ld_structure"`.
-#' @param decay_obj An object of class `"ld_decay"`.
+#' The procedure:
+#' 1) Computes raw LD-weighted statistic F × LD
+#' 2) Estimates LD-induced distortion via circular permutation
+#' 3) Performs quantile correction relative to theoretical null
+#' 4) Returns LD-scaled statistic F′ on the original F scale
+#'
 #' @param F_vals Numeric vector or matrix of F-statistics (n_snp x n_method).
 #' @param rho_w Numeric in (0,1). LD-decay quantile defining window size.
 #' @param n_inds Number of individuals (for F null df2 = n_inds - 2).
@@ -13,14 +18,12 @@
 #'
 #' @return An object of class `"ld_scan"`.
 #' @export
-ld_scan <- function(ld_struct,
-                    SNP_ids,
+ld_scan <- function(ld_w,
                     F_vals,
-                    ld_w,
+                    SNP_ids,
                     n_inds,
                     n_rep = 10,
-                    full = TRUE,
-                    use = "robust") {
+                    full = TRUE) {
 
 
   scan_res <- .compute_Fprime(
@@ -165,7 +168,9 @@ plot.ld_scan <- function(x, method) {
 
   if (is.null(x$result[[1]]$qq_data))
     stop("QQ data not stored (run ld_scan with full = TRUE).")
-  #res <- x$result[[1]]
+
+  if (!method %in% names(x$result))
+    stop("Invalid method name.")
 
   dt <- data.table::copy(x$result[[method]]$qq_data)
 
@@ -176,8 +181,8 @@ plot.ld_scan <- function(x, method) {
   #   - every kth point below threshold
   # ----------------------------------------------------------
 
-  thin_prop <- 0.7   # lower 40% thinned
-  thin_step <- 100    # keep every 10th point
+  thin_prop <- 0.7    # lower 70% thinned
+  thin_step <- 100    # keep every 100th point below thin_prop
 
   n <- nrow(dt)
   cutoff <- floor(n * thin_prop)
@@ -188,6 +193,7 @@ plot.ld_scan <- function(x, method) {
   )
 
   dt <- dt[idx_keep]
+
   required <- c("F_prime_obs", "null_perm", "F_obs")
   if (!all(required %in% colnames(dt)))
     stop("Required QQ components not found.")

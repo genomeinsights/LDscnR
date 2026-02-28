@@ -20,4 +20,3 @@ Distance in base pairs.
 Computes the physical distance corresponding to a relative LD
 threshold \eqn{\rho}.
 }
-\keyword{internal}

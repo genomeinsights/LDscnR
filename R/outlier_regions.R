@@ -14,13 +14,25 @@ detect_or <- function(el,
                       mode = c("per_method","joint"),
                       ret_table = FALSE) {
 
-  mode <- match.arg(mode)
 
-
-
-  chrs <- unique(SNP_chr)
   if (is.null(colnames(q_vals)))
     stop("q_vals must have column names.")
+
+  methods <- colnames(q_vals)
+
+  mode <- match.arg(mode)
+
+  stat_type <- infer_stat_type(methods)
+
+  sign_if <- if (stat_type == "C") "greater" else "less"
+
+  outlier_fun <- switch(
+    sign_if,
+    less    = function(x) x < sign_th,
+    greater = function(x) x > sign_th
+  )
+
+  chrs <- unique(SNP_chr)
 
   # Outlier rule
   outlier_fun <- switch(
@@ -28,6 +40,7 @@ detect_or <- function(el,
     less    = function(x) x < sign_th,
     greater = function(x) x > sign_th
   )
+  #sign_if = "greater"
 
   # ------------------------------------------------------------
   # Helper: build ORs from SNP set
@@ -50,12 +63,12 @@ detect_or <- function(el,
         next
 
       # thresholds
-      a_chr  <- ld_struct$decay_summary[Chr == ch, a]
-      b_chr  <- ld_struct$decay_summary[Chr == ch, b]
-      c_chr  <- ld_struct$decay_summary[Chr == ch, c]
-      d0_chr <- ld_struct$decay_summary[Chr == ch, d0]
+      a_chr  <- ld_struct$decay_sum[Chr == ch, a]
+      b_chr  <- ld_struct$decay_sum[Chr == ch, b]
+      c_chr  <- ld_struct$decay_sum[Chr == ch, c]
 
-      d_th  <- d_from_rho(a_chr, rho = rho_d, d0 = d0_chr)
+
+      d_th  <- d_from_rho(a_chr, rho = rho_d)
       ld_th <- ld_from_rho(b_chr, c_chr, rho = rho_ld)
 
       ed <- el[
@@ -147,6 +160,7 @@ or_draws <- function(el,
                      SNP_chr,
                      ld_struct,
                      n_draws = 25,
+                     stat_type = c("q","C"),
                      mode = c("per_method","joint"),
                      rho_d_lim = list(min=0.5,max=0.999),
                      rho_ld_lim = list(min=0.9,max=0.999),
@@ -154,13 +168,22 @@ or_draws <- function(el,
                      lmin_lim = list(min=1,max=10),
                      cores = 1) {
 
+  stat_type <- match.arg(stat_type)
+
+  sign_if <- if (stat_type[1] == "C") "greater" else "less"
+
   if (is.null(colnames(q_vals)))
     stop("q_vals must have column names.")
 
+  if(mode[1]=="joint") sign_if = "greater"
 
 
   methods <- colnames(q_vals)
-  out_list <- rbindlist(parallel::mclapply(seq_len(n_draws),function(i) {
+
+  if (is.null(colnames(q_vals)))
+    stop("q_vals must have column names.")
+
+  out_list <- rbindlist(parallel_apply(seq_len(n_draws),function(i) {
 
     rho_d  <- runif(1, rho_d_lim$min, rho_d_lim$max)
     rho_ld <- runif(1, rho_ld_lim$min, rho_ld_lim$max)
@@ -177,33 +200,32 @@ or_draws <- function(el,
       rho_d     = rho_d,
       rho_ld    = rho_ld,
       l_min     = l_min,
-      sign_if   = "less",
-      mode      = mode[1],
-      ret_table = FALSE
+      sign_if   = sign_if,
+      ret_table = FALSE,
+      mode      = mode[1]
     )
 
-    methods <- names(or_obj$ORs)
-
+    OR_methods <- names(or_obj$ORs)
     if (all(lengths(or_obj$ORs) == 0)) {
       data.table(
         draw_id = i,
-        method  = methods,
+        method  = OR_methods,
         rho_d   = rho_d,
         rho_ld  = rho_ld,
         alpha   = alpha,
         l_min   = l_min,
-        OR      = replicate(length(methods), list(list()), simplify = FALSE),
+        OR      = replicate(length(OR_methods), list(list()), simplify = FALSE),
         OR_size = 0L
       )
-      #method  <- "C_mean"
+      #meth  <- OR_methods[1]
     }else{
-        rbindlist(parallel::mclapply(methods, function(method) {
+        rbindlist(lapply(OR_methods, function(meth) {
 
-          or_list <- or_obj$ORs[[method]]
+          or_list <- or_obj$ORs[[meth]]
           if (length(or_list) == 0) return(
             data.table(
               draw_id = i,
-              method  = method,
+              method  = meth,
               rho_d   = rho_d,
               rho_ld  = rho_ld,
               alpha   = alpha,
@@ -214,7 +236,7 @@ or_draws <- function(el,
 
           data.table(
             draw_id = i,
-            method  = method,
+            method  = meth,
             rho_d   = rho_d,
             rho_ld  = rho_ld,
             alpha   = alpha,
@@ -223,13 +245,10 @@ or_draws <- function(el,
             OR_size = length(or_list)
           )
 
-        },mc.cores=cores), fill = TRUE)
+        }), fill = TRUE)
       }
 
-
-
-
-  },mc.cores=cores))
+  },cores=cores))
 
 }
 
@@ -269,4 +288,20 @@ or_to_table <- function(or_obj) {
     return(data.table::data.table(SNP=character(), method=character(), OR_id=character()))
 
   data.table::rbindlist(res)
+}
+
+
+infer_stat_type <- function(method_names) {
+
+  has_C  <- grepl("^C", method_names) | grepl("_C", method_names)
+  has_q  <- !has_C
+
+  if (any(has_C) && any(has_q)) {
+    stop("Cannot mix C-based and q-value-based methods in the same call.")
+  }
+
+  if (all(has_C)) return("C")
+  if (all(has_q)) return("q")
+
+  stop("Unable to infer statistic type.")
 }

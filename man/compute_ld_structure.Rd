@@ -2,7 +2,7 @@
 % Please edit documentation in R/compute_ld_structure.R
 \name{compute_ld_structure}
 \alias{compute_ld_structure}
-\title{Compute LD Structure and Decay Parameters}
+\title{Compute Chromosome-wise LD Structure}
 \usage{
 compute_ld_structure(
   gds,
@@ -22,55 +22,58 @@ compute_ld_structure(
 \arguments{
 \item{gds}{GDS file handle containing genotype data.}
 
-\item{q}{Quantile used for LD-decay fitting (default 0.95).}
+\item{q}{Quantile used for LD-decay fitting.}
 
-\item{prob_robust}{Quantile threshold for excluding slowest-decaying
-windows in robust estimation.}
+\item{n_sub_bg}{Number of SNPs used for background LD estimation.}
 
-\item{cores}{Number of CPU cores for LD computation.}
+\item{n_win_decay}{Number of sliding windows per chromosome for decay fitting.}
 
-\item{n_sub}{Number of SNPs used for background LD estimation.}
+\item{overlap}{Proportion of overlap between consecutive decay windows.}
 
-\item{window_size}{Physical window size (bp) for decay fitting.}
+\item{prob_robust}{Central proportion of windows retained for robust decay estimation.}
 
-\item{step_size}{Step size (bp) for sliding decay windows.}
+\item{target_dist_bins_for_decay}{Number of distance bins for decay fitting.}
 
-\item{dist_unit}{Distance bin size (bp) used for decay fitting.}
+\item{n_snps_for_decay}{Target number of SNPs per decay window after thinning.}
 
-\item{K_target}{Target number of pairwise LD comparisons per SNP.}
+\item{n_dist_target_for_hist}{Number of distance bins for LD histograms.}
 
-\item{n_win}{Target number of SNPs per decay window.}
+\item{eps}{Relative LD tail tolerance used to derive integration radius.}
+
+\item{r2_unit}{Bin width for r² values in histograms.}
+
+\item{cores}{Number of CPU cores used for parallel computations.}
 }
 \value{
-An object of class \code{"ld_structure"} containing per-chromosome:
+An object of class \code{"ld_structure"} containing:
 \describe{
-\item{edges}{Filtered LD edge lists for LD-weighted statistics.}
-\item{decay}{Window-wise decay fits.}
-\item{summary}{Median and robust decay summaries.}
+\item{by_chr}{Per-chromosome LD structure, including histograms and decay parameters.}
+\item{decay_sum}{Genome-wide table of robust decay parameters.}
+\item{params}{List of parameters used for computation.}
 }
 }
 \description{
-Computes chromosome-wise linkage disequilibrium (LD) structure,
-including LD-decay estimation and filtered edge lists for LD-weighted
-statistics.
+Estimates linkage disequilibrium (LD) structure and LD-decay
+parameters for each chromosome, and constructs per-SNP LD
+histograms for downstream LD-based summary statistics.
 }
 \details{
-The function performs the following steps:
+The workflow consists of:
 \enumerate{
-\item Estimates background LD from genome-wide or inter-chromosomal pairs.
-\item Fits LD-decay curves in sliding windows per chromosome.
-\item Computes both median and robust decay summaries.
-\item Derives a maximum LD distance (\eqn{W_{\max}}) from the decay model.
-\item Constructs reduced LD edge lists for downstream LD-weighted analysis.
+\item Estimation of background LD from inter-chromosomal pairs.
+\item Sliding-window estimation of LD-decay parameters per chromosome.
+\item Robust summarization of decay parameters.
+\item Construction of per-SNP LD histograms within an adaptive
+LD radius derived from the decay model.
 }
 
 LD decay is modeled as:
-\deqn{f(d) = b + \frac{c - b}{1 + a d}}
+\deqn{r^2(d) = b + \frac{c - b}{1 + a d}}
 
 where:
 \itemize{
-\item \eqn{b} is background LD,
 \item \eqn{a} is the decay rate,
+\item \eqn{b} is background LD,
 \item \eqn{c} is short-distance LD,
 \item \eqn{d} is physical distance (bp).
 }

@@ -23,30 +23,29 @@ estimate_decay_chr(
 
 \item{chr_idx}{SNP indices for the chromosome.}
 
-\item{snp_pos}{SNP physical positions (bp).}
+\item{snp_pos}{Physical SNP positions (bp).}
 
 \item{b}{Background LD.}
 
-\item{window_size}{Window size (bp).}
+\item{window_size}{Physical window size (bp).}
 
-\item{step_size}{Step size (bp).}
+\item{step_size}{Step size (bp) between windows.}
 
-\item{q}{Quantile for LD summary (default 0.95).}
+\item{q}{Quantile of r² used for decay fitting.}
+
+\item{target_dist_bins_for_decay}{Number of distance bins used in fitting.}
 
 \item{cores}{Number of CPU cores.}
 
-\item{dist_unit}{Distance bin size (bp).}
-
-\item{n_win}{Target number of SNPs per window.}
+\item{n_snps_for_decay}{Target SNP count per window after thinning.}
 }
 \value{
-A \code{data.table} with window-wise decay parameters.
+A \code{data.table} with window-specific decay parameters.
 }
 \description{
 Fits LD-decay curves in sliding genomic windows for a single chromosome.
 }
 \details{
-Decay is estimated using nonlinear least squares applied to binned
-quantiles of \eqn{r^2}.
+SNP density is adaptively reduced to maintain approximately constant
+SNP counts per window before decay fitting.
 }
-\keyword{internal}

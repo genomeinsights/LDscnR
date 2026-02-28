@@ -3,15 +3,13 @@
 #' Repeats LD-scaling across multiple LD-decay quantiles (rho_w),
 #' and for each run performs multiple OR parameter draws.
 #'
-#' @param ld_struct Object of class "ld_structure".
-#' @param decay_obj Object of class "ld_decay".
 #' @param SNP_ids Vector of SNP IDs in correct order.
 #' @param n_inds Number of individuals.
 #' @param F_vals Matrix or data.frame of F statistics.
 #' @param q_vals Matrix or data.frame of q values (optional).
-#' @param n_rho Number of LD-window draws.
+#' @param n_rho_w Number of LD-window draws.
 #' @param rho_w_lim List(min,max) for rho_w.
-#' @param n_or_draws Number of OR parameter draws per rho_w.
+#' @param n_draws Number of OR parameter draws per rho_w.
 #' @param rho_d_lim List(min,max) for rho_d.
 #' @param rho_ld_lim List(min,max) for rho_ld.
 #' @param alpha_lim List(min,max) for alpha exponent.
@@ -22,82 +20,81 @@
 #' @export
 ld_rho_draws <- function(gds,
                          ld_struct,
-                         method=c("auc","median"),
                          n_inds,
                          F_vals,
                          q_vals=NULL,
+                         stat_type = c("q","C"),
+                         mode = c("joint","per_method"),
+                         n_rho_w = 25,
+                         ld_w = NULL,
                          n_draws = 100,
-                         #rho_w_lim = list(min=0.8,max=0.99),
+                         rho_w_lim = list(min=0.8,max=0.99),
                          rho_d_lim=list(min=0.5,max=0.999),
                          rho_ld_lim=list(min=0.9,max=0.999),
                          alpha_lim=list(min=1.31,max=4),
                          lmin_lim=list(min=1,max=10),
-                         cores=1,
-                         seed = NULL,
-                         mode = c("joint","per_method"),
-                         use = c("robust","median")
-                         ){
+                         cores=1
 
-  if (!is.null(seed))
-    set.seed(seed)
+){
 
-  ld_w_dt <- ld_struct$ld_w_dt[,-1]
 
+  n_inds <- .get_n_inds(gds)
 
   ids <- .read_gds_ids(gds)
 
-  ld_w_names <- colnames(ld_w_dt)
+  if(is.null(ld_w)){
+    draws <- rbindlist(parallel_apply(seq_len(n_rho_w),function(dr){
 
-  #ld_w <- unlist(ld_w_dt[,1])
+      rho_w <- runif(1, rho_w_lim$min,rho_w_lim$max)
 
-  draws <- apply(ld_w_dt,2,function(ld_w){
+      ld_w <- compute_ld_summary(ld_structure=ld_struct,
+                                 method = c("rho_w"),
+                                 eps = 0.005,
+                                 d_window = derive_ld_radius(ld_struct$by_chr$Chr1$decay_sum$a, 1-rho_w),
+                                 shell_type = "median",
+                                 cores = 1)
 
-    scan <- ld_scan(
-      ld_struct = ld_struct,
-      SNP_ids   = ids$snp_id,
-      F_vals    = F_vals,
-      ld_w      = ld_w,
-      n_inds    = n_inds,
-      full      = TRUE,
-      use       = ld_struct$params$use
-    )
+      scan <- ld_scan(
+        SNP_ids   = ids$snp_id,
+        F_vals    = F_vals,
+        ld_w      = ld_w,
+        n_inds    = n_inds,
+        full      = TRUE
+      )
 
-    q_primes <- do.call(cbind,lapply(scan$result,function(x) x$q_prime))
-    colnames(q_primes) <- paste0(colnames(q_primes),"_prime")
-    qvals <- cbind(q_vals, q_primes)
-    q_min <- apply(qvals,1,min)
-    #plot(-log10(q_min))
-    ## pre-estimate all pairwise LD values for outliers
-    idx <- which(q_min<1/10^alpha_lim$min)
-    el  <- get_el(gds, idx, slide_win_ld = -1,by_chr = TRUE)
+      q_primes <- do.call(cbind,lapply(scan$result,function(x) x$q_prime))
+      colnames(q_primes) <- paste0(colnames(q_primes),"_prime")
+      qvals <- cbind(q_vals, q_primes)
+      q_min <- apply(qvals,1,min)
 
-    #n_or_draws=100
-    draws <- or_draws(
-      el         = el,
-      q_vals     = qvals,
-      SNP_ids    = ids$snp_id,
-      SNP_chr    = ids$snp_chr,
-      ld_struct  = ld_struct,
-      n_draws    = n_draws,
-      rho_d_lim  = rho_d_lim,
-      rho_ld_lim = rho_ld_lim,
-      alpha_lim  = alpha_lim,
-      lmin_lim   = lmin_lim,
-      mode       = mode[1],
-      cores      = cores
-    )
-  })
+      ## pre-estimate all pairwise LD values for outliers
+      idx <- which(q_min<1/10^alpha_lim$min)
+      el  <- get_el(gds, idx, slide_win_ld = -1,by_chr = TRUE)
 
-  lapply(1:length(ld_w_names),function(x){
-    draws[[x]][,rho_w:=ld_w_names[x]]
-  })
-  #mode="joint"
-  #out
+      #n_or_draws=100
+      draws <- or_draws(
+        el         = el,
+        q_vals     = qvals,
+        SNP_ids    = ids$snp_id,
+        SNP_chr    = ids$snp_chr,
+        ld_struct  = ld_struct,
+        n_draws    = n_draws,
+        rho_d_lim  = rho_d_lim,
+        rho_ld_lim = rho_ld_lim,
+        alpha_lim  = alpha_lim,
+        lmin_lim   = lmin_lim,
+        mode       = mode[1],
+        stat_type  = stat_type[1],
+        cores      = 1
+      )
+      draws[,rho_w:=rho_w]
+      return(draws)
+    },cores = cores))
 
-  structure(
-    list(draws=draws),
-    class = "ld_rho_draws"
-  )
+
+  }
+
+  list(draws=draws[,.(draw_id, method, rho_w, rho_d, rho_ld, alpha, l_min, OR, OR_size)],class = "ld_rho_draws")
 }
 
 

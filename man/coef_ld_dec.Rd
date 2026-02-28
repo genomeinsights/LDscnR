@@ -30,4 +30,3 @@ Fits the nonlinear decay model
 \deqn{r^2(d) = b + \frac{c - b}{1 + a(d - d_0)}}
 to binned LD quantiles.
 }
-\keyword{internal}

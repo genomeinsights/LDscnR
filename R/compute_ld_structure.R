@@ -1,46 +1,47 @@
-#' Compute LD Structure and Decay Parameters
+#' Compute Chromosome-wise LD Structure
 #'
-#' Computes chromosome-wise linkage disequilibrium (LD) structure,
-#' including LD-decay estimation and filtered edge lists for LD-weighted
-#' statistics.
+#' Estimates linkage disequilibrium (LD) structure and LD-decay
+#' parameters for each chromosome, and constructs per-SNP LD
+#' histograms for downstream LD-based summary statistics.
 #'
-#' The function performs the following steps:
+#' The workflow consists of:
 #' \enumerate{
-#'   \item Estimates background LD from genome-wide or inter-chromosomal pairs.
-#'   \item Fits LD-decay curves in sliding windows per chromosome.
-#'   \item Computes both median and robust decay summaries.
-#'   \item Derives a maximum LD distance (\eqn{W_{\max}}) from the decay model.
-#'   \item Constructs reduced LD edge lists for downstream LD-weighted analysis.
+#'   \item Estimation of background LD from inter-chromosomal pairs.
+#'   \item Sliding-window estimation of LD-decay parameters per chromosome.
+#'   \item Robust summarization of decay parameters.
+#'   \item Construction of per-SNP LD histograms within an adaptive
+#'         LD radius derived from the decay model.
 #' }
 #'
 #' LD decay is modeled as:
-#' \deqn{f(d) = b + \frac{c - b}{1 + a d}}
+#' \deqn{r^2(d) = b + \frac{c - b}{1 + a d}}
 #'
 #' where:
 #' \itemize{
-#'   \item \eqn{b} is background LD,
 #'   \item \eqn{a} is the decay rate,
+#'   \item \eqn{b} is background LD,
 #'   \item \eqn{c} is short-distance LD,
 #'   \item \eqn{d} is physical distance (bp).
 #' }
 #'
 #' @param gds GDS file handle containing genotype data.
-#' @param q Quantile used for LD-decay fitting (default 0.95).
-#' @param n_sub Number of SNPs used for background LD estimation.
-#' @param window_size Physical window size (bp) for decay fitting.
-#' @param step_size Step size (bp) for sliding decay windows.
-#' @param cores Number of CPU cores for LD computation.
-#' @param dist_unit Distance bin size (bp) used for decay fitting.
-#' @param K_target Target number of pairwise LD comparisons per SNP.
-#' @param n_win Target number of SNPs per decay window.
-#' @param prob_robust Quantile threshold for excluding slowest-decaying
-#'   windows in robust estimation.
+#' @param q Quantile used for LD-decay fitting.
+#' @param n_sub_bg Number of SNPs used for background LD estimation.
+#' @param n_win_decay Number of sliding windows per chromosome for decay fitting.
+#' @param overlap Proportion of overlap between consecutive decay windows.
+#' @param prob_robust Central proportion of windows retained for robust decay estimation.
+#' @param target_dist_bins_for_decay Number of distance bins for decay fitting.
+#' @param n_snps_for_decay Target number of SNPs per decay window after thinning.
+#' @param n_dist_target_for_hist Number of distance bins for LD histograms.
+#' @param eps Relative LD tail tolerance used to derive integration radius.
+#' @param r2_unit Bin width for r² values in histograms.
+#' @param cores Number of CPU cores used for parallel computations.
 #'
-#' @return An object of class `"ld_structure"` containing per-chromosome:
+#' @return An object of class `"ld_structure"` containing:
 #' \describe{
-#'   \item{edges}{Filtered LD edge lists for LD-weighted statistics.}
-#'   \item{decay}{Window-wise decay fits.}
-#'   \item{summary}{Median and robust decay summaries.}
+#'   \item{by_chr}{Per-chromosome LD structure, including histograms and decay parameters.}
+#'   \item{decay_sum}{Genome-wide table of robust decay parameters.}
+#'   \item{params}{List of parameters used for computation.}
 #' }
 #'
 #' @export
@@ -85,7 +86,7 @@ compute_ld_structure <- function(
     step_size   <- window_size * overlap
 
 
-    # ---- decay ----
+    # ---- LD-decay
     decay <- suppressWarnings(
       estimate_decay_chr(
         gds=gds,
@@ -108,7 +109,7 @@ compute_ld_structure <- function(
 
     decay_sum[, Chr := ch]
 
-    # --- Layer 2: Histograms ---
+    # ---  Histograms
 
     d_star <- derive_ld_radius(decay_sum$a, eps)
 
@@ -123,7 +124,7 @@ compute_ld_structure <- function(
       cores = cores
     )
 
-    # ---- collect data ----
+    # ---- collect data
     out_by_chr[[ch]] <- list(
       snp_ids    = snps_chr,
       hist_obj   = histograms,
@@ -155,27 +156,22 @@ compute_ld_structure <- function(
   out
 }
 
-
-
 #' Summarize LD Decay Parameters
 #'
-#' Computes median and robust summaries of LD-decay parameters
-#' across sliding windows.
+#' Computes robust summary estimates of LD-decay parameters across
+#' sliding windows within a chromosome.
 #'
-#' Robust estimates exclude the slowest-decaying windows based on
-#' a quantile threshold of parameter \eqn{a}.
+#' Windows with extreme decay rates are excluded based on symmetric
+#' quantile trimming of parameter \eqn{a}.
 #'
 #' @param decay_dt Data table containing window-wise decay parameters.
-#' @param prob_robust Quantile threshold for robust filtering
-#'   (default 0.5 keeps upper 50% of \eqn{a} values).
+#' @param prob_robust Central proportion of windows retained
+#'   (e.g. 0.95 keeps the central 95% of \eqn{a} values).
 #'
-#' @return A list with elements:
-#' \describe{
-#'   \item{median}{Median decay parameters.}
-#'   \item{robust}{Robust decay parameters.}
-#' }
+#' @return A \code{data.table} with robust median estimates of
+#'   \code{a}, \code{b}, and \code{c}.
 #'
-#' @keywords internal
+#' @export
 summarize_decay <- function(decay_dt, prob_robust = 0.95) {
 
   decay_valid <- decay_dt[!is.na(a) & a > 0 & !is.na(c)]
@@ -200,27 +196,29 @@ summarize_decay <- function(decay_dt, prob_robust = 0.95) {
     b = decay_trim$b[1]
   )
 }
+
+
 #' Estimate LD Decay for a Chromosome
 #'
 #' Fits LD-decay curves in sliding genomic windows for a single chromosome.
 #'
-#' Decay is estimated using nonlinear least squares applied to binned
-#' quantiles of \eqn{r^2}.
+#' SNP density is adaptively reduced to maintain approximately constant
+#' SNP counts per window before decay fitting.
 #'
 #' @param gds GDS file handle.
 #' @param chr_idx SNP indices for the chromosome.
-#' @param snp_pos SNP physical positions (bp).
+#' @param snp_pos Physical SNP positions (bp).
 #' @param b Background LD.
-#' @param window_size Window size (bp).
-#' @param step_size Step size (bp).
-#' @param q Quantile for LD summary (default 0.95).
-#' @param dist_unit Distance bin size (bp).
+#' @param window_size Physical window size (bp).
+#' @param step_size Step size (bp) between windows.
+#' @param q Quantile of r² used for decay fitting.
+#' @param target_dist_bins_for_decay Number of distance bins used in fitting.
 #' @param cores Number of CPU cores.
-#' @param n_win Target number of SNPs per window.
+#' @param n_snps_for_decay Target SNP count per window after thinning.
 #'
-#' @return A \code{data.table} with window-wise decay parameters.
+#' @return A \code{data.table} with window-specific decay parameters.
 #'
-#' @keywords internal
+#' @export
 estimate_decay_chr <- function(gds,
                                chr_idx,
                                snp_pos,
@@ -252,7 +250,7 @@ estimate_decay_chr <- function(gds,
   starts <- seq(min_pos, max_pos - window_size, by = step_size)
   ends   <- starts + window_size
   # i <- 1
-  decay <- rbindlist(lapply(seq_along(starts), function(i) {
+  decay <- suppressWarnings(rbindlist(lapply(seq_along(starts), function(i) {
 
     sub <- el[
       pos1 >= starts[i] & pos1 < ends[i] &
@@ -269,214 +267,20 @@ estimate_decay_chr <- function(gds,
     } else {
       data.table(start = starts[i], end = ends[i],coefs)
     }
-  }),fill=TRUE,use.names = TRUE)
+  }),fill=TRUE,use.names = TRUE))
 
   decay[, k_star := k_star]
-  decay[, reduction := reduction]
+  decay[, reduction := signif(reduction,2)]
 
   return(decay)
 }
 
-#' Estimate LD Decay for a Chromosome
-#'
-#' Fits LD-decay curves in sliding genomic windows for a single chromosome.
-#'
-#' Decay is estimated using nonlinear least squares applied to binned
-#' quantiles of \eqn{r^2}.
-#'
-#' @param gds GDS file handle.
-#' @param chr_idx SNP indices for the chromosome.
-#' @param snp_pos SNP physical positions (bp).
-#' @param b Background LD.
-#' @param window_size Window size (bp).
-#' @param step_size Step size (bp).
-#' @param q Quantile for LD summary (default 0.95).
-#' @param dist_unit Distance bin size (bp).
-#' @param cores Number of CPU cores.
-#' @param n_win Target number of SNPs per window.
-#'
-#' @return A \code{data.table} with window-wise decay parameters.
-#'
-#' @keywords internal
+
 estimate_background_ld <- function(gds,
+                                   idx=NULL,
                                    n_sub = 5000,
                                    q = 0.95) {
 
-  b <- get_bg_ld(gds, idx = NULL, n_sub = n_sub, q = q)
-
-  message("Background LD: ", round(b, 3))
-  b
-}
-
-
-#' Adaptive SNP Thinning for Decay Estimation
-#'
-#' Reduces SNP density to maintain approximately constant SNP counts
-#' within LD-decay windows.
-#'
-#' @param pos SNP physical positions.
-#' @param W_LD LD window size.
-#' @param n_snps_for_decay Target SNP count per window.
-#'
-#' @return List with retained SNP indices and slide window size.
-#'
-#' @keywords internal
-adaptive_thinning <- function(pos,
-                              W_LD,
-                              n_snps_for_decay = 1000) {
-
-  pos <- sort(pos)
-  spacing <- diff(pos)
-  median_spacing <- median(spacing)
-
-  target_spacing <- W_LD / n_snps_for_decay
-
-  if (median_spacing >= target_spacing) {
-
-    keep <- seq_along(pos)
-    eff_spacing <- median_spacing
-
-  } else {
-
-    thin_factor <- ceiling(target_spacing / median_spacing)
-    keep <- seq(1, length(pos), by = thin_factor)
-    eff_spacing <- median_spacing * thin_factor
-  }
-
-  k_star <- floor(W_LD / eff_spacing)
-
-  list(
-    keep = keep,
-    k_star = k_star
-  )
-}
-
-#' Fit LD Decay Model
-#'
-#' Fits the nonlinear decay model
-#' \deqn{r^2(d) = b + \frac{c - b}{1 + a(d - d_0)}}
-#' to binned LD quantiles.
-#'
-#' @param el_ld LD edge data table.
-#' @param q Quantile for LD binning.
-#' @param dist_unit Distance bin size.
-#' @param b Background LD.
-#'
-#' @return Named vector with parameters \code{c}, \code{a}, \code{d0}.
-#'
-#' @keywords internal
-coef_ld_dec <- function(dt,
-                        q = 0.95,
-                        b,
-                        n_bins = 40,
-                        min_dist_quantile = 0.02,
-                        return_full=FALSE) {
-
-  if (nrow(dt) < 100) return(NULL)
-
-  d <- dt$d
-  r2 <- dt$r2
-
-  # Remove zero or extremely small distances
-  d_min <- quantile(d[d > 0], min_dist_quantile, na.rm = TRUE)
-  keep <- d > d_min
-
-  d <- d[keep]
-  r2 <- r2[keep]
-
-
-  if (length(d) < 100) return(NULL)
-
-  # Log-distance bins (more stable near zero)
-  log_d <- log(d)
-  breaks <- seq(min(log_d), max(log_d), length.out = n_bins + 1)
-
-  bin_id <- cut(log_d, breaks = breaks, include.lowest = TRUE)
-
-  agg <- data.table::data.table(d = d, r2 = r2, bin = bin_id)[,
-                                                              .(
-                                                                d_mid = exp(mean(log(d))),
-                                                                r2_q = quantile(r2, q, na.rm = TRUE),
-                                                                n = .N
-                                                              ),
-                                                              by = bin
-  ]
-
-  agg <- agg[!is.na(r2_q) & n > 10]
-
-  #agg[,plot(d_mid,r2_q)]
-
-  if (nrow(agg) < 10) return(NULL)
-
-  # Initial parameter guesses
-  c_start <- max(agg$r2_q, na.rm = TRUE)
-  a_start <- 1 / median(agg$d_mid)
-
-  fit <- tryCatch(
-    nls(
-      r2_q ~ b + (c - b)/(1 + a * d_mid),
-      data = agg,
-      start = list(c = min(max(agg$r2_q), 1), a = a_start),
-      algorithm = "port",
-      lower = c(c = b, a = 0),
-      upper = c(c = 1, a = Inf),
-      weights = n,
-      control = nls.control(warnOnly = TRUE)
-    ),
-    error = function(e) NULL
-  )
-
-
-  if (is.null(fit)) return(NULL)
-  coefs <- coef(fit)
-  #coefs
-  #agg[,points(d_mid,r2_q,col="red")]
-  #agg[,b:=b]
-  #agg[order(d_mid),lines(d_mid, b + (coefs["c"]  - b) / (1 + coefs["a"]  * d_mid),col="red")]
-
-  return(data.table(c=coefs["c"],a=coefs["a"],b,data=list(agg)))
-
-}
-
-
-
-#' Convert Relative LD Threshold to Distance
-#'
-#' Computes the physical distance corresponding to a relative LD
-#' threshold \eqn{\rho}.
-#'
-#' @param a Decay rate.
-#' @param rho Relative LD threshold.
-#' @param d0 Offset parameter.
-#'
-#' @return Distance in base pairs.
-#'
-#' @keywords internal
-#'
-d_from_rho <- function(a, rho){
-  rho / (a * (1 - rho))
-}
-
-ld_from_rho <- function(b, c = 1, rho){
-  b + (c - b) * (1 - rho)
-}
-
-#' Convert Relative LD Threshold to Distance
-#'
-#' Computes the physical distance corresponding to a relative LD
-#' threshold \eqn{\rho}.
-#'
-#' @param a Decay rate.
-#' @param rho Relative LD threshold.
-#' @param d0 Offset parameter.
-#'
-#' @return Distance in base pairs.
-#'
-#' @keywords internal
-get_bg_ld <- function(gds,
-                      idx = NULL,
-                      n_sub = 5000,
-                      q = 0.95) {
 
   ids <- .read_gds_ids(gds)
 
@@ -528,9 +332,160 @@ get_bg_ld <- function(gds,
     stop("No inter-chromosomal SNP pairs found.")
   }
 
-  b <- stats::quantile(r2_inter, probs = q, na.rm = TRUE)
+  b <- quantile(r2_inter, probs = q, na.rm = TRUE)
 
+  message("Background LD: ", round(b, 3))
   return(b)
+}
+
+
+##' Adaptive SNP Thinning
+#'
+#' Reduces SNP density to maintain approximately constant SNP counts
+#' within LD-decay windows.
+#'
+#' @param pos SNP physical positions (bp).
+#' @param W_LD Target LD window size (bp).
+#' @param n_snps_for_decay Desired number of SNPs per window.
+#'
+#' @return A list containing:
+#' \describe{
+#'   \item{keep}{Indices of retained SNPs.}
+#'   \item{k_star}{Effective sliding window size (in SNP count).}
+#' }
+#'
+#' @export
+adaptive_thinning <- function(pos,
+                              W_LD,
+                              n_snps_for_decay = 1000) {
+
+  pos <- sort(pos)
+  spacing <- diff(pos)
+  median_spacing <- median(spacing)
+
+  target_spacing <- W_LD / n_snps_for_decay
+
+  if (median_spacing >= target_spacing) {
+
+    keep <- seq_along(pos)
+    eff_spacing <- median_spacing
+
+  } else {
+
+    thin_factor <- ceiling(target_spacing / median_spacing)
+    keep <- seq(1, length(pos), by = thin_factor)
+    eff_spacing <- median_spacing * thin_factor
+  }
+
+  k_star <- floor(W_LD / eff_spacing)
+
+  list(
+    keep = keep,
+    k_star = k_star
+  )
+}
+
+#' Fit LD Decay Model
+#'
+#' Fits the nonlinear decay model
+#' \deqn{r^2(d) = b + \frac{c - b}{1 + a(d - d_0)}}
+#' to binned LD quantiles.
+#'
+#' @param el_ld LD edge data table.
+#' @param q Quantile for LD binning.
+#' @param dist_unit Distance bin size.
+#' @param b Background LD.
+#'
+#' @return Named vector with parameters \code{c}, \code{a}, \code{d0}.
+#'
+#' @export
+coef_ld_dec <- function(dt,
+                        q = 0.95,
+                        b,
+                        n_bins = 40,
+                        min_dist_quantile = 0.02,
+                        return_full=FALSE) {
+
+  if (nrow(dt) < 100) return(NULL)
+
+  d <- dt$d
+  r2 <- dt$r2
+
+  # Remove zero or extremely small distances
+  d_min <- quantile(d[d > 0], min_dist_quantile, na.rm = TRUE)
+  keep <- d > d_min
+
+  d <- d[keep]
+  r2 <- r2[keep]
+
+  if (length(d) < 100) return(NULL)
+
+  # Log-distance bins (more stable near zero)
+  log_d <- log(d)
+
+  breaks <- seq(min(log_d), max(log_d), length.out = n_bins + 1)
+
+  bin_id <- cut(log_d, breaks = breaks, include.lowest = TRUE)
+
+  agg <- data.table::data.table(d = d, r2 = r2, bin = bin_id)[,
+                                                              .(
+                                                                d_mid = exp(mean(log(d))),
+                                                                r2_q = quantile(r2, q, na.rm = TRUE),
+                                                                n = .N
+                                                              ),
+                                                              by = bin
+  ]
+
+  agg <- agg[!is.na(r2_q) & n > 10]
+
+  if (nrow(agg) < 10) return(NULL)
+
+  # Initial parameter guesses
+  c_start <- max(agg$r2_q, na.rm = TRUE)
+  a_start <- 1 / median(agg$d_mid)
+
+  fit <- tryCatch(
+    nls(
+      r2_q ~ b + (c - b)/(1 + a * d_mid),
+      data = agg,
+      start = list(c = min(max(agg$r2_q), 1), a = a_start),
+      algorithm = "port",
+      lower = c(c = b, a = 0),
+      upper = c(c = 1, a = Inf),
+      weights = n,
+      control = nls.control(warnOnly = TRUE)
+    ),
+    error = function(e) NULL
+  )
+
+
+  if (is.null(fit)) return(NULL)
+  coefs <- coef(fit)
+
+  return(data.table(c=coefs["c"],a=coefs["a"],b,data=list(agg)))
+
+}
+
+
+
+#' Convert Relative LD Threshold to Distance
+#'
+#' Computes the physical distance corresponding to a relative LD
+#' threshold \eqn{\rho}.
+#'
+#' @param a Decay rate.
+#' @param rho Relative LD threshold.
+#' @param d0 Offset parameter.
+#'
+#' @return Distance in base pairs.
+#'
+#' @export
+d_from_rho <- function(a, rho){
+  rho / (a * (1 - rho))
+}
+
+ld_from_rho <- function(b, c = 1, rho){
+  b + (c - b) * (1 - rho)
 }
 
 #' Print Method for ld_structure Objects
@@ -721,6 +676,14 @@ plot.ld_structure <- function(x,
 }
 
 
+parallel_apply <- function(X, FUN, cores = 1) {
+
+  if (cores > 1 && .Platform$OS.type != "windows") {
+    parallel::mclapply(X, FUN, mc.cores = cores)
+  } else {
+    lapply(X, FUN)
+  }
+}
 
 build_hist_from_dt <- function(dt, dist_unit, r2_unit) {
 
@@ -758,6 +721,7 @@ build_hist_from_dt <- function(dt, dist_unit, r2_unit) {
   return(mat)
 
 }
+
 summarize_hist_shell <- function(hist_row,
                                  b = NULL,
                                  type = c("mean", "median", "excess")) {
@@ -821,6 +785,24 @@ derive_ld_radius <- function(a, eps) {
   (1 / a) * (1/eps - 1)
 }
 
+#' Build Per-SNP LD Histograms
+#'
+#' Constructs two-dimensional histograms of LD (r²) as a function
+#' of physical distance for each SNP within an adaptive LD radius.
+#'
+#' @param gds GDS file handle.
+#' @param chr_idx SNP indices for chromosome.
+#' @param snps_chr SNP IDs.
+#' @param pos_chr Physical SNP positions.
+#' @param d_star Maximum LD integration radius (bp).
+#' @param r2_unit Bin width for r² values.
+#' @param n_dist_target Target number of distance bins.
+#' @param cores Number of CPU cores.
+#'
+#' @return A list of matrices, one per SNP. Each matrix contains
+#'   counts of LD pairs binned by distance (rows) and r² (columns).
+#'
+#' @export
 build_ld_histograms <- function(
     gds,
     chr_idx,
@@ -855,7 +837,7 @@ build_ld_histograms <- function(
 
   #hist_list <- vector("list", length(snps_chr))
 
-  hist_list <-  parallel::mclapply(seq_along(snps_chr),function(i) {
+  hist_list <-  parallel_apply(seq_along(snps_chr),function(i) {
 
     dt <- el[J(snps_chr[i]), nomatch = 0]
 
@@ -870,7 +852,7 @@ build_ld_histograms <- function(
     dist_unit <- signif(max_d / n_dist_target, 2)
 
     hist_list[[i]] <- build_hist_from_dt(dt, dist_unit, r2_unit)
-  },mc.cores=cores)
+  },cores=cores)
 
   return(hist_list)
 
@@ -914,6 +896,27 @@ integrate_ld_kernel <- function(hist_mat,
   sum(shell_vals * w_use)
 }
 
+#' Compute LD-Based Summary Statistic
+#'
+#' Projects stored LD histograms into scalar LD summary statistics
+#' using either kernel-weighted integration or hard truncation.
+#'
+#' @param ld_structure An object of class `"ld_structure"`.
+#' @param method One of:
+#'   \describe{
+#'     \item{"ld_int"}{Kernel-weighted integration of shell summaries.}
+#'     \item{"rho_w"}{Hard distance truncation equivalent to rho thresholding.}
+#'     \item{"ld_int_median"}{Kernel-weighted integration using weighted median across shells.}
+#'   }
+#' @param eps Tail tolerance for LD integration (used for `"ld_int"`).
+#' @param d_window Physical distance cutoff (used for `"rho_w"`).
+#' @param shell_type Shell summary statistic:
+#'   `"mean"`, `"median"`, or `"excess"`.
+#' @param cores Number of CPU cores.
+#'
+#' @return Numeric vector of LD summary values (one per SNP).
+#'
+#' @export
 compute_ld_summary <- function(ld_structure,
                                method = c("ld_int", "rho_w","ld_int_median"),
                                eps = 0.005,
@@ -922,9 +925,8 @@ compute_ld_summary <- function(ld_structure,
                                cores) {
 
   method <- match.arg(method)
-  #method <- "ld_int"
-  #chr_obj <- ld_struct$by_chr[[1]]
-  results <- lapply(ld_structure$by_chr, function(chr_obj) {
+
+  results <- parallel_apply(ld_structure$by_chr, function(chr_obj) {
 
     hist_list <- chr_obj$hist_obj
     a <- chr_obj$decay_sum$a
@@ -934,14 +936,14 @@ compute_ld_summary <- function(ld_structure,
 
       d_star <- derive_ld_radius(a, eps)
       h <- hist_list[[1]]
-      parallel::mclapply(hist_list, function(h)
+      sapply(hist_list, function(h)
         integrate_ld_kernel(
           hist_mat = h,
           a = a,
           b = b,
           d_star = d_star,
           shell_type = shell_type
-        ),mc.cores=cores
+        )
       )
     }
 
@@ -974,7 +976,7 @@ compute_ld_summary <- function(ld_structure,
         )
       )
     }
-  })
+  },cores=cores)
 
   unlist(results)
 }
@@ -1054,80 +1056,3 @@ compute_ld_rhow_from_hist <- function(hist_mat,
                        type = shell_type)
 }
 
-# compute_ld_integral <- function(
-#     hist_obj,
-#     eps = 0.001
-# ) {
-#
-#   hist_list <- hist_obj$hist_list
-#   k_star    <- hist_obj$k_star
-#   a         <- hist_obj$decay_sum$a
-#   b         <- hist_obj$decay_sum$b
-#
-#   # derive LD radius dynamically
-#   d_star <- derive_ld_radius(a, eps)
-#
-#   LD_int <- sapply(hist_list, function(h)
-#     integrate_ld_kernel(
-#       hist_mat = h,
-#       a = a,
-#       b = b,
-#       d_star = d_star
-#     )
-#   )
-#
-#   list(
-#     LD_int = LD_int,
-#     d_star = d_star,
-#     k_star = k_star
-#   )
-# }
-
-# summarize_hist_shell <- function(hist_row, b = NULL) {
-#
-#   if (is.null(hist_row))
-#     return(list(mean_excess = NA_real_, median = NA_real_))
-#
-#   total <- sum(hist_row)
-#   if (total == 0)
-#     return(list(mean_excess = NA_real_, median = NA_real_))
-#
-#   r2_vals <- as.numeric(names(hist_row))
-#
-#   # median
-#   cs <- cumsum(hist_row)
-#   idx <- which(cs >= total / 2)[1]
-#   median_r2 <- r2_vals[idx]
-#
-#   # excess mean
-#   if (!is.null(b)) {
-#     excess <- pmax(r2_vals - b, 0)
-#     mean_excess <- sum(excess * hist_row) / total
-#   } else {
-#     mean_excess <- NA_real_
-#   }
-#
-#   list(
-#     mean_excess = mean_excess,
-#     median = median_r2
-#   )
-# }
-
-# plot(unlist(decay[,sapply(data,nrow)]),as.vector(na.omit(decay$a)))
-#
-# par(mfcol=c(4,5))
-# for(i in which(!is.na(decay$a))){
-#   decay[i,plot(data[[1]]$d_mid,data[[1]]$r2_q)]
-#   a = decay[i,a]
-#   c = decay[i,c]
-#   decay[i,data[[1]]][order(d_mid),lines(d_mid, b + (c  - b) / (1 + a  * d_mid),col="red")]
-# }
-#
-# par(mfcol=c(1,1))
-# a = decay[1,a]
-# c = decay[1,c]
-# decay[1,data[[1]]][order(d_mid),plot(d_mid, b + (c  - b) / (1 + a  * d_mid),type="l",col="red",ylim=c(0,1))]
-# for(i in which(!is.na(decay$a))[-1]){
-#   decay[i,data[[1]]][order(d_mid),lines(d_mid, b + (c  - b) / (1 + a  * d_mid),type="l",ylim=c(0,1),col="red")]
-# }
-#
