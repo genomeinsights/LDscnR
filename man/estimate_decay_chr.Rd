@@ -9,12 +9,13 @@ estimate_decay_chr(
   chr_idx,
   snp_pos,
   b,
-  window_size = 1e+06,
-  step_size = 5e+05,
+  window_size,
+  step_size,
+  overlap = 0.5,
   q = 0.95,
-  dist_unit = 5000,
+  target_dist_bins_for_decay = 60,
   cores = 1,
-  n_win = 1000
+  n_snps_for_decay = 500
 )
 }
 \arguments{
@@ -32,9 +33,9 @@ estimate_decay_chr(
 
 \item{q}{Quantile for LD summary (default 0.95).}
 
-\item{dist_unit}{Distance bin size (bp).}
-
 \item{cores}{Number of CPU cores.}
+
+\item{dist_unit}{Distance bin size (bp).}
 
 \item{n_win}{Target number of SNPs per window.}
 }

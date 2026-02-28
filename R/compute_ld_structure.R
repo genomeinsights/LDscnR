@@ -156,10 +156,6 @@ compute_ld_structure <- function(
 }
 
 
-# target_snps_per_window = 500
-# mean_spacing <- median(diff(sort(snp_pos)))
-# window_size  <- target_snps_per_window * mean_spacing
-# step_size    <- window_size * 0.5
 
 #' Summarize LD Decay Parameters
 #'
@@ -546,60 +542,58 @@ get_bg_ld <- function(gds,
 #'
 #' @export
 print.ld_structure <- function(x, ...) {
-  #x <- out
+
   if (!inherits(x, "ld_structure"))
     stop("Object must be of class 'ld_structure'.")
 
-  chrs <- names(x$histograms)
-  n_chr <- length(chrs)
-
-  n_snps <-length(x$SNP_ids)
-
   cat("LD Structure Object\n")
   cat("-------------------\n")
+
+  # Chromosomes
+  chrs <- names(x$by_chr)
+  n_chr <- length(chrs)
   cat("Chromosomes:", n_chr, "\n")
+
+  # Total SNPs
+  n_snps <- sum(
+    vapply(x$by_chr, function(chr)
+      length(chr$snp_ids), numeric(1)),
+    na.rm = TRUE
+  )
   cat("Total SNPs:", n_snps, "\n\n")
 
-  if (!is.null(x$decay_summary) && nrow(x$decay_summary) > 0) {
+  # Decay summary
+  if (!is.null(x$decay_sum) && nrow(x$decay_sum) > 0) {
 
     cat("Robust LD-decay parameters (median across chromosomes):\n")
 
-    cat("  a  =", signif(median(x$decay_summary$a, na.rm = TRUE), 3), "\n")
-    cat("  c  =", signif(median(x$decay_summary$c, na.rm = TRUE), 3), "\n")
+    if ("a" %in% names(x$decay_sum))
+      cat("  a =", signif(median(x$decay_sum$a, na.rm = TRUE), 3), "\n")
 
-    if ("b" %in% names(x$decay_summary))
-      cat("  b  =", signif(median(x$decay_summary$b, na.rm = TRUE), 3), "\n")
+    if ("c" %in% names(x$decay_sum))
+      cat("  c =", signif(median(x$decay_sum$c, na.rm = TRUE), 3), "\n")
+
+    if ("b" %in% names(x$decay_sum))
+      cat("  b =", signif(median(x$decay_sum$b, na.rm = TRUE), 3), "\n")
+
+    if ("k_star" %in% names(x$decay_sum))
+      cat("  k* (median) =",
+          signif(median(x$decay_sum$k_star, na.rm = TRUE), 3), "\n")
   }
 
   cat("\nParameters used:\n")
 
-  for (nm in names(x$params)) {
-    cat(" ", nm, "=", x$params[[nm]], "\n")
+  if (!is.null(x$params)) {
+    for (nm in names(x$params)) {
+      cat(" ", nm, "=", x$params[[nm]], "\n")
+    }
   }
 
-  cat("\nHistograms stored (not printed).\n")
+  cat("\nLD histograms stored per chromosome (not printed).\n")
 
   invisible(x)
 }
 
-
-#' Summary Method for ld_structure Objects
-#'
-#' Returns chromosome-wise summary statistics of LD structure.
-#'
-#' @param object An object of class `"ld_structure"`.
-#' @param ... Additional arguments (unused).
-#'
-#' @return A \code{data.table} summarizing decay parameters and edge counts.
-#'
-#' @export
-summary.ld_structure <- function(object, ...) {
-
-  if (!inherits(object, "ld_structure"))
-    stop("Object must be of class 'ld_structure'.")
-  object$summary
-
-}
 
 #' Plot Method for ld_structure Objects
 #'
@@ -764,37 +758,33 @@ build_hist_from_dt <- function(dt, dist_unit, r2_unit) {
   return(mat)
 
 }
+summarize_hist_shell <- function(hist_row,
+                                 b = NULL,
+                                 type = c("mean", "median", "excess")) {
 
-ld_exc_from_hist <- function(cum_mat, row_index, b, r2_unit) {
+  type <- match.arg(type)
 
-  if (is.null(cum_mat) || !(row_index %in% rownames(cum_mat)))
-    return(NA_real_)
-
-  counts <- cum_mat[row_index, , drop = TRUE]
-  total <- sum(counts)
-
+  total <- sum(hist_row)
   if (total == 0) return(NA_real_)
 
-  r2_idx <- as.numeric(colnames(cum_mat))
-  r2_vals <- r2_idx * r2_unit
+  r2_vals <- as.numeric(names(hist_row))
 
-  excess <- pmax(r2_vals - b, 0)
+  if (type == "median") {
+    cs <- cumsum(hist_row)
+    idx <- which(cs >= total / 2)[1]
+    return(r2_vals[idx])
+  }
 
-  sum(excess * counts) / total
+  if (type == "mean") {
+    return(sum(r2_vals * hist_row) / total)
+  }
+
+  if (type == "excess") {
+    excess <- pmax(r2_vals - b, 0)
+    return(sum(excess * hist_row) / total)
+  }
 }
 
-median_from_hist <- function(cum_mat, row_index) {
-
-  row_counts <- cum_mat[row_index, ]
-  total <- sum(row_counts)
-
-  if (total == 0) return(NA_real_)
-
-  cs <- cumsum(row_counts)
-  idx <- which(cs >= total / 2)[1]
-
-  as.numeric(colnames(cum_mat)[idx])
-}
 
 thin_to_k_target <- function(pos, d_star, k_target = 1000) {
 
@@ -863,9 +853,9 @@ build_ld_histograms <- function(
 
   setkey(el, SNP)
 
-  hist_list <- vector("list", length(snps_chr))
+  #hist_list <- vector("list", length(snps_chr))
 
-  for (i in seq_along(snps_chr)) {
+  hist_list <-  parallel::mclapply(seq_along(snps_chr),function(i) {
 
     dt <- el[J(snps_chr[i]), nomatch = 0]
 
@@ -880,18 +870,17 @@ build_ld_histograms <- function(
     dist_unit <- signif(max_d / n_dist_target, 2)
 
     hist_list[[i]] <- build_hist_from_dt(dt, dist_unit, r2_unit)
-  }
+  },mc.cores=cores)
 
   return(hist_list)
 
 }
 
-integrate_ld_kernel <- function(
-    hist_mat,
-    a,
-    b,
-    d_star
-) {
+integrate_ld_kernel <- function(hist_mat,
+                                a,
+                                b,
+                                d_star,
+                                shell_type = "excess") {
 
   if (is.null(hist_mat)) return(NA_real_)
 
@@ -903,7 +892,7 @@ integrate_ld_kernel <- function(
   h_sub <- hist_mat[keep, , drop = FALSE]
   dist_vals_sub <- as.numeric(rownames(h_sub))
 
-  # kernel weights
+  # Kernel weights
   w_d <- a / (1 + a * dist_vals_sub)^2
 
   if (length(dist_vals_sub) > 1) {
@@ -917,77 +906,212 @@ integrate_ld_kernel <- function(
   if (sum(w_use) == 0) return(NA_real_)
   w_use <- w_use / sum(w_use)
 
-  # excess LD
-  r2_vals <- as.numeric(colnames(h_sub))
-  excess  <- pmax(r2_vals - b, 0)
+  # Shell summaries
+  shell_vals <- apply(h_sub, 1, summarize_hist_shell,
+                      b = b,
+                      type = shell_type)
 
-  E_shell <- as.numeric(h_sub %*% excess)
-  N_shell <- rowSums(h_sub)
-
-  LD_shell <- E_shell / pmax(N_shell, 1)
-
-  sum(LD_shell * w_use)
+  sum(shell_vals * w_use)
 }
 
+compute_ld_summary <- function(ld_structure,
+                               method = c("ld_int", "rho_w","ld_int_median"),
+                               eps = 0.005,
+                               d_window = NULL,
+                               shell_type = "excess",
+                               cores) {
 
-compute_ld_integral <- function(
-    hist_obj,
-    eps = 0.001
-) {
+  method <- match.arg(method)
+  #method <- "ld_int"
+  #chr_obj <- ld_struct$by_chr[[1]]
+  results <- lapply(ld_structure$by_chr, function(chr_obj) {
 
-  hist_list <- hist_obj$hist_list
-  k_star    <- hist_obj$k_star
-  a         <- hist_obj$decay_sum$a
-  b         <- hist_obj$decay_sum$b
+    hist_list <- chr_obj$hist_obj
+    a <- chr_obj$decay_sum$a
+    b <- chr_obj$decay_sum$b
 
-  # derive LD radius dynamically
-  d_star <- derive_ld_radius(a, eps)
+    if (method == "ld_int") {
 
-  LD_int <- sapply(hist_list, function(h)
-    integrate_ld_kernel(
-      hist_mat = h,
-      a = a,
-      b = b,
-      d_star = d_star
-    )
-  )
+      d_star <- derive_ld_radius(a, eps)
+      h <- hist_list[[1]]
+      parallel::mclapply(hist_list, function(h)
+        integrate_ld_kernel(
+          hist_mat = h,
+          a = a,
+          b = b,
+          d_star = d_star,
+          shell_type = shell_type
+        ),mc.cores=cores
+      )
+    }
 
-  list(
-    LD_int = LD_int,
-    d_star = d_star,
-    k_star = k_star
-  )
+    else if (method == "rho_w") {
+
+      if (is.null(d_window))
+        stop("d_window must be supplied for rho_w.")
+
+      sapply(hist_list, function(h)
+        compute_ld_rhow_from_hist(
+          hist_mat = h,
+          d_window = d_window,
+          shell_type = shell_type,
+          b = b
+        )
+      )
+    }
+
+    else if (method == "ld_int_median") {
+
+      d_star <- derive_ld_radius(a, eps)
+
+      sapply(hist_list, function(h)
+        integrate_ld_kernel_median(
+          hist_mat = h,
+          a = a,
+          b = b,
+          d_star = d_star,
+          shell_type = shell_type
+        )
+      )
+    }
+  })
+
+  unlist(results)
 }
 
-summarize_hist_shell <- function(hist_row, b = NULL) {
+weighted_median <- function(x, w) {
 
-  if (is.null(hist_row))
-    return(list(mean_excess = NA_real_, median = NA_real_))
+  if (length(x) == 0) return(NA_real_)
 
-  total <- sum(hist_row)
-  if (total == 0)
-    return(list(mean_excess = NA_real_, median = NA_real_))
+  ord <- order(x)
+  x <- x[ord]
+  w <- w[ord]
 
-  r2_vals <- as.numeric(names(hist_row))
+  w <- w / sum(w)
 
-  # median
-  cs <- cumsum(hist_row)
-  idx <- which(cs >= total / 2)[1]
-  median_r2 <- r2_vals[idx]
+  cw <- cumsum(w)
 
-  # excess mean
-  if (!is.null(b)) {
-    excess <- pmax(r2_vals - b, 0)
-    mean_excess <- sum(excess * hist_row) / total
+  x[which(cw >= 0.5)[1]]
+}
+
+integrate_ld_kernel_median <- function(hist_mat,
+                                       a,
+                                       b,
+                                       d_star,
+                                       shell_type = "median") {
+
+  if (is.null(hist_mat)) return(NA_real_)
+
+  dist_vals <- as.numeric(rownames(hist_mat))
+  keep <- dist_vals <= d_star
+
+  if (!any(keep)) return(NA_real_)
+
+  h_sub <- hist_mat[keep, , drop = FALSE]
+  dist_vals_sub <- as.numeric(rownames(h_sub))
+
+  # decay weights
+  w_d <- a / (1 + a * dist_vals_sub)^2
+
+  if (length(dist_vals_sub) > 1) {
+    delta_d <- c(diff(dist_vals_sub),
+                 tail(diff(dist_vals_sub), 1))
   } else {
-    mean_excess <- NA_real_
+    delta_d <- 1
   }
 
-  list(
-    mean_excess = mean_excess,
-    median = median_r2
-  )
+  w_use <- w_d * delta_d
+  if (sum(w_use) == 0) return(NA_real_)
+
+  # shell summaries
+  shell_vals <- apply(h_sub, 1, summarize_hist_shell,
+                      b = b,
+                      type = shell_type)
+
+  weighted_median(shell_vals, w_use)
 }
+
+#d_window
+compute_ld_rhow_from_hist <- function(hist_mat,
+                                      d_window,
+                                      shell_type = "median",
+                                      b = NULL) {
+
+  if (is.null(hist_mat)) return(NA_real_)
+
+  dist_vals <- as.numeric(rownames(hist_mat))
+  keep <- dist_vals <= d_window
+
+  if (!any(keep)) return(NA_real_)
+
+  h_sub <- hist_mat[keep, , drop = FALSE]
+
+  # Collapse all rows into one distribution
+  combined <- colSums(h_sub)
+
+  summarize_hist_shell(combined,
+                       b = b,
+                       type = shell_type)
+}
+
+# compute_ld_integral <- function(
+#     hist_obj,
+#     eps = 0.001
+# ) {
+#
+#   hist_list <- hist_obj$hist_list
+#   k_star    <- hist_obj$k_star
+#   a         <- hist_obj$decay_sum$a
+#   b         <- hist_obj$decay_sum$b
+#
+#   # derive LD radius dynamically
+#   d_star <- derive_ld_radius(a, eps)
+#
+#   LD_int <- sapply(hist_list, function(h)
+#     integrate_ld_kernel(
+#       hist_mat = h,
+#       a = a,
+#       b = b,
+#       d_star = d_star
+#     )
+#   )
+#
+#   list(
+#     LD_int = LD_int,
+#     d_star = d_star,
+#     k_star = k_star
+#   )
+# }
+
+# summarize_hist_shell <- function(hist_row, b = NULL) {
+#
+#   if (is.null(hist_row))
+#     return(list(mean_excess = NA_real_, median = NA_real_))
+#
+#   total <- sum(hist_row)
+#   if (total == 0)
+#     return(list(mean_excess = NA_real_, median = NA_real_))
+#
+#   r2_vals <- as.numeric(names(hist_row))
+#
+#   # median
+#   cs <- cumsum(hist_row)
+#   idx <- which(cs >= total / 2)[1]
+#   median_r2 <- r2_vals[idx]
+#
+#   # excess mean
+#   if (!is.null(b)) {
+#     excess <- pmax(r2_vals - b, 0)
+#     mean_excess <- sum(excess * hist_row) / total
+#   } else {
+#     mean_excess <- NA_real_
+#   }
+#
+#   list(
+#     mean_excess = mean_excess,
+#     median = median_r2
+#   )
+# }
 
 # plot(unlist(decay[,sapply(data,nrow)]),as.vector(na.omit(decay$a)))
 #

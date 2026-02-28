@@ -7,15 +7,16 @@
 compute_ld_structure(
   gds,
   q = 0.95,
-  n_sub = 5000,
-  window_size = 1e+06,
-  step_size = 5e+05,
-  cores = 1,
-  n_dist_target = 100,
-  rho_max = 0.95,
-  r2_unit = 0.001,
+  n_sub_bg = 5000,
+  n_win_decay = 20,
+  overlap = 0.5,
   prob_robust = 0.95,
-  slide_win = 1000
+  target_dist_bins_for_decay = 40,
+  n_snps_for_decay = 500,
+  n_dist_target_for_hist = 100,
+  eps = 0.005,
+  r2_unit = 0.001,
+  cores = 1
 )
 }
 \arguments{
@@ -23,16 +24,16 @@ compute_ld_structure(
 
 \item{q}{Quantile used for LD-decay fitting (default 0.95).}
 
+\item{prob_robust}{Quantile threshold for excluding slowest-decaying
+windows in robust estimation.}
+
+\item{cores}{Number of CPU cores for LD computation.}
+
 \item{n_sub}{Number of SNPs used for background LD estimation.}
 
 \item{window_size}{Physical window size (bp) for decay fitting.}
 
 \item{step_size}{Step size (bp) for sliding decay windows.}
-
-\item{cores}{Number of CPU cores for LD computation.}
-
-\item{prob_robust}{Quantile threshold for excluding slowest-decaying
-windows in robust estimation.}
 
 \item{dist_unit}{Distance bin size (bp) used for decay fitting.}
 

@@ -4,14 +4,14 @@
 \alias{adaptive_thinning}
 \title{Adaptive SNP Thinning for Decay Estimation}
 \usage{
-adaptive_thinning(pos, W_LD = 1e+07, n_win = 1000)
+adaptive_thinning(pos, W_LD, n_snps_for_decay = 1000)
 }
 \arguments{
 \item{pos}{SNP physical positions.}
 
 \item{W_LD}{LD window size.}
 
-\item{n_win}{Target SNP count per window.}
+\item{n_snps_for_decay}{Target SNP count per window.}
 }
 \value{
 List with retained SNP indices and slide window size.

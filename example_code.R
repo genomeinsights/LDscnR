@@ -59,30 +59,186 @@ gds <- create_gds_from_geno(geno, map, gds_path)
 # 2. LD decay + structure
 # ------------------------------------------------------------
 t1 <- Sys.time()
-ld_struct <-  compute_ld_structure( gds,
-                                    q = 0.95,
-                                    n_sub = 5000,
-                                    window_size = 1e6,
-                                    step_size = 5e5,
-                                    cores = 8,
-                                    dist_unit = 5000,
-                                    n_dist_target = 100,
-                                    rho_max = 0.99,
-                                    r2_unit = 0.001,
-                                    prob_robust = 0.95,
-                                    slide_win = 1000
-                                   )
+ld_struct <-  compute_ld_structure(
+  gds,
+  ## for LD-decay and bg
+  q = 0.95,
+  ## for bg
+  n_sub_bg = 5000,
+  ## for decay
+  n_win_decay = 20,
+  overlap = 0.5,
+  prob_robust = 0.95,
+  target_dist_bins_for_decay = 40,
+  n_snps_for_decay = 500,
+  ## for histograms
+  n_dist_target_for_hist = 100,
+  eps = 0.005,
+  r2_unit = 0.001,
+  ## cores
+  cores = 1
+)
 
 #ld_struct$histograms$Chr1
 #plot(ld_struct)
 t2 <- Sys.time()
 difftime(t2,t1)
+ld_struct
 
-str(el$SNP)
-str(snps_chr)
+cors <- rbindlist(lapply(seq(0.5,1,by=0.05)-0.000001,function(rho_w){
+  d_star <- derive_ld_radius(ld_struct$by_chr$Chr1$decay_sum$a, 1-rho_w)
+  ld_w <- compute_ld_summary(ld_structure=ld_struct,
+                             method = c("rho_w"),
+                             eps = 0.005,
+                             d_window = d_star,
+                             shell_type = "median")
+
+  data.table(rho_w=rho_w,
+             cor_ld=cor(ld_w,map$max_LD_with_QTN,use="pair")^2,
+             cor_d=cor(ld_w,map$bp_to_focal_QTN,use="pair")^2 ,
+             mean_QTN= mean((ld_w * map$lfmm_F)[map$type=="QTN"],na.rm=TRUE)/mean((ld_w * map$lfmm_F)[map$type!="QTN"],na.rm=TRUE))
+}))
+
+# LD_int <- compute_ld_summary(ld_structure=ld_struct,
+#                              method = c("ld_int"),
+#                              eps = 0.005,
+#                              d_window = NULL,
+#                              shell_type = "excess")
+
+par(mfcol=c(1,3))
+plot(seq(0.5,1,by=0.05),cors$cor_d,type="l")
+abline(h=cor(LD_int_median,map$bp_to_focal_QTN)^2)
+
+plot(seq(0.5,1,by=0.05),cors$cor_ld,type="l")
+abline(h=cor(LD_int_median,map$max_LD_with_QTN)^2)
+
+plot(seq(0.5,1,by=0.05),cors$mean_QTN,type="l")
+abline(h=mean((LD_int_median * map$lfmm_F)[map$type=="QTN"])/mean((LD_int_median * map$lfmm_F)[map$type!="QTN"]))
+
+plot(seq(0.5,1,by=0.05),cors$cor_ld,type="l")
+abline(h=mean((LD_int_median * map$lfmm_F)[map$type=="QTN"])/mean((LD_int * map$lfmm_F)[map$type!="QTN"]))
+
+
+plot(cors$cor_ld,cors$cor_d)
+
+cor(LD_int_median,map$lfmm_F)^2
+cor(LD_int,map$lfmm_F)^2
+LD_int_median <- compute_ld_summary(ld_structure=ld_struct,
+                                     method = c("ld_int"),
+                                     eps = 0.005,
+                                     d_window = NULL,
+                                     shell_type = "median",
+                                    cores = 8)
+cor(LD_int_mean,map$max_LD_with_QTN)^2
+cor(LD_int_median,map$max_LD_with_QTN)^2
+cor(LD_int_median_int,map$max_LD_with_QTN)^2
+cor(LD_int,map$max_LD_with_QTN)^2
+
+cor(LD_int_median, LD_int)^2
+sd(LD_int_median)
+sd(LD_int)
+
+ld_w <- compute_ld_summary(ld_structure=ld_struct,
+                           method = c("rho_w"),
+                           eps = 0.005,
+                           d_window = derive_ld_radius(ld_struct$by_chr$Chr1$decay_sum$a, 1-0.01),
+                           shell_type = "excess")
+
+par(mfcol=c(2,1))
+plot(LD_int*map$lfmm_F,col=ifelse(map$type=="QTN","red","black"),pch=ifelse(map$type=="QTN",3,16),cex=ifelse(map$type=="QTN",3,1))
+plot(ld_w*map$lfmm_F,col=ifelse(map$type=="QTN","red","black"),pch=ifelse(map$type=="QTN",3,16),cex=ifelse(map$type=="QTN",3,1))
+
+#plot(LD_int*map$lfmm_F,ld_w*map$lfmm_F,pch=ifelse(map$type=="QTN",3,16),cex=ifelse(map$type=="QTN",3,1))
+
+mean((LD_int * map$lfmm_F)[map$type=="QTN"])/mean((LD_int * map$lfmm_F)[map$type!="QTN"])
+mean((ld_w * map$lfmm_F)[map$type=="QTN"])/mean((ld_w * map$lfmm_F)[map$type!="QTN"])
+
+tapply(LD_int * map$lfmm_F, map$type, mean)
+tapply(ld_w  * map$lfmm_F, map$type, mean)
+
+ld_w <- compute_ld_summary(ld_structure=ld_struct,
+                           method = c("rho_w"),
+                           eps = 0.005,
+                           d_window = derive_ld_radius(ld_struct$by_chr$Chr1$decay_sum$a, 1-0.9),
+                           shell_type = "median")
+
+dt_plot <- rbindlist(list(
+  data.table(
+    index = seq_along(LD_int),
+    value = LD_int_median,
+    type  = map$type,
+    method = "LD_int"
+  ),
+  data.table(
+    index = seq_along(ld_w),
+    value = ld_w,
+    type  = map$type,
+    method = "rho_w"
+  )
+))
+
+ggplot(dt_plot, aes(x = index, y = value)) +
+  geom_point(aes(color = type,
+                 shape = type,
+                 size = type),
+             alpha = 0.8) +
+  scale_color_manual(values = c("neutral" = "black",
+                                "QTN" = "red")) +
+  scale_shape_manual(values = c(16,3)) +
+  scale_size_manual(values = c(1,3)) +
+  facet_wrap(~method, ncol = 1, scales = "free_y") +
+  theme_bw(base_size = 14) +
+  theme(
+    legend.position = "top",
+    strip.background = element_rect(fill = "grey95"),
+    panel.grid.minor = element_blank()
+  ) +
+  labs(
+    x = "SNP index",
+    y = "LD-scaled LFMM statistic",
+    color = "SNP type",
+    shape = "SNP type",
+    size  = "SNP type"
+  )
 
 
 
+ld_Ws <- do.call(cbind,lapply(seq(0.1,1,by=0.1)-0.000001,function(rho_w){
+  d_star <- derive_ld_radius(ld_struct$by_chr$Chr1$decay_sum$a, 1-rho_w)
+  ld_w <- compute_ld_summary(ld_structure=ld_struct,
+                             method = c("rho_w"),
+                             eps = 0.005,
+                             d_window = d_star,
+                             shell_type = "median")
+
+
+}))
+
+mean(cor(ld_Ws,use="pair")^2)
+mean(cor(ld_Ws*map$lfmm_F,use="pair")^2)
+
+pairs((ld_Ws)[sample(1:nrow(ld_Ws),10000),])
+
+pairs(ld_Ws*map$lfmm_F[1:10000,])
+
+plot(ld_w*map$lfmm_F)
+
+dt <- data.table(LD_int,ld_w,max_LD_with_QTN=map$max_LD_with_QTN,bp_to_focal_QTN=map$bp_to_focal_QTN)
+
+ggplot(dt,aes(LD_int,ld_w,col=max_LD_with_QTN)) +
+  geom_point() +
+  scale_color_viridis_c(option="turbo")
+
+ggplot(dt,aes(LD_int,ld_w,col=bp_to_focal_QTN)) +
+  geom_point() +
+  scale_color_viridis_c(option="turbo")
+
+
+cor(LD_int,map$bp_to_focal_QTN)^2
+cor(ld_w,map$bp_to_focal_QTN)^2
+
+abline(h=cor(LD_int,map$max_LD_with_QTN,use="pair")^2,lty=2,col="red")ld_w
+plot(LD_int)
 
 a <- ld_struct$decay_summary[Chr=="Chr1",a]
 
