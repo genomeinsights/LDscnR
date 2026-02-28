@@ -46,19 +46,22 @@
 #' @export
 compute_ld_structure <- function(
     gds,
+    ## for LD-decay and bg
     q = 0.95,
+    ## for bg
     n_sub_bg = 5000,
-    target_snps = 500,
+    ## for decay
+    n_win_decay = 20,
     overlap = 0.5,
-    cores = 1,
-    n_dist_target_for_hist = 100,
-    eps = 0.005,
-    r2_unit = 0.001,
     prob_robust = 0.95,
     target_dist_bins_for_decay = 40,
     n_snps_for_decay = 500,
-    window_size = NULL,
-    step_size = NULL
+    ## for histograms
+    n_dist_target_for_hist = 100,
+    eps = 0.005,
+    r2_unit = 0.001,
+    ## cores
+    cores = 1
 ) {
 
   ids  <- .read_gds_ids(gds)
@@ -68,7 +71,7 @@ compute_ld_structure <- function(
 
   out_by_chr <- vector("list", length(chrs))
   names(out_by_chr) <- chrs
-  #ch = "Chr3"
+
   for (ch in chrs) {
 
     message("Processing ", ch)
@@ -77,14 +80,10 @@ compute_ld_structure <- function(
     pos_chr  <- ids$snp_pos[chr_idx]
     snps_chr <- ids$snp_id[chr_idx]
 
-    if (is.null(window_size)) {
-      mean_spacing <- median(diff(sort(pos_chr)))
-      window_size  <- target_snps * mean_spacing
-    }
 
-    if (is.null(step_size)) {
-      step_size <- window_size * overlap
-    }
+    window_size <- (max(pos_chr) - min(pos_chr)) / n_win_decay
+    step_size   <- window_size * overlap
+
 
     # ---- decay ----
     decay <- suppressWarnings(
@@ -108,36 +107,18 @@ compute_ld_structure <- function(
     if (is.null(decay_sum)) next
 
     decay_sum[, Chr := ch]
-    # plot(unlist(decay[,sapply(data,nrow)]),as.vector(na.omit(decay$a)))
-    #
-    # par(mfcol=c(4,5))
-    # for(i in which(!is.na(decay$a))){
-    #   decay[i,plot(data[[1]]$d_mid,data[[1]]$r2_q)]
-    #   a = decay[i,a]
-    #   c = decay[i,c]
-    #   decay[i,data[[1]]][order(d_mid),lines(d_mid, b + (c  - b) / (1 + a  * d_mid),col="red")]
-    # }
-    #
-    # par(mfcol=c(1,1))
-    # a = decay[1,a]
-    # c = decay[1,c]
-    # decay[1,data[[1]]][order(d_mid),plot(d_mid, b + (c  - b) / (1 + a  * d_mid),type="l",col="red",ylim=c(0,1))]
-    # for(i in which(!is.na(decay$a))[-1]){
-    #   decay[i,data[[1]]][order(d_mid),lines(d_mid, b + (c  - b) / (1 + a  * d_mid),type="l",ylim=c(0,1),col="red")]
-    # }
-    #
 
+    # --- Layer 2: Histograms ---
 
-    # ---- histograms and LD_int ----
-    LD_int <- compute_ld_integral(
+    d_star <- derive_ld_radius(decay_sum$a, eps)
+
+    histograms <- build_ld_histograms(
       gds=gds,
-      chr_idx = chr_idx,
-      snps_chr = snps_chr,
-      pos_chr = pos_chr,
-      decay_sum = decay_sum,
-      eps = eps,
-      b = b,
-      r2_unit = r2_unit,
+      chr_idx   = chr_idx,
+      snps_chr  = snps_chr,
+      pos_chr   = pos_chr,
+      d_star    = d_star,
+      r2_unit   = r2_unit,
       n_dist_target = n_dist_target_for_hist,
       cores = cores
     )
@@ -145,17 +126,29 @@ compute_ld_structure <- function(
     # ---- collect data ----
     out_by_chr[[ch]] <- list(
       snp_ids    = snps_chr,
-      histograms = hist_list,
-      LD_int     = LD_int,
+      hist_obj   = histograms,
       decay      = decay,
-      summary    = decay_sum,
-      k_star     = k_star
+      decay_sum  = decay_sum
     )
   }
 
   out <- list(
-    by_chr = out_by_chr
+    by_chr    = out_by_chr,
+    decay_sum = rbindlist(lapply(out_by_chr,function(x) x$decay_sum)),
+    params    = list( q = q,
+                      n_sub_bg = n_sub_bg,
+                      n_win_decay = n_win_decay,
+                      overlap = overlap,
+                      n_dist_target_for_hist = n_dist_target_for_hist,
+                      eps = eps,
+                      r2_unit = r2_unit,
+                      prob_robust = prob_robust,
+                      target_dist_bins_for_decay = target_dist_bins_for_decay,
+                      n_snps_for_decay = n_snps_for_decay,
+                      cores = cores)
   )
+
+
 
   class(out) <- "ld_structure"
 
@@ -236,23 +229,15 @@ estimate_decay_chr <- function(gds,
                                chr_idx,
                                snp_pos,
                                b,
-                               window_size = NULL,
-                               step_size = NULL,
+                               window_size,
+                               step_size,
                                overlap = 0.5,
                                q = 0.95,
                                target_dist_bins_for_decay = 60,
                                cores = 1,
                                n_snps_for_decay = 500) {
 
-  if(is.null(window_size)){
-    window_size = max(snp_pos) / 20
 
-  }
-
-  if(is.null(step_size)){
-    step_size   <- window_size * overlap
-
-  }
 
 
   thin <- adaptive_thinning(snp_pos, W_LD = window_size, n_snps_for_decay = n_snps_for_decay)
@@ -897,10 +882,8 @@ build_ld_histograms <- function(
     hist_list[[i]] <- build_hist_from_dt(dt, dist_unit, r2_unit)
   }
 
-  list(
-    hist_list = hist_list,
-    k_star = k_star
-  )
+  return(hist_list)
+
 }
 
 integrate_ld_kernel <- function(
@@ -946,43 +929,24 @@ integrate_ld_kernel <- function(
   sum(LD_shell * w_use)
 }
 
+
 compute_ld_integral <- function(
-    gds,
-    chr_idx,
-    snps_chr,
-    pos_chr,
-    decay_sum,
-    eps = 0.01,
-    b,
-    r2_unit = 0.01,
-    n_dist_target = 200,
-    cores = 1
+    hist_obj,
+    eps = 0.001
 ) {
-
-  # --- Layer 1: LD radius ---
-  d_star <- derive_ld_radius(decay_sum$a, eps)
-
-  # --- Layer 2: Histograms ---
-  hist_obj <- build_ld_histograms(
-    gds,
-    chr_idx,
-    snps_chr,
-    pos_chr,
-    d_star,
-    r2_unit,
-    n_dist_target,
-    cores
-  )
 
   hist_list <- hist_obj$hist_list
   k_star    <- hist_obj$k_star
+  a         <- hist_obj$decay_sum$a
+  b         <- hist_obj$decay_sum$b
 
+  # derive LD radius dynamically
+  d_star <- derive_ld_radius(a, eps)
 
-  # --- Layer 3+4: Integration ---
   LD_int <- sapply(hist_list, function(h)
     integrate_ld_kernel(
       hist_mat = h,
-      a = decay_sum$a,
+      a = a,
       b = b,
       d_star = d_star
     )
@@ -995,28 +959,26 @@ compute_ld_integral <- function(
   )
 }
 
-summarize_hist_shell <- function(hist_mat, dist, b = NULL) {
+summarize_hist_shell <- function(hist_row, b = NULL) {
 
-  if (is.null(hist_mat) || !(dist %in% rownames(hist_mat)))
+  if (is.null(hist_row))
     return(list(mean_excess = NA_real_, median = NA_real_))
 
-  counts <- hist_mat[as.character(dist), , drop = TRUE]
-  total <- sum(counts)
-
+  total <- sum(hist_row)
   if (total == 0)
     return(list(mean_excess = NA_real_, median = NA_real_))
 
-  r2_vals <- as.numeric(colnames(hist_mat))
+  r2_vals <- as.numeric(names(hist_row))
 
   # median
-  cs <- cumsum(counts)
+  cs <- cumsum(hist_row)
   idx <- which(cs >= total / 2)[1]
   median_r2 <- r2_vals[idx]
 
-  # excess mean (optional)
+  # excess mean
   if (!is.null(b)) {
     excess <- pmax(r2_vals - b, 0)
-    mean_excess <- sum(excess * counts) / total
+    mean_excess <- sum(excess * hist_row) / total
   } else {
     mean_excess <- NA_real_
   }
@@ -1026,3 +988,22 @@ summarize_hist_shell <- function(hist_mat, dist, b = NULL) {
     median = median_r2
   )
 }
+
+# plot(unlist(decay[,sapply(data,nrow)]),as.vector(na.omit(decay$a)))
+#
+# par(mfcol=c(4,5))
+# for(i in which(!is.na(decay$a))){
+#   decay[i,plot(data[[1]]$d_mid,data[[1]]$r2_q)]
+#   a = decay[i,a]
+#   c = decay[i,c]
+#   decay[i,data[[1]]][order(d_mid),lines(d_mid, b + (c  - b) / (1 + a  * d_mid),col="red")]
+# }
+#
+# par(mfcol=c(1,1))
+# a = decay[1,a]
+# c = decay[1,c]
+# decay[1,data[[1]]][order(d_mid),plot(d_mid, b + (c  - b) / (1 + a  * d_mid),type="l",col="red",ylim=c(0,1))]
+# for(i in which(!is.na(decay$a))[-1]){
+#   decay[i,data[[1]]][order(d_mid),lines(d_mid, b + (c  - b) / (1 + a  * d_mid),type="l",ylim=c(0,1),col="red")]
+# }
+#
