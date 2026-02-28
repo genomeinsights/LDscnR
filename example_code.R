@@ -111,7 +111,7 @@ colnames(LD_rho) <- seq(0.25,0.95,by=0.1)
 pairs(LD_star)
 
 LD_rho <- do.call(cbind,
-                  lapply(seq(0.25, 0.95, by = 0.1), function(rho_w){
+                  lapply(seq(0.25, 0.95, by = 0.001), function(rho_w){
 
                     LD_val <- sapply(ld_struct$histograms$Chr1, function(hist_mat){
 
@@ -147,14 +147,15 @@ LD_rho <- do.call(cbind,
                       weighted_sum / sum(shell_mat)
                     })
 
-                    plot(LD_val,
-                         main = paste("rho_w =", rho_w),
-                         pch = 20)
+                    # plot(LD_val,
+                    #      main = paste("rho_w =", rho_w),
+                    #      pch = 20)
 
                     LD_val
                   })
 )
-colnames()
+LD_rho
+colnames(LD_rho) <- seq(0.25, 0.95, by = 0.01)
 pairs(LD_rho)
 
 

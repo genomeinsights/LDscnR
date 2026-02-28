@@ -4,7 +4,7 @@
 \alias{summarize_decay}
 \title{Summarize LD Decay Parameters}
 \usage{
-summarize_decay(decay_dt, prob_robust = 0.5)
+summarize_decay(decay_dt, prob_robust = 0.95)
 }
 \arguments{
 \item{decay_dt}{Data table containing window-wise decay parameters.}

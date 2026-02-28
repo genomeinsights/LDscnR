@@ -5,16 +5,18 @@
 \title{Draw ORs across parameter space (flat output)}
 \usage{
 or_draws(
-  gds,
+  el,
   q_vals,
+  SNP_ids,
+  SNP_chr,
   ld_struct,
-  use = c("robust", "median"),
   n_draws = 25,
   mode = c("per_method", "joint"),
   rho_d_lim = list(min = 0.5, max = 0.999),
   rho_ld_lim = list(min = 0.9, max = 0.999),
   alpha_lim = list(min = 1.31, max = 4),
-  lmin_lim = list(min = 1, max = 10)
+  lmin_lim = list(min = 1, max = 10),
+  cores = 1
 )
 }
 \description{

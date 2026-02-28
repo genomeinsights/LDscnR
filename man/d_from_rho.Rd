@@ -4,7 +4,7 @@
 \alias{d_from_rho}
 \title{Convert Relative LD Threshold to Distance}
 \usage{
-d_from_rho(a, rho, d0 = 0)
+d_from_rho(a, rho)
 }
 \arguments{
 \item{a}{Decay rate.}

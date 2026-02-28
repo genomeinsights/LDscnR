@@ -11,12 +11,11 @@ compute_ld_structure(
   window_size = 1e+06,
   step_size = 5e+05,
   cores = 1,
-  dist_unit = 5000,
-  K_target = 1000,
-  n_win = 1000,
-  prob_robust = 0.5,
-  use = "robust",
-  max_rho = 0.99
+  n_dist_target = 100,
+  rho_max = 0.95,
+  r2_unit = 0.001,
+  prob_robust = 0.95,
+  slide_win = 1000
 )
 }
 \arguments{
@@ -32,14 +31,14 @@ compute_ld_structure(
 
 \item{cores}{Number of CPU cores for LD computation.}
 
+\item{prob_robust}{Quantile threshold for excluding slowest-decaying
+windows in robust estimation.}
+
 \item{dist_unit}{Distance bin size (bp) used for decay fitting.}
 
 \item{K_target}{Target number of pairwise LD comparisons per SNP.}
 
 \item{n_win}{Target number of SNPs per decay window.}
-
-\item{prob_robust}{Quantile threshold for excluding slowest-decaying
-windows in robust estimation.}
 }
 \value{
 An object of class \code{"ld_structure"} containing per-chromosome:

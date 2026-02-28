@@ -4,14 +4,21 @@
 \alias{ld_scan}
 \title{LD-scaled genome scan}
 \usage{
-ld_scan(ld_struct, SNP_ids, F_vals, rho_w, n_inds, n_rep = 10, full = TRUE)
+ld_scan(
+  ld_struct,
+  SNP_ids,
+  F_vals,
+  ld_w,
+  n_inds,
+  n_rep = 10,
+  full = TRUE,
+  use = "robust"
+)
 }
 \arguments{
 \item{ld_struct}{An object of class \code{"ld_structure"}.}
 
 \item{F_vals}{Numeric vector or matrix of F-statistics (n_snp x n_method).}
-
-\item{rho_w}{Numeric in (0,1). LD-decay quantile defining window size.}
 
 \item{n_inds}{Number of individuals (for F null df2 = n_inds - 2).}
 
@@ -20,6 +27,8 @@ ld_scan(ld_struct, SNP_ids, F_vals, rho_w, n_inds, n_rep = 10, full = TRUE)
 \item{full}{Logical; if TRUE return QQ diagnostics.}
 
 \item{decay_obj}{An object of class \code{"ld_decay"}.}
+
+\item{rho_w}{Numeric in (0,1). LD-decay quantile defining window size.}
 }
 \value{
 An object of class \code{"ld_scan"}.
