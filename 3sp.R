@@ -1,29 +1,49 @@
-
+library(data.table)
+library(parallel)
+devtools::load_all()
 load("../LD-scaling-genome-scans/empirical_data/3sp/3sp_data.RData") ## contains SNP_res_3sp, GTs_3sp and pheno_3sp
 
 ##filter by maf
 keep <- map_3sp$maf>0.1
 GTs_3sp <- GTs_3sp[,map_3sp$maf>0.1]
 map_3sp <- map_3sp[maf>0.1]
-#if(any(ls() %in% "gds_3sp")) snpgdsClose(gds_3sp); unlink(gds_3sp)
+#if(any(ls() %in% "gds_3sp")) snpgdsClose(gds); unlink(gds)
 
 gds_3sp <- create_gds_from_geno(geno = GTs_3sp, map=map_3sp,"gds_3sp.gds")
 
 #------------------------------------------------------------
 #gds <- gds_3sp
-t1 <- Sys.time()
-#max_rho = 0.99
-ld_struct_3sp <-  compute_ld_structure(gds_3sp,
-                                       rho_w       = c(seq(0.4,0.95,by=0.1)),
-                                       prob_robust = 0,
-                                       cores       = 8
 
+#max_rho = 0.99
+t1 <- Sys.time()
+ld_struct_3sp <-  compute_ld_structure(
+  gds_3sp,
+  ## for LD-decay and bg
+  q = 0.95,
+  ## for bg
+  n_sub_bg = 5000,
+  ## for decay
+  n_win_decay = 20,
+  overlap = 0.5,
+  prob_robust = 0.95,
+  target_dist_bins_for_decay = 40,
+  n_snps_for_decay = 500,
+  ## for histogram compression
+  n_dist_target_for_hist = 100,
+  eps = 0.005,
+  r2_unit = 0.001,
+  ## cores
+  cores = 8
 )
+
 t2 <- Sys.time()
-difftime(t2,t1)
+print(difftime(t2,t1))
+saveRDS(ld_struct_3sp,"ld_struct_3sp.rds")
+#q("no")
 #plot(ld_struct_3sp_w1000)
 #rm(ld_struct_3sp_w1000)
 gc()
+
 
 
 #ld_struct_3sp$
@@ -40,6 +60,13 @@ map_3sp[,lfmm_q:=p.adjust(lfmm_P,"fdr")]
 SNP_ids <- map_3sp$marker
 n_inds <- nrow(GTs_3sp)
 
+
+ld_w_int <- compute_ld_summary(ld_structure=ld_struct,
+                               method = c("ld_int"),
+                               eps = 0.005,
+                               d_window = derive_ld_radius(ld_struct$by_chr$Chr1$decay_sum$a, 1-rho_w),
+                               shell_type = "median",
+                               cores = cores)
 
 
 draws_joint_3sp <- ld_rho_draws(gds = gds_3sp,

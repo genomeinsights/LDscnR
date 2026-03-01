@@ -5,77 +5,76 @@
 #   d_test_th - distance threshold defining true positive (in LD-decay units, rho)
 #   p_Va_th - Threshold for defining true positive focal QTn
 ###
-get_PR <- function(draw,
-                   map,
-                   ld_test_th = 0.75,
-                   d_test_th  = 0.95,
-                   p_Va_th    = 0.05) {
 
-  ORs <- draw$OR[[1]]
-  true <- unique(map[p_Va > p_Va_th, focal_QTN])
 
-  # Pre-filter map once
-  map_filt <- map[rho_ld < ld_test_th & rho_d < d_test_th]
 
-  if (length(ORs) > 0) {
+get_PR <- function(draw_ORs,
+                   map_filt) {
 
-    # Identify focal per OR
-    OR_focals <- vapply(ORs, function(or) {
 
-      sub <- map_filt[marker %in% or]
+  true <- unique(map_filt[p_Va > p_Va_th, focal_QTN])
 
-      if (nrow(sub) == 0L) return(NA_character_)
+  rbindlist(parallel_apply(draw_ORs,function(ORs){
 
-      sub[which.min(rho_ld), focal_QTN]
+    if (length(ORs) > 0) {
 
-    }, character(1))
+      #map_filt[marker %in% unlist(ORs)]
+      # Identify focal per OR
+      OR_focals <- vapply(ORs, function(or) {
 
-    OR_focals <- unique(na.omit(OR_focals))
+        sub <- map_filt[marker %in% or]
 
-    # Confusion components
-    TP <- sum(OR_focals %in% true)
-    FP <- length(ORs) - TP
-    FN <- length(setdiff(true, OR_focals))
+        if (nrow(sub) == 0L) return(NA_character_)
 
-    precision <- if ((TP + FP) > 0) TP / (TP + FP) else 0
-    recall    <- if ((TP + FN) > 0) TP / (TP + FN) else 0
-    PR        <- precision * recall
+        sub[which.max(rho_ld), focal_QTN]
 
-    # Neutral FP check (vectorized)
-    neutral_markers <- unique(map[Chr_type == "ntrl", marker])
+      }, character(1))
 
-    FP_ntrl <- sum(vapply(ORs, function(or) {
-      any(or %in% neutral_markers)
-    }, logical(1)))
+      OR_focals <- unique(na.omit(OR_focals))
 
-    return(data.table(
-      map[1,.(c,V,rep)],
-      draw[,.(method,rho_w,rho_d,rho_ld,alpha,l_min)],
-      TP = TP,
-      FP = FP,
-      FN = FN,
-      precision = precision,
-      recall = recall,
-      PR = PR,
-      FP_ntrl = FP_ntrl,
-      OR_focals = list(list(OR_focals))
-    ))
+      # Confusion components
+      TP <- sum(OR_focals %in% true)
+      FP <- length(ORs) - TP
+      FN <- length(setdiff(true, OR_focals))
 
-  } else {
+      precision <- if ((TP + FP) > 0) TP / (TP + FP) else 0
+      recall    <- if ((TP + FN) > 0) TP / (TP + FN) else 0
+      PR        <- precision * recall
 
-    return(data.table(
-      map[1,.(c,V,rep)],
-      draw[,.(method,rho_w,rho_d,rho_ld,alpha,l_min)],
-      TP = 0,
-      FP = 0,
-      FN = length(true),
-      precision = 0,
-      recall = 0,
-      PR = 0,
-      FP_ntrl = 0,
-      OR_focals = list(list(character()))
-    ))
-  }
+      # Neutral FP check (vectorized)
+      neutral_markers <- unique(map[Chr_type == "ntrl", marker])
+
+      FP_ntrl <- sum(vapply(ORs, function(or) {
+        any(or %in% neutral_markers)
+      }, logical(1)))
+
+      return(data.table(
+        TP = TP,
+        FP = FP,
+        FN = FN,
+        precision = precision,
+        recall = recall,
+        PR = PR,
+        FP_ntrl = FP_ntrl,
+        OR_focals = list(list(OR_focals))
+      ))
+
+    } else {
+
+      return(data.table(
+        TP = 0,
+        FP = 0,
+        FN = length(true),
+        precision = 0,
+        recall = 0,
+        PR = 0,
+        FP_ntrl = 0,
+        OR_focals = list(list(character()))
+      ))
+    }
+  },cores=cores))
+
+
 }
 
 ### ---  Get oulier regions from C-scores --- ###

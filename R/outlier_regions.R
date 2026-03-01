@@ -248,7 +248,7 @@ or_draws <- function(el,
         }), fill = TRUE)
       }
 
-  },cores=cores))
+  },cores=8))
 
 }
 
