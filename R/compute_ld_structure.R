@@ -55,16 +55,17 @@ compute_ld_structure <- function(
     n_win_decay = 20,
     overlap = 0.5,
     prob_robust = 0.95,
-    target_dist_bins_for_decay = 40,
+    target_dist_bins_for_decay = 200,
     n_snps_for_decay = 500,
     ## for histograms
     n_dist_target_for_hist = 100,
     eps = 0.005,
     r2_unit = 0.001,
-    ## cores
-    cores = 1
+    compression = c("hist", "median_only"),
+    cores = 1,
+    k_max=1000
 ) {
-
+  #compression = "median_only"
   ids  <- .read_gds_ids(gds)
   chrs <- unique(ids$snp_chr)
 
@@ -72,10 +73,10 @@ compute_ld_structure <- function(
 
   out_by_chr <- vector("list", length(chrs))
   names(out_by_chr) <- chrs
-
+  #ch = "Chr3"
   for (ch in chrs) {
 
-    message("Processing ", ch)
+    cat("Processing ", ch, "-- estimating LD-decay")
 
     chr_idx  <- which(ids$snp_chr == ch)
     pos_chr  <- ids$snp_pos[chr_idx]
@@ -102,8 +103,12 @@ compute_ld_structure <- function(
       )
     )
 
-    decay_sum <- summarize_decay(decay, prob_robust)
-    decay_sum[,k_star:=decay[1,k_star]]
+
+    decay[,contrast:=c - b]
+    decay[,regime := ifelse(contrast < 0.02,"weak","structured")]
+
+    decay_sum <- summarize_decay(decay[regime=="structured",], prob_robust)
+    decay_sum[,n_w_used := sum(decay$regime == "structured")]
 
     if (is.null(decay_sum)) next
 
@@ -113,6 +118,7 @@ compute_ld_structure <- function(
 
     d_star <- derive_ld_radius(decay_sum$a, eps)
 
+    cat(" -- compressing data to histograms")
     histograms <- build_ld_histograms(
       gds=gds,
       chr_idx   = chr_idx,
@@ -121,7 +127,9 @@ compute_ld_structure <- function(
       d_star    = d_star,
       r2_unit   = r2_unit,
       n_dist_target = n_dist_target_for_hist,
-      cores = cores
+      k_max     = k_max,
+      compression = compression,
+      cores     = cores
     )
 
     # ---- collect data
@@ -131,6 +139,8 @@ compute_ld_structure <- function(
       decay      = decay,
       decay_sum  = decay_sum
     )
+
+    cat(" -- done\n")
   }
 
   out <- list(
@@ -229,7 +239,8 @@ estimate_decay_chr <- function(gds,
                                q = 0.95,
                                target_dist_bins_for_decay = 60,
                                cores = 1,
-                               n_snps_for_decay = 500) {
+                               n_snps_for_decay = 500,
+                               k_max=1000) {
 
 
 
@@ -244,11 +255,18 @@ estimate_decay_chr <- function(gds,
     cores = cores
   )
 
+  # short_idx <- el[,order(d)[1:floor(length(d)*0.1)]]
+  # max_short_range <- el[,quantile(r2[short_idx], 0.95)]
+  #
+  # el[,r2_std := (r2 - b) / (max_short_range - b)]
+  # el[,plot(d,r2)]
+  #
   min_pos <- min(c(el$pos1, el$pos2))
   max_pos <- max(c(el$pos1, el$pos2))
 
   starts <- seq(min_pos, max_pos - window_size, by = step_size)
   ends   <- starts + window_size
+
   # i <- 1
   decay <- suppressWarnings(rbindlist(lapply(seq_along(starts), function(i) {
 
@@ -256,6 +274,15 @@ estimate_decay_chr <- function(gds,
       pos1 >= starts[i] & pos1 < ends[i] &
         pos2 >= starts[i] & pos2 < ends[i]
     ]
+
+    # d_small <- quantile(sub$d, 0.1)
+    # max_short_range <- sub[,quantile(r2[d <= d_small], 0.95)]
+    #
+    # short_idx <- sub[,order(d)[1:floor(length(d)*0.1)]]
+    # max_short_range <- sub[,quantile(r2[short_idx], 0.95)]
+    #
+    # sub[,r2_std := (r2 - b) / (max_short_range - b)]
+    # sub[,plot(d,r2_std)]
 
     coefs <- tryCatch(
       coef_ld_dec(sub, q = q,  b = b,n_bins = target_dist_bins_for_decay),
@@ -269,7 +296,7 @@ estimate_decay_chr <- function(gds,
     }
   }),fill=TRUE,use.names = TRUE))
 
-  decay[, k_star := k_star]
+  decay[, k_star := thin$k_star]
   decay[, reduction := signif(reduction,2)]
 
   return(decay)
@@ -412,15 +439,16 @@ coef_ld_dec <- function(dt,
   r2 <- dt$r2
 
   # Remove zero or extremely small distances
-  d_min <- quantile(d[d > 0], min_dist_quantile, na.rm = TRUE)
-  keep <- d > d_min
-
-  d <- d[keep]
-  r2 <- r2[keep]
+  # d_min <- quantile(d[d > 0], min_dist_quantile, na.rm = TRUE)
+  # keep <- d > d_min
+  #
+  # d <- d[keep]
+  # r2 <- r2[keep]
 
   if (length(d) < 100) return(NULL)
 
   # Log-distance bins (more stable near zero)
+  d <- d[d > 0]
   log_d <- log(d)
 
   breaks <- seq(min(log_d), max(log_d), length.out = n_bins + 1)
@@ -452,7 +480,7 @@ coef_ld_dec <- function(dt,
       algorithm = "port",
       lower = c(c = b, a = 0),
       upper = c(c = 1, a = Inf),
-      weights = n,
+      weights = sqrt(n),
       control = nls.control(warnOnly = TRUE)
     ),
     error = function(e) NULL
@@ -809,14 +837,15 @@ build_ld_histograms <- function(
     snps_chr,
     pos_chr,
     d_star,
-    r2_unit,
-    n_dist_target,
-    cores = 1
+    r2_unit = 0.001,
+    n_dist_target = 100,
+    k_max = 1000,
+    cores = 1,
+    compression = c("hist", "median_only")
 ) {
 
-  library(data.table)
+  compression <- match.arg(compression)
 
-  # Convert LD radius to SNP window
   spacing <- diff(sort(pos_chr))
   q_spacing <- quantile(spacing, 0.75)
   k_star <- ceiling(d_star / q_spacing)
@@ -824,38 +853,51 @@ build_ld_histograms <- function(
   el <- get_el(
     gds = gds,
     idx = chr_idx,
-    slide_win_ld = k_star,
+    slide_win_ld = min(k_max, k_star),
     cores = cores
   )
 
-  el <- rbindlist(list(
+  el <- data.table::rbindlist(list(
     el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
     el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
   ))
 
-  setkey(el, SNP)
+  data.table::setkey(el, SNP)
 
-  #hist_list <- vector("list", length(snps_chr))
+  if (compression == "hist") {
+    # i <- 1
+    hist_list <- parallel_apply(seq_along(snps_chr), function(i) {
 
-  hist_list <-  parallel_apply(seq_along(snps_chr),function(i) {
+      dt <- el[J(snps_chr[i]), nomatch = 0]
+      dt[, r2 := pmin(r2, 1)]
 
-    dt <- el[J(snps_chr[i]), nomatch = 0]
+      max_d <- max(dt$d)
+      dist_unit <- signif(max_d / n_dist_target, 2)
 
-    if (nrow(dt) == 0) {
-      hist_list[[i]] <- NULL
-      next
-    }
+      build_hist_from_dt(dt, dist_unit, r2_unit)
 
-    dt[, r2 := pmin(r2, 1)]
+    }, cores = cores)
 
-    max_d <- max(dt$d)
-    dist_unit <- signif(max_d / n_dist_target, 2)
+    return(hist_list)
+  }
 
-    hist_list[[i]] <- build_hist_from_dt(dt, dist_unit, r2_unit)
-  },cores=cores)
+  if (compression == "median_only") {
 
-  return(hist_list)
+    shell_list <- parallel_apply(seq_along(snps_chr), function(i) {
 
+      dt <- el[J(snps_chr[i]), nomatch = 0]
+      dt[, r2 := pmin(r2, 1)]
+
+      compute_shell_medians(
+        dt = dt,
+        d_star = d_star,
+        n_dist_target = n_dist_target
+      )
+
+    }, cores = cores)
+
+    return(shell_list)
+  }
 }
 
 integrate_ld_kernel <- function(hist_mat,
@@ -917,56 +959,52 @@ integrate_ld_kernel <- function(hist_mat,
 #' @return Numeric vector of LD summary values (one per SNP).
 #'
 #' @export
-compute_ld_summary <- function(ld_structure,
-                               method = c("ld_int", "rho_w","ld_int_median"),
-                               eps = 0.005,
-                               d_window = NULL,
-                               shell_type = "excess",
-                               cores) {
+compute_ld_summary <- function(
+    ld_structure,
+    method = c("ld_int", "rho_w", "ld_int_median"),
+    eps = 0.005,
+    d_window = NULL,
+    shell_type = "median",
+    cores = 1
+) {
 
   method <- match.arg(method)
 
   results <- parallel_apply(ld_structure$by_chr, function(chr_obj) {
 
-    hist_list <- chr_obj$hist_obj
+    hist_obj <- chr_obj$hist_obj
     a <- chr_obj$decay_sum$a
     b <- chr_obj$decay_sum$b
 
-    if (method == "ld_int") {
+    d_star <- derive_ld_radius(a, eps)
 
-      d_star <- derive_ld_radius(a, eps)
-      h <- hist_list[[1]]
-      sapply(hist_list, function(h)
-        integrate_ld_kernel(
-          hist_mat = h,
+    # -----------------------------
+    # NEW: median_shell backend
+    # -----------------------------
+    if (is.list(hist_obj) &&
+        length(hist_obj) > 0 &&
+        all(vapply(hist_obj,
+                   function(x) is.null(x) || is.data.frame(x),
+                   logical(1)))) {
+
+      return(sapply(hist_obj, function(shell_dt) {
+
+        if (is.null(shell_dt)) return(NA_real_)
+
+        integrate_ld_kernel_median_shell(
+          shell_dt = shell_dt,
           a = a,
-          b = b,
-          d_star = d_star,
-          shell_type = shell_type
+          d_star = d_star
         )
-      )
+      }))
     }
 
-    else if (method == "rho_w") {
+    # -----------------------------
+    # OLD: histogram backend
+    # -----------------------------
+    if (method == "ld_int" || method == "ld_int_median") {
 
-      if (is.null(d_window))
-        stop("d_window must be supplied for rho_w.")
-
-      sapply(hist_list, function(h)
-        compute_ld_rhow_from_hist(
-          hist_mat = h,
-          d_window = d_window,
-          shell_type = shell_type,
-          b = b
-        )
-      )
-    }
-
-    else if (method == "ld_int_median") {
-
-      d_star <- derive_ld_radius(a, eps)
-
-      sapply(hist_list, function(h)
+      return(sapply(hist_obj, function(h)
         integrate_ld_kernel_median(
           hist_mat = h,
           a = a,
@@ -974,13 +1012,28 @@ compute_ld_summary <- function(ld_structure,
           d_star = d_star,
           shell_type = shell_type
         )
-      )
+      ))
     }
-  },cores=cores)
+
+    if (method == "rho_w") {
+
+      if (is.null(d_window))
+        stop("d_window must be supplied for rho_w.")
+
+      return(sapply(hist_obj, function(h)
+        compute_ld_rhow_from_hist(
+          hist_mat = h,
+          d_window = d_window,
+          shell_type = shell_type,
+          b = b
+        )
+      ))
+    }
+
+  }, cores = cores)
 
   unlist(results)
 }
-
 weighted_median <- function(x, w) {
 
   if (length(x) == 0) return(NA_real_)
@@ -1056,3 +1109,133 @@ compute_ld_rhow_from_hist <- function(hist_mat,
                        type = shell_type)
 }
 
+
+uniform_thin_to_distance <- function(pos,
+                                     d_star,
+                                     k_max,
+                                     tol = 1e-8) {
+
+  pos <- sort(pos)
+
+  # required spacing
+  target_spacing <- d_star / k_max
+
+  # current median spacing
+  med_spacing <- median(diff(pos))
+
+  # if already sufficient, no thinning needed
+  if (k_max * med_spacing >= d_star) {
+    return(seq_along(pos))
+  }
+
+  keep <- integer()
+  last_kept_pos <- -Inf
+
+  for (i in seq_along(pos)) {
+    if ((pos[i] - last_kept_pos) >= (target_spacing - tol)) {
+      keep <- c(keep, i)
+      last_kept_pos <- pos[i]
+    }
+  }
+
+  keep
+}
+
+
+compute_shell_medians <- function(dt,
+                                  d_star,
+                                  n_dist_target) {
+
+  if (nrow(dt) == 0) return(NULL)
+
+  dt <- dt[d <= d_star]
+  if (nrow(dt) == 0) return(NULL)
+
+  dist_unit <- d_star / n_dist_target
+  dt[, dist_idx := floor(d / dist_unit)]
+
+  shell_dt <- dt[, .(
+    median_r2 = median(r2)
+  ), by = dist_idx]
+
+  shell_dt
+}
+
+integrate_ld_kernel_median_shell <- function(shell_dt,
+                                             a,
+                                             d_star) {
+
+  if (is.null(shell_dt) || nrow(shell_dt) == 0)
+    return(NA_real_)
+
+  dist_unit <- d_star / max(shell_dt$dist_idx)
+
+  dist_vals <- shell_dt$dist_idx * dist_unit
+
+  w_d <- a / (1 + a * dist_vals)^2
+
+  if (length(dist_vals) > 1) {
+    delta_d <- c(diff(dist_vals), tail(diff(dist_vals), 1))
+  } else {
+    delta_d <- 1
+  }
+
+  w_use <- w_d * delta_d
+  if (sum(w_use) == 0) return(NA_real_)
+  w_use <- w_use / sum(w_use)
+
+  weighted_median(shell_dt$median_r2, w_use)
+}
+
+compute_ld_int_kernel_smooth <- function(dt, a, d_star, n_bins = 20) {
+
+  dt <- dt[d <= d_star]
+  if (nrow(dt) == 0) return(NA_real_)
+
+  # sort by distance
+  dt <- dt[order(d)]
+
+  # equal-width bins
+  breaks <- seq(0, d_star, length.out = n_bins + 1)
+  dt[, bin := cut(d, breaks = breaks, include.lowest = TRUE, labels = FALSE)]
+
+  shell_dt <- dt[, .(
+    median_r2 = median(r2)
+  ), by = bin]
+
+  # representative distance per bin
+  dist_vals <- breaks[shell_dt$bin]
+
+  # kernel weights
+  w_d <- a / (1 + a * dist_vals)^2
+
+  delta_d <- diff(breaks)
+  w_use <- w_d * delta_d[shell_dt$bin]
+  w_use <- w_use / sum(w_use)
+
+  weighted_median(shell_dt$median_r2, w_use)
+}
+
+compute_ldw_from_hist <- function(hist_mat, d_window) {
+
+  if (is.null(hist_mat)) return(NA_real_)
+
+  dist_vals <- as.numeric(rownames(hist_mat))
+  keep <- dist_vals <= d_window
+
+  if (!any(keep)) return(NA_real_)
+
+  h_sub <- hist_mat[keep, , drop = FALSE]
+
+  # Collapse into 1D r² distribution
+  r2_counts <- colSums(h_sub)
+
+  total <- sum(r2_counts)
+  if (total == 0) return(NA_real_)
+
+  r2_vals <- as.numeric(colnames(hist_mat))
+
+  # weighted median
+  cs <- cumsum(r2_counts)
+  r2_vals[which(cs >= total/2)[1]]
+}

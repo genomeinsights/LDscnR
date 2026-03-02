@@ -17,36 +17,31 @@ gds_3sp <- create_gds_from_geno(geno = GTs_3sp, map=map_3sp,"gds_3sp.gds")
 #max_rho = 0.99
 t1 <- Sys.time()
 ld_struct_3sp <-  compute_ld_structure(
-  gds_3sp,
-  ## for LD-decay and bg
+  gds = gds_3sp,
   q = 0.95,
-  ## for bg
   n_sub_bg = 5000,
-  ## for decay
   n_win_decay = 20,
   overlap = 0.5,
   prob_robust = 0.95,
-  target_dist_bins_for_decay = 40,
+  target_dist_bins_for_decay = 100,
   n_snps_for_decay = 500,
-  ## for histogram compression
-  n_dist_target_for_hist = 100,
-  eps = 0.005,
-  r2_unit = 0.001,
-  ## cores
+  n_dist_target_for_hist = 20,
+  eps = 0.001,
+  r2_unit = 0.01,
+  compression = "hist",
   cores = 8
 )
 
 t2 <- Sys.time()
 print(difftime(t2,t1))
 saveRDS(ld_struct_3sp,"ld_struct_3sp.rds")
-#q("no")
-#plot(ld_struct_3sp_w1000)
-#rm(ld_struct_3sp_w1000)
-gc()
+#ld_struct_3sp <- readRDS("ld_struct_3sp.rds")
+q("no")
+#ld_struct_3sp$by_chr$Chr1$hist_obj
 
+LD_int_3sp  <- compute_ld_summary(ld_struct_3sp,method = "ld_int",shell_type = "median",eps = 0.001,cores = 8)
 
-
-#ld_struct_3sp$
+map_3sp[,ld_w:=LD_int_3sp]
 map_3sp[,emx_F:=readRDS("../LD-scaling-genome-scans/empirical_data/3sp/emx_3sp.rds")$F] ## add to map
 emx_gif = map_3sp[,median(emx_F)/qf(0.5,1,115,lower.tail = FALSE)] ## inflation factor
 map_3sp[,emx_F_GC:=emx_F/emx_gif]  ## genomic control
@@ -57,6 +52,13 @@ map_3sp[,lfmm_F:=readRDS("../LD-scaling-genome-scans/empirical_data/3sp/lfmm_F.r
 map_3sp[,lfmm_P:=pf(lfmm_F,1,115,lower.tail = FALSE)]
 map_3sp[,lfmm_q:=p.adjust(lfmm_P,"fdr")]
 
+lfmm_F_prime_full <- .compute_Fprime(map_3sp$lfmm_F,map_3sp$ld_w,n_rep=10,n_inds = nrow(GTs_3sp),full=TRUE)
+
+plot(-log10(lfmm_F_prime_full[[1]]$q_prime),pch=20)
+abline(h=1.31,lty=2)
+
+
+.compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, full)
 SNP_ids <- map_3sp$marker
 n_inds <- nrow(GTs_3sp)
 

@@ -51,7 +51,6 @@ geno <- tmp$GTs
 
 message("Creating gds file")
 
-
 gds_path <- tempfile(fileext = ".gds")
 gds <- create_gds_from_geno(geno, map, gds_path)
 #on.exit({ SNPRelate::snpgdsClose(gds); unlink(gds_path) }, add = TRUE)
@@ -60,7 +59,7 @@ gds <- create_gds_from_geno(geno, map, gds_path)
 # 2. LD decay + structure
 # ------------------------------------------------------------
 t1 <- Sys.time()
-ld_struct <-  compute_ld_structure(
+ld_struct_hist_100_0.001 <- compute_ld_structure(
   gds,
   ## for LD-decay and bg
   q = 0.95,
@@ -73,14 +72,145 @@ ld_struct <-  compute_ld_structure(
   target_dist_bins_for_decay = 100,
   n_snps_for_decay = 500,
   ## for histogram compression
-  n_dist_target_for_hist = 100,
+  n_dist_target_for_hist = 20,
   eps = 0.01,
-  r2_unit = 0.001,
+  r2_unit = 0.01,
+  compression ="hist",
   ## cores
   cores = 8
 )
 t2 <- Sys.time()
 difftime(t2,t1)
+
+
+ld_20_0.01  <- compute_ld_summary(ld_struct_hist_20_0.01)
+ld_100_0.001  <- compute_ld_summary(ld_struct_hist_100_0.001)
+cor(ld_20_0.01, map$max_LD_with_QTN)^2
+cor(ld_100_0.001, map$max_LD_with_QTN)^2
+
+
+t1 <- Sys.time()
+ld_struct_median <-  compute_ld_structure(
+  gds,
+  ## for LD-decay and bg
+  q = 0.95,
+  ## for bg
+  n_sub_bg = 5000,
+  ## for decay
+  n_win_decay = 20,
+  overlap = 0.5,
+  prob_robust = 0.95,
+  target_dist_bins_for_decay = 100,
+  n_snps_for_decay = 500,
+  ## for histogram compression
+  n_dist_target_for_hist = 20,
+  eps = 0.0001,
+  r2_unit = 0.01,
+  compression =  "median_only",
+    ## cores
+    cores = 8
+)
+t2 <- Sys.time()
+difftime(t2,t1)
+
+ld_hist  <- compute_ld_summary(ld_struct_hist)
+ld_med   <- compute_ld_summary(ld_struct_median)
+ld_med
+a = 0.00005
+
+chr_obj <- ld_struct_median$by_chr$Chr1
+#derive_ld_radius(a, eps=0.01)
+#0.010648355 0.022539743
+#0.010648355 0.022539743
+recompute_ld_int <- function(
+    ld_structure,
+    eps,
+    cores = 1
+) {
+
+  results <- parallel_apply(ld_structure$by_chr, function(chr_obj) {
+
+    shell_list <- chr_obj$hist_obj  # median_only backend
+    a <- chr_obj$decay_sum$a
+
+    d_star <- derive_ld_radius(a, eps)
+
+    sapply(shell_list, function(shell_dt) {
+
+      if (is.null(shell_dt) || nrow(shell_dt) == 0)
+        return(NA_real_)
+
+      integrate_ld_kernel_median_shell(
+        shell_dt = shell_dt,
+        a = a,
+        d_star = d_star
+      )
+    })
+
+  }, cores = cores)
+
+  unlist(results)
+}
+
+eps_grid <- c(0.1, 0.05, 0.02, 0.01, 0.005)
+
+ld_vals <- sapply(eps_grid, function(eps)
+  recompute_ld_int(ld_struct_median, eps = eps)
+)
+plot(eps_grid,apply(ld_vals,2,function(x) cor(x,map$max_LD_with_QTN)^2),type="l")
+
+plot(eps_grid,ld_vals)
+
+ld_med <-do.call(cbind,lapply(c(0.05,0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001),function(eps){
+  ld_struct_median <-  compute_ld_structure(
+    gds,
+    ## for LD-decay and bg
+    q = 0.95,
+    ## for bg
+    n_sub_bg = 5000,
+    ## for decay
+    n_win_decay = 20,
+    overlap = 0.5,
+    prob_robust = 0.95,
+    target_dist_bins_for_decay = 100,
+    n_snps_for_decay = 500,
+    ## for histogram compression
+    n_dist_target_for_hist = 20,
+    eps = eps,
+    r2_unit = 0.01,
+    compression =  "median_only",
+    ## cores
+    cores = 8
+  )
+  compute_ld_summary(ld_struct_median,eps = 0.005)
+}))
+plot(c(0.05,0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001),apply(ld_med,2,function(x) cor(x,map$max_LD_with_QTN)^2),type="l")
+points(c(0.05,0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001),apply(ld_med,2,function(x) cor(x,map$max_LD_with_QTN)^2))
+
+diff_R2 <- diff(apply(ld_med,2,function(x) cor(x,map$max_LD_with_QTN,use="pair")^2))
+eps <- c(0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001)
+plot(eps,diff_R2,type="l")
+mean(cor(ld_med)^2)
+eps <- c(0.05,0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001)
+par(mfcol=c(1,2))
+plot(eps,apply(ld_med,2,var),type="l")
+plot(eps[-1],diff(apply(ld_med,2,sd)),type="l")
+
+
+derive_d_star_from_tail <- function(a, tail_tol = 0.05) {
+  (1 / a) * (1 / tail_tol - 1)
+}
+derive_d_star_from_tail(ld_struct_median$decay_sum$a[1])
+
+diff_sd <- diff(apply(ld_med,2,sd))
+
+points(c(0.05,0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001),apply(ld_med,2,function(x) cor(x,map$max_LD_with_QTN)^2))
+
+
+cor(ld_med, map$max_LD_with_QTN)^2
+plot(ld_20_0.01, ld_med)^2
+cor(ld_hist, ld_med, use = "complete.obs")
+
 
 as <- setNames(ld_struct$decay_sum$a,ld_struct$decay_sum$Chr)
 bs <- setNames(ld_struct$decay_sum$b,ld_struct$decay_sum$Chr)
