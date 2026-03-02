@@ -157,36 +157,6 @@ compute_ld_structure <- function(
     }
 
 
-
-    if(keep_linear_hist){
-      cat(" -- compressing data to linear histograms")
-
-      hist_list_linear <- parallel_apply(seq_along(snps_chr), function(i) {
-
-        dt <- el[J(snps_chr[i]), nomatch = 0]
-        dt[, r2 := pmin(r2, 1)]
-
-        max_d <- max(dt$d)
-        dist_unit <- signif(max_d / n_bins_ld_int, 2)
-
-        build_linear_hist(
-          dt        = dt,
-          dist_unit = dist_unit,
-          r2_unit   = r2_unit
-        )
-
-      }, cores = cores)
-    }
-
-
-    LD_int <- sapply(hist_list_linear, function(h)
-      integrate_ld_kernel_median(
-        hist_mat = h,
-        a = decay_sum$a,
-        d_window = d_star
-      )
-    )
-
     ld_int_vect <- compute_ld_int_vectorised(el, snps_chr, a, d_star, n_bins_ld_int)
 
     cat(" -- calculating LD_int")
@@ -207,7 +177,11 @@ compute_ld_structure <- function(
     cat(" -- done\n")
   }
 
-
+  #out_by_chr$Chr1$LD_int
+  #LD_int <- unlist(lapply(out_by_chr,function(x)x$LD_int))
+  # LD_int_vect <- unlist(lapply(out_by_chr,function(x)x$ld_int_vect))
+  # plot(LD_int_vect,ld_int_target)
+  # cor(unlist(lapply(out_by_chr,function(x)x$ld_int_vect)),map$max_LD_with_QTN)^2
 
   out <- list(
     by_chr    = out_by_chr,
@@ -1078,4 +1052,37 @@ compute_ld_rhow_from_hist <- function(hist_mat,
   combined <- colSums(h_sub)
 
   summarize_hist_shell(combined)
+}
+
+
+compute_ld_int_vectorised <- function(el, snp_ids, a, d_star, n_bins) {
+
+  # restrict to integration radius
+  el_sub <- el[d <= d_star]
+  if (nrow(el_sub) == 0)
+    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+
+  # distance grid
+  max_d     <- max(el_sub$d)
+  dist_unit <- signif(max_d / n_bins, 2)
+
+  el_sub[, dist_idx := floor(d / dist_unit)]
+
+  # shell medians per SNP
+  shell_dt <- el_sub[, .(
+    med_r2 = median(r2)
+  ), by = .(SNP, dist_idx)]
+
+  shell_dt[, d_val := dist_idx * dist_unit]
+  shell_dt[, weight := (a / (1 + a * d_val)^2) * dist_unit]
+
+  # weighted median per SNP
+  LD_dt <- shell_dt[, .(
+    LD_int = weighted_median(med_r2, weight)
+  ), by = SNP]
+
+  result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+  result[LD_dt$SNP] <- LD_dt$LD_int
+
+  result
 }
