@@ -90,7 +90,7 @@ cor(ld_100_0.001, map$max_LD_with_QTN)^2
 
 
 t1 <- Sys.time()
-ld_struct_median <-  compute_ld_structure(
+ld_struct_hist_20 <- compute_ld_structure(
   gds,
   ## for LD-decay and bg
   q = 0.95,
@@ -102,18 +102,48 @@ ld_struct_median <-  compute_ld_structure(
   prob_robust = 0.95,
   target_dist_bins_for_decay = 100,
   n_snps_for_decay = 500,
-  ## for histogram compression
-  n_dist_target_for_hist = 20,
+  keep_hist_for_ld_w = TRUE,
+  n_rho_bins_hist = 20,
+  n_bins_ld_int = 20,
   eps = 0.0001,
   r2_unit = 0.01,
-  compression =  "median_only",
-    ## cores
-    cores = 8
+  cores = 8
 )
 t2 <- Sys.time()
 difftime(t2,t1)
 
-ld_hist  <- compute_ld_summary(ld_struct_hist)
+compute_ld_summary <- function(ld_structure) {
+
+  unlist(lapply(ld_structure$by_chr, function(chr_obj) {
+    chr_obj$ld_int
+  }))
+}
+
+ld_int  <- compute_ld_summary(ld_struct_hist_20,method = "ld_int",rho = 0.95)
+cor_ld_int  <- unlist(mclapply(rho_grid,function(rho){
+  cor(compute_ld_summary(ld_struct_hist_20,method = "ld_int",rho = rho),map$max_LD_with_QTN,use="pair")^2
+},mc.cores=8 ))
+plot(rho_grid,cor_ld_int,type="l",ylab=c("ld_w/ld_int"))
+lines(rho_grid,cor_ld_w,type="l",col="red")
+
+cor(ld_int,map$max_LD_with_QTN,use="pair")^2
+
+rho_grid = c(5:20/20-0.00001)
+cor_ld_w  <- unlist(mclapply(rho_grid,function(rho){
+  cor(compute_ld_summary(ld_struct_hist_20,method = "ld_w",rho = rho),map$max_LD_with_QTN,use="pair")^2
+},mc.cores=8 ))
+
+plot(rho_grid,cor_ld_w,type="l")
+
+plot(log(d_from_rho(a=ld_struct_hist_20$by_chr$Chr1$decay_sum$a, rho=rho_grid)))
+image(ld_struct_hist_20$by_chr$Chr1$hist_obj[[1]])
+
+plot(d_from_rho(a=ld_struct_hist_20$by_chr$Chr1$decay_sum$a, rho=rho_grid[-length(rho_grid)]))
+abline(h=rownames(ld_struct_hist_20$by_chr$Chr1$hist_obj[[1]]),col="red")
+
+
+cor(ld_hist,map$max_LD_with_QTN)^2
+
 ld_med   <- compute_ld_summary(ld_struct_median)
 ld_med
 a = 0.00005
