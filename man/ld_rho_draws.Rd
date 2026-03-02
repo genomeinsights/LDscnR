@@ -7,29 +7,34 @@
 ld_rho_draws(
   gds,
   ld_struct,
-  method = c("auc", "median"),
   n_inds,
   F_vals,
   q_vals = NULL,
+  stat_type = c("q", "C"),
+  mode = c("joint", "per_method"),
+  n_rho_w = 25,
+  ld_w_int = NULL,
   n_draws = 100,
+  rho_w_lim = list(min = 0.8, max = 0.99),
   rho_d_lim = list(min = 0.5, max = 0.999),
   rho_ld_lim = list(min = 0.9, max = 0.999),
   alpha_lim = list(min = 1.31, max = 4),
   lmin_lim = list(min = 1, max = 10),
-  cores = 1,
-  seed = NULL,
-  mode = c("joint", "per_method"),
-  use = c("robust", "median")
+  cores = 1
 )
 }
 \arguments{
-\item{ld_struct}{Object of class "ld_structure".}
-
 \item{n_inds}{Number of individuals.}
 
 \item{F_vals}{Matrix or data.frame of F statistics.}
 
 \item{q_vals}{Matrix or data.frame of q values (optional).}
+
+\item{n_rho_w}{Number of LD-window draws.}
+
+\item{n_draws}{Number of OR parameter draws per rho_w.}
+
+\item{rho_w_lim}{List(min,max) for rho_w.}
 
 \item{rho_d_lim}{List(min,max) for rho_d.}
 
@@ -39,17 +44,9 @@ ld_rho_draws(
 
 \item{lmin_lim}{List(min,max) for minimum OR size.}
 
-\item{seed}{Optional random seed.}
-
-\item{decay_obj}{Object of class "ld_decay".}
-
 \item{SNP_ids}{Vector of SNP IDs in correct order.}
 
-\item{n_rho}{Number of LD-window draws.}
-
-\item{rho_w_lim}{List(min,max) for rho_w.}
-
-\item{n_or_draws}{Number of OR parameter draws per rho_w.}
+\item{seed}{Optional random seed.}
 }
 \value{
 Object of class "ld_rho_draws".

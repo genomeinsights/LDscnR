@@ -32,7 +32,6 @@
 #' @param prob_robust Central proportion of windows retained for robust decay estimation.
 #' @param target_dist_bins_for_decay Number of distance bins for decay fitting.
 #' @param n_snps_for_decay Target number of SNPs per decay window after thinning.
-#' @param n_dist_target_for_hist Number of distance bins for LD histograms.
 #' @param eps Relative LD tail tolerance used to derive integration radius.
 #' @param r2_unit Bin width for r² values in histograms.
 #' @param cores Number of CPU cores used for parallel computations.
@@ -58,7 +57,7 @@ compute_ld_structure <- function(
     target_dist_bins_for_decay = 200,
     n_snps_for_decay = 500,
     ## for histograms
-    keep_rho_hist = TRUE,
+    keep_rho_hist = FALSE,
     keep_linear_hist   = TRUE,
     n_rho_bins_hist = 20,
     n_bins_ld_int = 20,
@@ -188,6 +187,7 @@ compute_ld_structure <- function(
       )
     )
 
+
     cat(" -- calculating LD_int")
 
 
@@ -197,6 +197,7 @@ compute_ld_structure <- function(
       snp_ids    = snps_chr,
       hist_obj_rho   = if(keep_rho_hist) hist_list_rho else NULL,
       hist_obj_linear   = if(keep_linear_hist) hist_list_linear else NULL,
+      ld_int     = LD_int,
       decay      = decay,
       decay_sum  = decay_sum
     )
@@ -205,7 +206,7 @@ compute_ld_structure <- function(
   }
 
 
-  cor(unlist(lapply(out_by_chr,function(x)x$ld_int)),map$max_LD_with_QTN)^2
+  #cor(unlist(lapply(out_by_chr,function(x)x$ld_int)),map$max_LD_with_QTN)^2
 
   out <- list(
     by_chr    = out_by_chr,
@@ -214,16 +215,17 @@ compute_ld_structure <- function(
                       n_sub_bg = n_sub_bg,
                       n_win_decay = n_win_decay,
                       overlap = overlap,
-                      n_dist_target_for_hist = n_dist_target_for_hist,
                       eps = eps,
                       r2_unit = r2_unit,
                       prob_robust = prob_robust,
                       target_dist_bins_for_decay = target_dist_bins_for_decay,
                       n_snps_for_decay = n_snps_for_decay,
+                      keep_rho_hist = keep_rho_hist,
+                      keep_linear_hist   = keep_linear_hist,
+                      n_rho_bins_hist = n_rho_bins_hist,
+                      n_bins_ld_int = n_bins_ld_int,
                       cores = cores)
   )
-
-
 
   class(out) <- "ld_structure"
 
@@ -917,22 +919,24 @@ build_ld_shells <- function(
   shell_list
 }
 
-build_linear_hist <- function(dt, dist_unit, r2_unit) {
+build_linear_hist <- function(dt, dist_unit, r2_unit,symmetry_correction=FALSE) {
 
   if (nrow(dt) == 0) return(NULL)
 
-  # --- symmetry correction ---
-  dt[, side := data.table::fifelse(pos_other > pos, "R", "L")]
+  if(symmetry_correction){
+    # --- symmetry correction ---
+    dt[, side := data.table::fifelse(pos_other > pos, "R", "L")]
 
-  maxL <- if (any(dt$side == "L")) max(dt$d[dt$side == "L"]) else 0
-  maxR <- if (any(dt$side == "R")) max(dt$d[dt$side == "R"]) else 0
-  S <- min(maxL, maxR)
+    maxL <- if (any(dt$side == "L")) max(dt$d[dt$side == "L"]) else 0
+    maxR <- if (any(dt$side == "R")) max(dt$d[dt$side == "R"]) else 0
+    S <- min(maxL, maxR)
 
-  if (S > 0 && maxL != maxR) {
-    long_side <- if (maxL > maxR) "L" else "R"
-    tail_dt <- dt[side == long_side & d > S]
-    if (nrow(tail_dt) > 0)
-      dt <- data.table::rbindlist(list(dt, tail_dt))
+    if (S > 0 && maxL != maxR) {
+      long_side <- if (maxL > maxR) "L" else "R"
+      tail_dt <- dt[side == long_side & d > S]
+      if (nrow(tail_dt) > 0)
+        dt <- data.table::rbindlist(list(dt, tail_dt))
+    }
   }
 
   # --- integer bins ---

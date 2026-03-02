@@ -102,7 +102,8 @@ ld_struct_hist_20 <- compute_ld_structure(
   prob_robust = 0.95,
   target_dist_bins_for_decay = 100,
   n_snps_for_decay = 500,
-  keep_hist_for_ld_w = TRUE,
+  keep_rho_hist = TRUE,
+  keep_linear_hist = FALSE,
   n_rho_bins_hist = 20,
   n_bins_ld_int = 20,
   eps = 0.0001,
@@ -112,13 +113,57 @@ ld_struct_hist_20 <- compute_ld_structure(
 t2 <- Sys.time()
 difftime(t2,t1)
 
+ld_int_target <- unlist(lapply(out_by_chr,function(x)x$ld_int))
+
+map[,plot(ld_int,pch=ifelse(type=="QTN",3,16),col=ifelse(type=="QTN","red","black"))]
+map[,plot(ld_int,lfmm_F,pch=ifelse(type=="QTN",3,16),col=ifelse(type=="QTN","red","black"))]
+
+p1 <- ggplot(map, aes(ld_int,lfmm_F,col=max_LD_with_QTN,shape=type,size=type)) +
+  geom_point() +
+  scale_color_viridis_c(option="turbo")+
+  scale_shape_manual(values=c(20,3)) +
+  scale_size_manual(values=c(1,3))
+
+p2 <- ggplot(map, aes(ld_int,lfmm_F,col=(ld_int*lfmm_F)^0.5,shape=type,size=type)) +
+  geom_point() +
+  scale_color_viridis_c(option="turbo") +
+  scale_shape_manual(values=c(20,3)) +
+  scale_size_manual(values=c(1,3))
+
+p3 <- ggplot(map, aes(1:nrow(map),ld_int*lfmm_F,col=max_LD_with_QTN,shape=type,size=type)) +
+  geom_point() +
+  scale_color_viridis_c(option="turbo") +
+  scale_shape_manual(values=c(20,3)) +
+  scale_size_manual(values=c(1,3))
+
+p4 <- ggplot(map, aes(1:nrow(map),lfmm_F,col=max_LD_with_QTN,shape=type,size=type)) +
+  geom_point() +
+  scale_color_viridis_c(option="turbo") +
+  scale_shape_manual(values=c(20,3)) +
+  scale_size_manual(values=c(1,3))
+
+p5 <- ggplot(map, aes(1:nrow(map),ld_int,col=max_LD_with_QTN,shape=type,size=type)) +
+  geom_point() +
+  scale_color_viridis_c(option="turbo") +
+  scale_shape_manual(values=c(20,3)) +
+  scale_size_manual(values=c(1,3))
+
+(p1 | p2) / p3 / p4 / p5
+
+
+cor_ld_w  <- unlist(mclapply(rho_grid,function(rho){
+  cor(compute_ld_summary(ld_struct_hist_20,method = "ld_w",rho = rho),map$max_LD_with_QTN,use="pair")^2
+},mc.cores=8 ))
+
+plot(rho_grid,cor_ld_w,type="l")
+
 compute_ld_summary <- function(ld_structure) {
 
   unlist(lapply(ld_structure$by_chr, function(chr_obj) {
     chr_obj$ld_int
   }))
 }
-
+ld_struct_hist_20$by_chr$Chr1$hist_obj[[1]]
 ld_int  <- compute_ld_summary(ld_struct_hist_20,method = "ld_int",rho = 0.95)
 cor_ld_int  <- unlist(mclapply(rho_grid,function(rho){
   cor(compute_ld_summary(ld_struct_hist_20,method = "ld_int",rho = rho),map$max_LD_with_QTN,use="pair")^2

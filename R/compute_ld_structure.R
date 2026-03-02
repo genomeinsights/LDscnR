@@ -58,10 +58,12 @@ compute_ld_structure <- function(
     target_dist_bins_for_decay = 200,
     n_snps_for_decay = 500,
     ## for histograms
-    n_dist_target_for_hist = 100,
-    eps = 0.005,
-    r2_unit = 0.001,
-    compression = c("hist", "median_only"),
+    keep_rho_hist = FALSE,
+    keep_linear_hist   = TRUE,
+    n_rho_bins_hist = 20,
+    n_bins_ld_int = 20,
+    rho = 0.999,
+    r2_unit = 0.01,
     cores = 1,
     k_max=1000
 ) {
@@ -114,50 +116,98 @@ compute_ld_structure <- function(
 
     decay_sum[, Chr := ch]
 
-    # ---  Histograms
 
-    d_star <- derive_ld_radius(decay_sum$a, eps)
+    d_star <- d_from_rho(decay_sum$a, rho)
 
-    # --- LD_int directly
-    d_star <- derive_ld_radius(decay_sum$a, eps)
+    spacing <- diff(sort(pos_chr))
+    q_spacing <- quantile(spacing, 0.75)
+    k_star <- ceiling(d_star / q_spacing)
 
-    ld_int_vec <- compute_ld_int_chr(
+    el <- get_el(
       gds = gds,
-      chr_idx = chr_idx,
-      snps_chr = snps_chr,
-      pos_chr = pos_chr,
-      a = decay_sum$a,
-      d_star = d_star,
-      n_bins = 20,
-      k_max = k_max,
-      cores = cores
+      idx = chr_idx,
+      slide_win_ld = min(k_max, k_star),
+      cores = cores,
+      by_chr = TRUE,
+      symmetric = TRUE,
+      edge_symmetry = FALSE
     )
 
-    cat(" -- compressing data to histograms")
-    histograms <- build_ld_histograms(
-      gds=gds,
-      chr_idx   = chr_idx,
-      snps_chr  = snps_chr,
-      pos_chr   = pos_chr,
-      d_star    = d_star,
-      r2_unit   = r2_unit,
-      a         = decay_sum$a,
-      n_rho_bins = n_dist_target_for_hist,
-      k_max     = k_max,
-      cores     = cores
+
+    data.table::setkey(el, SNP)
+
+
+    if(keep_rho_hist){
+      cat(" -- compressing data to histograms")
+
+
+      hist_list_rho <- parallel_apply(seq_along(snps_chr), function(i) {
+
+        dt <- el[J(snps_chr[i]), nomatch = 0]
+        dt[, r2 := pmin(r2, 1)]
+
+        build_hist_from_dt_rho(
+          dt = dt,
+          a = a,                   # <-- correct parameter
+          n_rho_bins = n_rho_bins_hist,
+          r2_unit = r2_unit
+        )
+
+      }, cores = cores)
+    }
+
+
+
+    if(keep_linear_hist){
+      cat(" -- compressing data to linear histograms")
+
+      hist_list_linear <- parallel_apply(seq_along(snps_chr), function(i) {
+
+        dt <- el[J(snps_chr[i]), nomatch = 0]
+        dt[, r2 := pmin(r2, 1)]
+
+        max_d <- max(dt$d)
+        dist_unit <- signif(max_d / n_bins_ld_int, 2)
+
+        build_linear_hist(
+          dt        = dt,
+          dist_unit = dist_unit,
+          r2_unit   = r2_unit
+        )
+
+      }, cores = cores)
+    }
+
+
+    LD_int <- sapply(hist_list_linear, function(h)
+      integrate_ld_kernel_median(
+        hist_mat = h,
+        a = decay_sum$a,
+        d_window = d_star
+      )
     )
+
+    ld_int_vect <- compute_ld_int_vectorised(el, snps_chr, a, d_star, n_bins_ld_int)
+
+    cat(" -- calculating LD_int")
+
+
 
     # ---- collect data
     out_by_chr[[ch]] <- list(
       snp_ids    = snps_chr,
-      hist_obj   = histograms,
-      ld_int     = ld_int_vec,
+      hist_obj_rho   = if(keep_rho_hist) hist_list_rho else NULL,
+      hist_obj_linear   = if(keep_linear_hist) hist_list_linear else NULL,
+      LD_int = LD_int,
+      ld_int_vect = ld_int_vect,
       decay      = decay,
       decay_sum  = decay_sum
     )
 
     cat(" -- done\n")
   }
+
+
 
   out <- list(
     by_chr    = out_by_chr,
@@ -167,8 +217,12 @@ compute_ld_structure <- function(
                       n_win_decay = n_win_decay,
                       overlap = overlap,
                       n_dist_target_for_hist = n_dist_target_for_hist,
-                      eps = eps,
+                      rho = rho,
                       r2_unit = r2_unit,
+                      keep_rho_hist = keep_rho_hist,
+                      keep_linear_hist   = keep_linear_hist,
+                      n_rho_bins_hist = n_rho_bins_hist,
+                      n_bins_ld_int = n_bins_ld_int,
                       prob_robust = prob_robust,
                       target_dist_bins_for_decay = target_dist_bins_for_decay,
                       n_snps_for_decay = n_snps_for_decay,
@@ -543,91 +597,6 @@ parallel_apply <- function(X, FUN, cores = 1) {
 }
 
 
-build_hist_from_dt <- function(dt, dist_unit, r2_unit) {
-
-  if (nrow(dt) == 0) return(NULL)
-
-  # --- symmetry correction ---
-  dt[, side := data.table::fifelse(pos_other > pos, "R", "L")]
-
-  maxL <- if (any(dt$side == "L")) max(dt$d[dt$side == "L"]) else 0
-  maxR <- if (any(dt$side == "R")) max(dt$d[dt$side == "R"]) else 0
-  S <- min(maxL, maxR)
-
-  if (S > 0 && maxL != maxR) {
-    long_side <- if (maxL > maxR) "L" else "R"
-    tail_dt <- dt[side == long_side & d > S]
-    if (nrow(tail_dt) > 0)
-      dt <- data.table::rbindlist(list(dt, tail_dt))
-  }
-
-
-
-  # --- integer bins ---
-  if(log_d)
-    dt[, dist_idx := floor(log(d) / log(dist_unit))]
-  else
-    dt[, dist_idx := floor(d / dist_unit)]
-
-  dt[, r2_idx   := floor(r2 / r2_unit)]
-
-  hist2d <- dt[, .N, by = .(dist_idx, r2_idx)]
-
-  mat <- xtabs(N ~ dist_idx + r2_idx, data = hist2d)
-  mat <- as.matrix(mat)
-
-  # convert indices to physical scale
-  dist_vals <- as.numeric(rownames(mat)) * dist_unit
-  r2_vals   <- as.numeric(colnames(mat)) * r2_unit
-
-  rownames(mat) <- signif(dist_vals, 6)
-  colnames(mat) <- signif(r2_vals, 6)
-  return(mat)
-
-}
-
-
-build_hist_from_dt <- function(dt,
-                                   a,
-                                   n_rho_bins = 20,
-                                   r2_unit = 0.01) {
-
-  if (nrow(dt) == 0) return(NULL)
-
-  # Convert distance to rho
-  dt[, rho := 1 - 1/(1 + a * d)]
-
-  # Keep within [0,1]
-  dt[, rho := pmin(pmax(rho, 0), 1)]
-
-  # Uniform rho bins
-  rho_min <- min(rho)
-  rho_max <- max(rho)
-
-  breaks <- exp(seq(log(d_min), log(d_star), length.out = n_bins + 1))
-
-  breaks <- seq(rho_min, rho_max, length.out = n_bins + 1)
-  rho_idx <- cut(rho, breaks = breaks, labels = FALSE, include.lowest = TRUE)
-
-  # r2 bins
-  dt[, r2_idx := floor(r2 / r2_unit)]
-
-  # Count
-  hist2d <- dt[, .N, by = .(rho_idx, r2_idx)]
-
-  mat <- xtabs(N ~ rho_idx + r2_idx, data = hist2d)
-  mat <- as.matrix(mat)
-
-  # Convert indices to rho values
-  rho_vals <- (as.numeric(rownames(mat)) + 0.5) / n_rho_bins
-  r2_vals  <- as.numeric(colnames(mat)) * r2_unit
-
-  rownames(mat) <- signif(rho_vals, 4)
-  colnames(mat) <- signif(r2_vals, 4)
-
-  return(mat)
-}
-
 build_hist_from_dt_rho <- function(dt,
                                    a,
                                    n_rho_bins = 20,
@@ -684,122 +653,6 @@ build_hist_from_dt_rho <- function(dt,
   colnames(mat) <- signif(as.numeric(colnames(mat)) * r2_unit, 4)
 
   return(mat)
-}
-#' Build Per-SNP LD Histograms
-#'
-#' Constructs two-dimensional histograms of LD (r²) as a function
-#' of physical distance for each SNP within an adaptive LD radius.
-#'
-#' @param gds GDS file handle.
-#' @param chr_idx SNP indices for chromosome.
-#' @param snps_chr SNP IDs.
-#' @param pos_chr Physical SNP positions.
-#' @param d_star Maximum LD integration radius (bp).
-#' @param r2_unit Bin width for r² values.
-#' @param n_dist_target Target number of distance bins.
-#' @param cores Number of CPU cores.
-#'
-#' @return A list of matrices, one per SNP. Each matrix contains
-#'   counts of LD pairs binned by distance (rows) and r² (columns).
-#'
-#' @export
-build_ld_histograms <- function(
-    gds,
-    chr_idx,
-    snps_chr,
-    pos_chr,
-    d_star,
-    r2_unit = 0.001,
-    n_dist_target = 100,
-    k_max = 1000,
-    cores = 1,
-    compression = c("hist", "median_only")
-) {
-
-  compression <- match.arg(compression)
-
-  spacing <- diff(sort(pos_chr))
-  q_spacing <- quantile(spacing, 0.75)
-  k_star <- ceiling(d_star / q_spacing)
-
-  el <- get_el(
-    gds = gds,
-    idx = chr_idx,
-    slide_win_ld = min(k_max, k_star),
-    cores = cores
-  )
-
-  el <- data.table::rbindlist(list(
-    el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
-    el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
-  ))
-
-  data.table::setkey(el, SNP)
-
-  # i <- 1
-  hist_list <- parallel_apply(seq_along(snps_chr), function(i) {
-
-    dt <- el[J(snps_chr[i]), nomatch = 0]
-    dt[, r2 := pmin(r2, 1)]
-
-    max_d <- max(dt$d)
-    dist_unit <- signif(max_d / n_dist_target, 2)
-
-    build_hist_from_dt_rho(dt, dist_unit, r2_unit)
-
-  }, cores = cores)
-
-  return(hist_list)
-
-
-}
-
-build_ld_histograms <- function(
-    gds,
-    chr_idx,
-    snps_chr,
-    pos_chr,
-    d_star,
-    a,                      # <-- NEW
-    r2_unit = 0.01,
-    n_rho_bins = 20,        # <-- rename for clarity
-    k_max = 1000,
-    cores = 1
-) {
-
-  spacing <- diff(sort(pos_chr))
-  q_spacing <- quantile(spacing, 0.75)
-  k_star <- ceiling(d_star / q_spacing)
-
-  el <- get_el(
-    gds = gds,
-    idx = chr_idx,
-    slide_win_ld = min(k_max, k_star),
-    cores = cores
-  )
-
-  el <- data.table::rbindlist(list(
-    el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
-    el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
-  ))
-
-  data.table::setkey(el, SNP)
-
-  hist_list <- parallel_apply(seq_along(snps_chr), function(i) {
-
-    dt <- el[J(snps_chr[i]), nomatch = 0]
-    dt[, r2 := pmin(r2, 1)]
-
-    build_hist_from_dt_rho(
-      dt = dt,
-      a = a,                   # <-- correct parameter
-      n_rho_bins = n_rho_bins,
-      r2_unit = r2_unit
-    )
-
-  }, cores = cores)
-
-  return(hist_list)
 }
 
 thin_to_k_target <- function(pos, d_star, k_target = 1000) {
@@ -1070,82 +923,159 @@ build_ld_shells <- function(
   shell_list
 }
 
-compute_ld_int_chr <- function(
-    gds,
-    chr_idx,
-    snps_chr,
-    pos_chr,
-    a,
-    d_star,
-    n_bins = 20,
-    k_max = 1000,
+build_linear_hist <- function(dt, dist_unit, r2_unit) {
+
+  if (nrow(dt) == 0) return(NULL)
+
+  # # --- symmetry correction ---
+  # dt[, side := data.table::fifelse(pos_other > pos, "R", "L")]
+  #
+  # maxL <- if (any(dt$side == "L")) max(dt$d[dt$side == "L"]) else 0
+  # maxR <- if (any(dt$side == "R")) max(dt$d[dt$side == "R"]) else 0
+  # S <- min(maxL, maxR)
+  #
+  # if (S > 0 && maxL != maxR) {
+  #   long_side <- if (maxL > maxR) "L" else "R"
+  #   tail_dt <- dt[side == long_side & d > S]
+  #   if (nrow(tail_dt) > 0)
+  #     dt <- data.table::rbindlist(list(dt, tail_dt))
+  # }
+
+  # --- integer bins ---
+  dt[, dist_idx := floor(d / dist_unit)]
+  dt[, r2_idx   := floor(r2 / r2_unit)]
+
+  hist2d <- dt[, .N, by = .(dist_idx, r2_idx)]
+
+  mat <- xtabs(N ~ dist_idx + r2_idx, data = hist2d)
+  mat <- as.matrix(mat)
+
+  # convert indices to physical scale
+  dist_vals <- as.numeric(rownames(mat)) * dist_unit
+  r2_vals   <- as.numeric(colnames(mat)) * r2_unit
+
+  rownames(mat) <- signif(dist_vals, 6)
+  colnames(mat) <- signif(r2_vals, 6)
+  return(mat)
+
+}
+
+compute_ld_summary <- function(
+    ld_structure,
+    method = c("ld_int", "rho_w"),
+    rho = 0.95,
     cores = 1
 ) {
 
-  # Determine slide window
-  spacing <- diff(sort(pos_chr))
-  q_spacing <- quantile(spacing, 0.75)
-  k_star <- ceiling(d_star / q_spacing)
+  method <- match.arg(method)
 
-  el <- get_el(
-    gds = gds,
-    idx = chr_idx,
-    slide_win_ld = min(k_max, k_star),
-    cores = cores
-  )
+  results <- parallel_apply(ld_structure$by_chr, function(chr_obj) {
 
-  # Make symmetric edge list
-  el <- data.table::rbindlist(list(
-    el[, .(SNP = SNP1, d, r2)],
-    el[, .(SNP = SNP2, d, r2)]
-  ))
+    a <- chr_obj$decay_sum$a
+    b <- chr_obj$decay_sum$b
 
-  # Restrict to integration radius
-  el <- el[d <= d_star]
+    d_window <- d_from_rho(a, rho)
 
-  if (nrow(el) == 0)
-    return(rep(NA_real_, length(snps_chr)))
+    if (method == "ld_int") {
+      hist_obj <- chr_obj$hist_obj_linear
+      return(sapply(hist_obj, function(h)
+        integrate_ld_kernel_median(
+          hist_mat = h,
+          a = a,
+          d_window = d_window
+        )
+      ))
+    }
 
-  # Log-distance bins
-  d_min <- max(min(el$d[el$d > 0]), 1e-8)
-  breaks <- exp(seq(log(d_min), log(d_star), length.out = n_bins + 1))
+    if (method == "rho_w") {
 
-  shell_mid <- sqrt(breaks[-1] * breaks[-length(breaks)])
-  shell_width <- diff(breaks)
+      if (is.null(d_window))
+        stop("d_window must be supplied for rho_w.")
 
-  el[, shell := cut(d, breaks = breaks,
-                    labels = FALSE,
-                    include.lowest = TRUE)]
+      hist_obj <- chr_obj$hist_obj_rho
+      return(sapply(hist_obj, function(h)
+        compute_ld_rhow_from_hist(
+          hist_mat = h,
+          d_window = d_window,
+          shell_type = shell_type,
+          b = b
+        )
+      ))
+    }
 
-  weighted_median <- function(x, w) {
-    ord <- order(x)
-    x <- x[ord]
-    w <- w[ord]
-    w <- w / sum(w)
-    cs <- cumsum(w)
-    x[which(cs >= 0.5)[1]]
+  }, cores = cores)
+
+  unlist(results)
+}
+
+integrate_ld_kernel_median <- function(hist_mat,
+                                       a,
+                                       d_window) {
+
+  if (is.null(hist_mat)) return(NA_real_)
+
+  dist_vals <- as.numeric(rownames(hist_mat))
+  keep <- dist_vals <= d_window
+
+  if (!any(keep)) return(NA_real_)
+
+  h_sub <- hist_mat[keep, , drop = FALSE]
+  dist_vals_sub <- as.numeric(rownames(h_sub))
+
+  # decay weights
+  w_d <- a / (1 + a * dist_vals_sub)^2
+
+  if (length(dist_vals_sub) > 1) {
+    delta_d <- c(diff(dist_vals_sub),
+                 tail(diff(dist_vals_sub), 1))
+  } else {
+    delta_d <- 1
   }
 
-  # Compute LD_int per SNP
-  ld_int_vec <- sapply(snps_chr, function(snp) {
+  w_use <- w_d * delta_d
+  if (sum(w_use) == 0) return(NA_real_)
 
-    dt <- el[SNP == snp]
-    if (nrow(dt) == 0) return(NA_real_)
+  # shell summaries
+  shell_vals <- apply(h_sub, 1, summarize_hist_shell)
 
-    shell_dt <- dt[, .(
-      median_r2 = median(r2)
-    ), by = shell]
+  weighted_median(shell_vals, w_use)
+}
 
-    shell_dt[, d_mid := shell_mid[shell]]
-    shell_dt[, delta_d := shell_width[shell]]
+weighted_median <- function(x, w) {
+  ord <- order(x)
+  x <- x[ord]
+  w <- w[ord]
+  w <- w / sum(w)
+  cs <- cumsum(w)
+  x[which(cs >= 0.5)[1]]
+}
 
-    w <- a / (1 + a * shell_dt$d_mid)^2
-    w <- w * shell_dt$delta_d
+summarize_hist_shell <- function(hist_row) {
 
-    if (sum(w) == 0) return(NA_real_)
+  total <- sum(hist_row)
+  if (total == 0) return(NA_real_)
 
-    weighted_median(shell_dt$median_r2, w)
-  })
+  r2_vals <- as.numeric(names(hist_row))
 
-  ld_int_vec
+  cs <- cumsum(hist_row)
+  idx <- which(cs >= total / 2)[1]
+  return(r2_vals[idx])
+}
+
+compute_ld_rhow_from_hist <- function(hist_mat,
+                                      d_window) {
+
+  if (is.null(hist_mat)) return(NA_real_)
+
+  dist_vals <- as.numeric(rownames(hist_mat))
+  keep <- dist_vals <= d_window
+
+  if (!any(keep)) return(NA_real_)
+
+  h_sub <- hist_mat[keep, , drop = FALSE]
+
+  # Collapse all rows into one distribution
+  combined <- colSums(h_sub)
+
+  summarize_hist_shell(combined)
 }

@@ -42,7 +42,9 @@ get_el <- function(gds,
                    idx = NULL,
                    slide_win_ld = 1000,
                    cores = 1,
-                   by_chr = FALSE) {
+                   by_chr = FALSE,
+                   symmetric = FALSE,
+                   edge_symmetry = FALSE) {
 
   ids <- .read_gds_ids(gds)
 
@@ -119,8 +121,40 @@ get_el <- function(gds,
     if (length(local_idx) < 2L)
       next
 
-    el_list[[i]] <- compute_one(local_idx)
+    el <-  compute_one(local_idx)
+
+    if(symmetric || edge_symmetry){
+
+      el <- data.table::rbindlist(list(
+        el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
+        el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
+      ))
+
+      if(edge_symmetry){
+
+        el[, side := data.table::fifelse(pos_other > pos, "R", "L")]
+
+        maxL <- if (any(el$side == "L")) max(el$d[el$side == "L"]) else 0
+        maxR <- if (any(el$side == "R")) max(el$d[el$side == "R"]) else 0
+        S <- min(maxL, maxR)
+
+        if (S > 0 && maxL != maxR) {
+          long_side <- if (maxL > maxR) "L" else "R"
+          tail_el <- el[side == long_side & d > S]
+          if (nrow(tail_el) > 0)
+            el <- data.table::rbindlist(list(el, tail_el))
+        }
+
+      }
+
+
+
+    }
+
+    el_list[[i]] <- el
   }
+
+
 
   data.table::rbindlist(el_list, use.names = TRUE)
 }

@@ -11,6 +11,7 @@ or_draws(
   SNP_chr,
   ld_struct,
   n_draws = 25,
+  stat_type = c("q", "C"),
   mode = c("per_method", "joint"),
   rho_d_lim = list(min = 0.5, max = 0.999),
   rho_ld_lim = list(min = 0.9, max = 0.999),

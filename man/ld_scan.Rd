@@ -4,20 +4,9 @@
 \alias{ld_scan}
 \title{LD-scaled genome scan}
 \usage{
-ld_scan(
-  ld_struct,
-  SNP_ids,
-  F_vals,
-  ld_w,
-  n_inds,
-  n_rep = 10,
-  full = TRUE,
-  use = "robust"
-)
+ld_scan(ld_w, F_vals, SNP_ids, n_inds, n_rep = 10, full = TRUE)
 }
 \arguments{
-\item{ld_struct}{An object of class \code{"ld_structure"}.}
-
 \item{F_vals}{Numeric vector or matrix of F-statistics (n_snp x n_method).}
 
 \item{n_inds}{Number of individuals (for F null df2 = n_inds - 2).}
@@ -26,14 +15,22 @@ ld_scan(
 
 \item{full}{Logical; if TRUE return QQ diagnostics.}
 
-\item{decay_obj}{An object of class \code{"ld_decay"}.}
-
 \item{rho_w}{Numeric in (0,1). LD-decay quantile defining window size.}
 }
 \value{
 An object of class \code{"ld_scan"}.
 }
 \description{
-Computes LD-scaled F statistics (F') for a given LD-decay object
-and LD-structure, using a decay quantile \eqn{\rho_w}.
+Performs LD-weighted and LD-scaled genome scan statistics
+by combining association statistics with pre-computed
+LD summary values.
+}
+\details{
+The procedure:
+\enumerate{
+\item Computes raw LD-weighted statistic F × LD
+\item Estimates LD-induced distortion via circular permutation
+\item Performs quantile correction relative to theoretical null
+\item Returns LD-scaled statistic F′ on the original F scale
+}
 }
