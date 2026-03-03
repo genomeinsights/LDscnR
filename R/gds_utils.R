@@ -147,7 +147,7 @@ get_el <- function(gds,
 
       }
 
-
+     el <- el[,.(SNP,pos1=pos,pos2=pos_other,r2,d)]
 
     }
 

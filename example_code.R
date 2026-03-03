@@ -59,7 +59,7 @@ gds <- create_gds_from_geno(geno, map, gds_path)
 # 2. LD decay + structure
 # ------------------------------------------------------------
 t1 <- Sys.time()
-ld_struct_hist_100_0.001 <- compute_ld_structure(
+ld_struct <- compute_ld_structure(
   gds,
   ## for LD-decay and bg
   q = 0.95,
@@ -67,57 +67,45 @@ ld_struct_hist_100_0.001 <- compute_ld_structure(
   n_sub_bg = 5000,
   ## for decay
   n_win_decay = 20,
+  max_pairs = 5000,
+  n_strata = 20,
   overlap = 0.5,
   prob_robust = 0.95,
-  target_dist_bins_for_decay = 100,
-  n_snps_for_decay = 500,
-  ## for histogram compression
-  n_dist_target_for_hist = 20,
-  eps = 0.01,
-  r2_unit = 0.01,
-  compression ="hist",
-  ## cores
-  cores = 8
-)
-t2 <- Sys.time()
-difftime(t2,t1)
-
-
-ld_20_0.01  <- compute_ld_summary(ld_struct_hist_20_0.01)
-ld_100_0.001  <- compute_ld_summary(ld_struct_hist_100_0.001)
-cor(ld_20_0.01, map$max_LD_with_QTN)^2
-cor(ld_100_0.001, map$max_LD_with_QTN)^2
-
-
-t1 <- Sys.time()
-ld_struct_hist_20 <- compute_ld_structure(
-  gds,
-  ## for LD-decay and bg
-  q = 0.95,
-  ## for bg
-  n_sub_bg = 5000,
-  ## for decay
-  n_win_decay = 20,
-  overlap = 0.5,
-  prob_robust = 0.95,
-  target_dist_bins_for_decay = 100,
-  n_snps_for_decay = 500,
-  keep_rho_hist = TRUE,
-  keep_linear_hist = FALSE,
+  target_dist_bins_for_decay = 60,
+  keep_rho_hist = FALSE,
+  keep_el = TRUE,
   n_rho_bins_hist = 20,
   n_bins_ld_int = 20,
-  eps = 0.0001,
-  r2_unit = 0.01,
+  rho = 0.995,
+  k_max=1000,
   cores = 8
 )
 t2 <- Sys.time()
 difftime(t2,t1)
+ld_struct$by_chr$Chr1$ld_int_vect
+plot(-log(ld_struct$decay_sum$a),map[,max(Pos),by=Chr][,V1])
+#rm(ld_struct)
+cor(unlist(lapply(ld_struct$by_chr, function(x)x$ld_int_vect)),map[,max_LD_with_QTN])^2
+# ld_w <- sapply(c(0.5,0.6,0.7,0.8,0.85,0.9,0.95,0.99),function(rh){
+#   tmp <- el[d<d_from_rho(decay_sum$a, rh),median(r2),by=SNP]
+#   tmp[match(snps_chr,SNP),V1]
+# })
+# colnames(ld_w) <- c(0.5,0.6,0.7,0.8,0.85,0.9,0.95,0.99)
+#
+# ld_int_vect <- sapply(c(10,15,20,25,30,40,50,100),function(n_bins_ld_int){
+#   ld_int_vect <- compute_ld_int_vectorised(el, snps_chr, a, n_bins=n_bins_ld_int)
+# })
+# colnames(ld_int_vect) <- c(10,15,20,25,30,40,50,100)
+# cat(" -- calculating LD_int")
 
-ld_int_target <- unlist(lapply(out_by_chr,function(x)x$ld_int))
+LD_int <- unlist(lapply(ld_struct$by_chr,function(x)x$ld_int))
 
-map[,plot(ld_int,pch=ifelse(type=="QTN",3,16),col=ifelse(type=="QTN","red","black"))]
-map[,plot(ld_int,lfmm_F,pch=ifelse(type=="QTN",3,16),col=ifelse(type=="QTN","red","black"))]
+# map[,plot(ld_int,pch=ifelse(type=="QTN",3,16),col=ifelse(type=="QTN","red","black"))]
+# map[,plot(ld_int,lfmm_F,pch=ifelse(type=="QTN",3,16),col=ifelse(type=="QTN","red","black"))]
 
+lfmm_F_prime_full <- .compute_Fprime(map$lfmm_F,LD_int,n_rep=10,n_inds = nrow(geno),full=TRUE)
+map[,lfmm_q_prime := -log10(lfmm_F_prime_full[[1]]$q_prime)]
+map[,ld_int:=LD_int]
 p1 <- ggplot(map, aes(ld_int,lfmm_F,col=max_LD_with_QTN,shape=type,size=type)) +
   geom_point() +
   scale_color_viridis_c(option="turbo")+
@@ -130,11 +118,12 @@ p2 <- ggplot(map, aes(ld_int,lfmm_F,col=(ld_int*lfmm_F)^0.5,shape=type,size=type
   scale_shape_manual(values=c(20,3)) +
   scale_size_manual(values=c(1,3))
 
-p3 <- ggplot(map, aes(1:nrow(map),ld_int*lfmm_F,col=max_LD_with_QTN,shape=type,size=type)) +
+p3 <- ggplot(map, aes(1:nrow(map),lfmm_q_prime,col=max_LD_with_QTN,shape=type,size=type)) +
   geom_point() +
   scale_color_viridis_c(option="turbo") +
   scale_shape_manual(values=c(20,3)) +
-  scale_size_manual(values=c(1,3))
+  scale_size_manual(values=c(1,3)) +
+  geom_hline(yintercept = 1.31)
 
 p4 <- ggplot(map, aes(1:nrow(map),lfmm_F,col=max_LD_with_QTN,shape=type,size=type)) +
   geom_point() +
@@ -149,142 +138,6 @@ p5 <- ggplot(map, aes(1:nrow(map),ld_int,col=max_LD_with_QTN,shape=type,size=typ
   scale_size_manual(values=c(1,3))
 
 (p1 | p2) / p3 / p4 / p5
-
-
-cor_ld_w  <- unlist(mclapply(rho_grid,function(rho){
-  cor(compute_ld_summary(ld_struct_hist_20,method = "ld_w",rho = rho),map$max_LD_with_QTN,use="pair")^2
-},mc.cores=8 ))
-
-plot(rho_grid,cor_ld_w,type="l")
-
-compute_ld_summary <- function(ld_structure) {
-
-  unlist(lapply(ld_structure$by_chr, function(chr_obj) {
-    chr_obj$ld_int
-  }))
-}
-ld_struct_hist_20$by_chr$Chr1$hist_obj[[1]]
-ld_int  <- compute_ld_summary(ld_struct_hist_20,method = "ld_int",rho = 0.95)
-cor_ld_int  <- unlist(mclapply(rho_grid,function(rho){
-  cor(compute_ld_summary(ld_struct_hist_20,method = "ld_int",rho = rho),map$max_LD_with_QTN,use="pair")^2
-},mc.cores=8 ))
-plot(rho_grid,cor_ld_int,type="l",ylab=c("ld_w/ld_int"))
-lines(rho_grid,cor_ld_w,type="l",col="red")
-
-cor(ld_int,map$max_LD_with_QTN,use="pair")^2
-
-rho_grid = c(5:20/20-0.00001)
-cor_ld_w  <- unlist(mclapply(rho_grid,function(rho){
-  cor(compute_ld_summary(ld_struct_hist_20,method = "ld_w",rho = rho),map$max_LD_with_QTN,use="pair")^2
-},mc.cores=8 ))
-
-plot(rho_grid,cor_ld_w,type="l")
-
-plot(log(d_from_rho(a=ld_struct_hist_20$by_chr$Chr1$decay_sum$a, rho=rho_grid)))
-image(ld_struct_hist_20$by_chr$Chr1$hist_obj[[1]])
-
-plot(d_from_rho(a=ld_struct_hist_20$by_chr$Chr1$decay_sum$a, rho=rho_grid[-length(rho_grid)]))
-abline(h=rownames(ld_struct_hist_20$by_chr$Chr1$hist_obj[[1]]),col="red")
-
-
-cor(ld_hist,map$max_LD_with_QTN)^2
-
-ld_med   <- compute_ld_summary(ld_struct_median)
-ld_med
-a = 0.00005
-
-chr_obj <- ld_struct_median$by_chr$Chr1
-#derive_ld_radius(a, eps=0.01)
-#0.010648355 0.022539743
-#0.010648355 0.022539743
-recompute_ld_int <- function(
-    ld_structure,
-    eps,
-    cores = 1
-) {
-
-  results <- parallel_apply(ld_structure$by_chr, function(chr_obj) {
-
-    shell_list <- chr_obj$hist_obj  # median_only backend
-    a <- chr_obj$decay_sum$a
-
-    d_star <- derive_ld_radius(a, eps)
-
-    sapply(shell_list, function(shell_dt) {
-
-      if (is.null(shell_dt) || nrow(shell_dt) == 0)
-        return(NA_real_)
-
-      integrate_ld_kernel_median_shell(
-        shell_dt = shell_dt,
-        a = a,
-        d_star = d_star
-      )
-    })
-
-  }, cores = cores)
-
-  unlist(results)
-}
-
-eps_grid <- c(0.1, 0.05, 0.02, 0.01, 0.005)
-
-ld_vals <- sapply(eps_grid, function(eps)
-  recompute_ld_int(ld_struct_median, eps = eps)
-)
-plot(eps_grid,apply(ld_vals,2,function(x) cor(x,map$max_LD_with_QTN)^2),type="l")
-
-plot(eps_grid,ld_vals)
-
-ld_med <-do.call(cbind,lapply(c(0.05,0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001),function(eps){
-  ld_struct_median <-  compute_ld_structure(
-    gds,
-    ## for LD-decay and bg
-    q = 0.95,
-    ## for bg
-    n_sub_bg = 5000,
-    ## for decay
-    n_win_decay = 20,
-    overlap = 0.5,
-    prob_robust = 0.95,
-    target_dist_bins_for_decay = 100,
-    n_snps_for_decay = 500,
-    ## for histogram compression
-    n_dist_target_for_hist = 20,
-    eps = eps,
-    r2_unit = 0.01,
-    compression =  "median_only",
-    ## cores
-    cores = 8
-  )
-  compute_ld_summary(ld_struct_median,eps = 0.005)
-}))
-plot(c(0.05,0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001),apply(ld_med,2,function(x) cor(x,map$max_LD_with_QTN)^2),type="l")
-points(c(0.05,0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001),apply(ld_med,2,function(x) cor(x,map$max_LD_with_QTN)^2))
-
-diff_R2 <- diff(apply(ld_med,2,function(x) cor(x,map$max_LD_with_QTN,use="pair")^2))
-eps <- c(0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001)
-plot(eps,diff_R2,type="l")
-mean(cor(ld_med)^2)
-eps <- c(0.05,0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001)
-par(mfcol=c(1,2))
-plot(eps,apply(ld_med,2,var),type="l")
-plot(eps[-1],diff(apply(ld_med,2,sd)),type="l")
-
-
-derive_d_star_from_tail <- function(a, tail_tol = 0.05) {
-  (1 / a) * (1 / tail_tol - 1)
-}
-derive_d_star_from_tail(ld_struct_median$decay_sum$a[1])
-
-diff_sd <- diff(apply(ld_med,2,sd))
-
-points(c(0.05,0.04,0.03,0.02,0.01,0.005,0.004,0.003,0.002,0.001),apply(ld_med,2,function(x) cor(x,map$max_LD_with_QTN)^2))
-
-
-cor(ld_med, map$max_LD_with_QTN)^2
-plot(ld_20_0.01, ld_med)^2
-cor(ld_hist, ld_med, use = "complete.obs")
 
 
 as <- setNames(ld_struct$decay_sum$a,ld_struct$decay_sum$Chr)
@@ -304,34 +157,27 @@ q_cols=c("emx_q","lfmm_q")
 #F_vals     = map[,..F_cols]
 #q_vals     = map[,..q_cols]
 
-ld_w_int <- compute_ld_summary(ld_structure=ld_struct,
-                               method = c("ld_int"),
-                               eps = 0.005,
-                               d_window = derive_ld_radius(ld_struct$by_chr$Chr1$decay_sum$a, 1-rho_w),
-                               shell_type = "median",
-                               cores = cores)
-#25*25
-
-t1 <- Sys.time()
-draws_joint <- ld_rho_draws(gds,
-                            ld_struct  = ld_struct,
-                            F_vals     = map[,..F_cols],
-                            q_vals     = map[,..q_cols],
-                            n_rho_w    = 25,
-                            n_draws    = 25,
-                            ld_w_int   = NULL,
-                            stat_type  = "q",
-                            rho_w_lim  = list(min=0.5,max=0.99),
-                            rho_d_lim  = list(min=0.5,max=0.99),
-                            rho_ld_lim = list(min=0.5,max=0.99),
-                            alpha_lim  = list(min=1.31,max=4),
-                            lmin_lim   = list(min=1,max=10),
-                            cores      = 8,
-                            mode       = "joint"
-
-)
-t2 <- Sys.time()
-difftime(t2,t1)
+#
+# t1 <- Sys.time()
+# draws_joint <- ld_rho_draws(gds,
+#                             ld_struct  = ld_struct,
+#                             F_vals     = map[,..F_cols],
+#                             q_vals     = map[,..q_cols],
+#                             n_rho_w    = 25,
+#                             n_draws    = 25,
+#                             ld_w_int   = NULL,
+#                             stat_type  = "q",
+#                             rho_w_lim  = list(min=0.5,max=0.99),
+#                             rho_d_lim  = list(min=0.5,max=0.99),
+#                             rho_ld_lim = list(min=0.5,max=0.99),
+#                             alpha_lim  = list(min=1.31,max=4),
+#                             lmin_lim   = list(min=1,max=10),
+#                             cores      = 8,
+#                             mode       = "joint"
+#
+# )
+# t2 <- Sys.time()
+# difftime(t2,t1)
 
 t1 <- Sys.time()
 draws_joint_int <- ld_rho_draws(gds,
@@ -340,7 +186,7 @@ draws_joint_int <- ld_rho_draws(gds,
                             q_vals     = map[,..q_cols],
                             n_rho_w    = 1,
                             n_draws    = 25*25,
-                            ld_w_int   = ld_w_int,
+                            ld_w_int   = map$ld_int,
                             stat_type  = "q",
                             rho_w_lim  = NULL,
                             rho_d_lim  = list(min=0.5,max=0.99),
@@ -361,11 +207,11 @@ draws_per_method <- ld_rho_draws(gds,
                             ld_struct  = ld_struct,
                             F_vals     = map[,..F_cols],
                             q_vals     = map[,..q_cols],
-                            n_rho_w    = 25,
-                            n_draws    = 25,
-                            ld_w_int   = ld_w_int,
+                            n_rho_w    = 1,
+                            n_draws    = 25*25,
+                            ld_w_int   = map$ld_int,
                             stat_type  = "q",
-                            rho_w_lim  = list(min=0.5,max=0.99),
+                            rho_w_lim  = NULL,
                             rho_d_lim  = list(min=0.5,max=0.99),
                             rho_ld_lim = list(min=0.5,max=0.99),
                             alpha_lim  = list(min=1.31,max=4),
@@ -420,7 +266,7 @@ PR_joint_int <- cbind(map[1,.(c,V,rep)],draws_joint_int$draws[,.(method, rho_w, 
 # PR_LD_int <- get_PR(draws_LD_int$draws$OR,map_filt)
 # PR_LD_int <- cbind(map[1,.(c,V,rep)],draws_per_method$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)],PR_LD_int)
 # PR_LD_int[,method:="Joint_int"]
-PR_data <- rbind(PR_joint,PR_per_meth,PR_joint_int)
+PR_data <- rbind(PR_per_meth,PR_joint_int)
 
 PR_data[!duplicated(method)]
 
@@ -444,6 +290,42 @@ ggplot(PR_data,
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(title = "Distribution of PR score across parameter draws")
+
+
+map2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_joint$draws))
+
+map2[,plot(Joint_C)]
+
+p5 <- ggplot(map2, aes(1:nrow(map),Joint_C,col=max_LD_with_QTN,shape=type,size=type)) +
+  geom_point() +
+  scale_color_viridis_c(option="turbo") +
+  scale_shape_manual(values=c(20,3)) +
+  scale_size_manual(values=c(1,3))
+
+p5
+
+long_dt <- draws_joint$draws[
+  , .(SNP = unlist(OR)),
+  by = .(method)
+]
+
+n_draws <- draws_joint$draws[method==method[1],.N]
+C_dt <- long_dt[, .N, by = .(SNP,method)]
+
+#total_draws <- or_dt$n_rho*or_dt$n_or_draws
+
+C_dt[, C := N / n_draws]
+
+C_obj <- structure(
+  list(
+    consistency = C_dt,
+    total_draws = n_draws
+  ),
+  class = "ld_consistency"
+)
+
+
+plot(C_obj$consistency$C)
 
 ggplot(PR_data,
        aes(x = rho_d,

@@ -55,19 +55,23 @@ compute_ld_structure <- function(
     n_win_decay = 20,
     overlap = 0.5,
     prob_robust = 0.95,
-    target_dist_bins_for_decay = 200,
-    n_snps_for_decay = 500,
-    ## for histograms
+    target_dist_bins_for_decay = 60,
+    max_pairs = 5000,
+    n_strata = 20,
+    ## keep what data?
     keep_rho_hist = FALSE,
-    keep_linear_hist   = TRUE,
-    n_rho_bins_hist = 20,
+    keep_el = FALSE,
+    ## for ld_int
     n_bins_ld_int = 20,
-    rho = 0.999,
+    ## only for initial filtering of el
+    rho = 0.99,
+    k_max=1000,
+    ## only for histogram with rho distances
+    n_rho_bins_hist = 20,
     r2_unit = 0.01,
-    cores = 1,
-    k_max=1000
+    cores = 1
 ) {
-  #compression = "median_only"
+
   ids  <- .read_gds_ids(gds)
   chrs <- unique(ids$snp_chr)
 
@@ -75,67 +79,80 @@ compute_ld_structure <- function(
 
   out_by_chr <- vector("list", length(chrs))
   names(out_by_chr) <- chrs
-  #ch = "Chr3"
+
+  #ch = "Chr1"
   for (ch in chrs) {
 
-    cat("Processing ", ch, "-- estimating LD-decay")
+
 
     chr_idx  <- which(ids$snp_chr == ch)
     pos_chr  <- ids$snp_pos[chr_idx]
     snps_chr <- ids$snp_id[chr_idx]
 
-
-    window_size <- (max(pos_chr) - min(pos_chr)) / n_win_decay
-    step_size   <- window_size * overlap
-
-
-    # ---- LD-decay
-    decay <- suppressWarnings(
-      estimate_decay_chr(
-        gds=gds,
-        chr_idx=chr_idx,
-        snp_pos = pos_chr,
-        b=b,
-        window_size = window_size,
-        step_size   = step_size,
-        q = q,
-        target_dist_bins_for_decay = target_dist_bins_for_decay,
-        n_snps_for_decay = n_snps_for_decay,
-        cores = cores
-      )
-    )
-
-
-    decay[,contrast:=c - b]
-    decay[,regime := ifelse(contrast < 0.02,"weak","structured")]
-
-    decay_sum <- summarize_decay(decay[regime=="structured",], prob_robust)
-    decay_sum[,n_w_used := sum(decay$regime == "structured")]
-
-    if (is.null(decay_sum)) next
-
-    decay_sum[, Chr := ch]
-
-
-    d_star <- d_from_rho(decay_sum$a, rho)
-
-    spacing <- diff(sort(pos_chr))
-    q_spacing <- quantile(spacing, 0.75)
-    k_star <- ceiling(d_star / q_spacing)
-
+    cat("Processing ", ch, "-- getting edge list")
     el <- get_el(
       gds = gds,
       idx = chr_idx,
-      slide_win_ld = min(k_max, k_star),
+      slide_win_ld = k_max,
       cores = cores,
       by_chr = TRUE,
       symmetric = TRUE,
       edge_symmetry = FALSE
     )
 
-
     data.table::setkey(el, SNP)
 
+    window_size <- (max(pos_chr) - min(pos_chr)) / n_win_decay
+    step_size   <- window_size * overlap
+
+    #cat("Processing ", ch, "-- estimating LD-decay")
+
+    # ---- LD-decay
+    decay <- suppressWarnings(
+      estimate_decay_chr(
+        el = el[d<window_size],
+        chr_idx=chr_idx,
+        snp_pos = pos_chr,
+        b=b,
+        window_size = window_size,
+        step_size   = step_size,
+        max_pairs=max_pairs,
+        n_strata = n_strata,
+        q = q,
+        cores = cores
+      )
+    )
+
+    #decay_dt <- decay
+    decay[,contrast:=c - b]
+
+    decay[, regime := ifelse(
+      contrast < 0.05,
+      "weak",
+      "structured"
+    )]
+
+    decay_sum <- summarize_decay(decay[regime=="structured",])
+
+
+    if (is.null(decay_sum)) next
+    decay_sum[,n_w_used := sum(na.omit(decay$regime == "structured"))]
+    decay_sum[, Chr := ch]
+
+
+    d_star <- d_from_rho(decay_sum$a, rho)
+    el <- el[d<d_star]
+
+    spacing <- diff(sort(pos_chr))
+    q_spacing <- quantile(spacing, 0.75)
+    k_star <- ceiling(d_star / q_spacing)
+
+    max_d_available <- max(el$d)
+    frac_covered <- signif(max_d_available / d_star,3)
+    exceeds_kmax <- k_star > k_max
+
+    cat(" -- frac_covered =", frac_covered)
+    cat(" -- k_star =", k_star)
 
     if(keep_rho_hist){
       cat(" -- compressing data to histograms")
@@ -156,32 +173,20 @@ compute_ld_structure <- function(
       }, cores = cores)
     }
 
-
-    ld_int_vect <- compute_ld_int_vectorised(el, snps_chr, a, d_star, n_bins_ld_int)
-
-    cat(" -- calculating LD_int")
-
-
+    ld_int_vect <- compute_ld_int_vectorised(el, snps_chr, decay_sum$a, n_bins=n_bins_ld_int)
 
     # ---- collect data
     out_by_chr[[ch]] <- list(
-      snp_ids    = snps_chr,
+      snp_ids     = snps_chr,
       hist_obj_rho   = if(keep_rho_hist) hist_list_rho else NULL,
-      hist_obj_linear   = if(keep_linear_hist) hist_list_linear else NULL,
-      LD_int = LD_int,
+      el          = if(keep_el) el else NULL,
       ld_int_vect = ld_int_vect,
-      decay      = decay,
-      decay_sum  = decay_sum
+      decay       = decay,
+      decay_sum   = decay_sum
     )
 
     cat(" -- done\n")
   }
-
-  #out_by_chr$Chr1$LD_int
-  #LD_int <- unlist(lapply(out_by_chr,function(x)x$LD_int))
-  # LD_int_vect <- unlist(lapply(out_by_chr,function(x)x$ld_int_vect))
-  # plot(LD_int_vect,ld_int_target)
-  # cor(unlist(lapply(out_by_chr,function(x)x$ld_int_vect)),map$max_LD_with_QTN)^2
 
   out <- list(
     by_chr    = out_by_chr,
@@ -194,7 +199,7 @@ compute_ld_structure <- function(
                       rho = rho,
                       r2_unit = r2_unit,
                       keep_rho_hist = keep_rho_hist,
-                      keep_linear_hist   = keep_linear_hist,
+                      keep_el   = keep_el,
                       n_rho_bins_hist = n_rho_bins_hist,
                       n_bins_ld_int = n_bins_ld_int,
                       prob_robust = prob_robust,
@@ -251,6 +256,31 @@ summarize_decay <- function(decay_dt, prob_robust = 0.95) {
   )
 }
 
+subsample_pairs_for_decay <- function(sub,
+                                      max_pairs = 5000,
+                                      n_strata = 20) {
+
+
+  if (nrow(sub) <= max_pairs) max_pairs <- nrow(sub)
+  # log-distance strata
+  log_d <- log(sub$d)
+  breaks <- seq(min(log_d), max(log_d), length.out = n_strata + 1)
+
+  sub[, strata := cut(log_d, breaks = breaks, include.lowest = TRUE)]
+
+  target_per_stratum <- floor(max_pairs / n_strata)
+
+  sub_sampled <- sub[, {
+    if (.N > target_per_stratum) {
+      .SD[sample(.N, target_per_stratum)]
+    } else {
+      .SD
+    }
+  }, by = strata]
+
+
+  return(sub_sampled)
+}
 
 #' Estimate LD Decay for a Chromosome
 #'
@@ -273,7 +303,7 @@ summarize_decay <- function(decay_dt, prob_robust = 0.95) {
 #' @return A \code{data.table} with window-specific decay parameters.
 #'
 #' @export
-estimate_decay_chr <- function(gds,
+estimate_decay_chr <- function(el,
                                chr_idx,
                                snp_pos,
                                b,
@@ -281,52 +311,27 @@ estimate_decay_chr <- function(gds,
                                step_size,
                                overlap = 0.5,
                                q = 0.95,
-                               target_dist_bins_for_decay = 60,
+                               max_pairs=5000,
+                               n_strata = 20,
                                cores = 1,
-                               n_snps_for_decay = 500,
                                k_max=1000) {
 
 
 
-
-  thin <- adaptive_thinning(snp_pos, W_LD = window_size, n_snps_for_decay = n_snps_for_decay)
-  reduction <- 1-length(thin$keep)/length(chr_idx)
-
-  el <- get_el(
-    gds,
-    idx = chr_idx[thin$keep],
-    slide_win_ld = thin$k_star,
-    cores = cores
-  )
-
-  # short_idx <- el[,order(d)[1:floor(length(d)*0.1)]]
-  # max_short_range <- el[,quantile(r2[short_idx], 0.95)]
-  #
-  # el[,r2_std := (r2 - b) / (max_short_range - b)]
-  # el[,plot(d,r2)]
-  #
   min_pos <- min(c(el$pos1, el$pos2))
   max_pos <- max(c(el$pos1, el$pos2))
 
   starts <- seq(min_pos, max_pos - window_size, by = step_size)
   ends   <- starts + window_size
 
-  # i <- 1
   decay <- suppressWarnings(rbindlist(lapply(seq_along(starts), function(i) {
 
-    sub <- el[
+    sub <- subsample_pairs_for_decay(
+      el[
       pos1 >= starts[i] & pos1 < ends[i] &
         pos2 >= starts[i] & pos2 < ends[i]
-    ]
-
-    # d_small <- quantile(sub$d, 0.1)
-    # max_short_range <- sub[,quantile(r2[d <= d_small], 0.95)]
-    #
-    # short_idx <- sub[,order(d)[1:floor(length(d)*0.1)]]
-    # max_short_range <- sub[,quantile(r2[short_idx], 0.95)]
-    #
-    # sub[,r2_std := (r2 - b) / (max_short_range - b)]
-    # sub[,plot(d,r2_std)]
+    ],max_pairs = max_pairs, n_strata = n_strata
+    )
 
     coefs <- tryCatch(
       coef_ld_dec(sub, q = q,  b = b,n_bins = target_dist_bins_for_decay),
@@ -410,51 +415,6 @@ estimate_background_ld <- function(gds,
 }
 
 
-##' Adaptive SNP Thinning
-#'
-#' Reduces SNP density to maintain approximately constant SNP counts
-#' within LD-decay windows.
-#'
-#' @param pos SNP physical positions (bp).
-#' @param W_LD Target LD window size (bp).
-#' @param n_snps_for_decay Desired number of SNPs per window.
-#'
-#' @return A list containing:
-#' \describe{
-#'   \item{keep}{Indices of retained SNPs.}
-#'   \item{k_star}{Effective sliding window size (in SNP count).}
-#' }
-#'
-#' @export
-adaptive_thinning <- function(pos,
-                              W_LD,
-                              n_snps_for_decay = 1000) {
-
-  pos <- sort(pos)
-  spacing <- diff(pos)
-  median_spacing <- median(spacing)
-
-  target_spacing <- W_LD / n_snps_for_decay
-
-  if (median_spacing >= target_spacing) {
-
-    keep <- seq_along(pos)
-    eff_spacing <- median_spacing
-
-  } else {
-
-    thin_factor <- ceiling(target_spacing / median_spacing)
-    keep <- seq(1, length(pos), by = thin_factor)
-    eff_spacing <- median_spacing * thin_factor
-  }
-
-  k_star <- floor(W_LD / eff_spacing)
-
-  list(
-    keep = keep,
-    k_star = k_star
-  )
-}
 
 #' Fit LD Decay Model
 #'
@@ -478,37 +438,13 @@ coef_ld_dec <- function(dt,
                         return_full=FALSE) {
 
   if (nrow(dt) < 100) return(NULL)
+  #dt <- sub
+  agg <- dt[, .(
+    d_mid = exp(mean(log(d))),   # geometric midpoint
+    r2_q  = quantile(r2, q, na.rm = TRUE),
+    n     = .N
+  ), by = strata]
 
-  d <- dt$d
-  r2 <- dt$r2
-
-  # Remove zero or extremely small distances
-  # d_min <- quantile(d[d > 0], min_dist_quantile, na.rm = TRUE)
-  # keep <- d > d_min
-  #
-  # d <- d[keep]
-  # r2 <- r2[keep]
-
-  if (length(d) < 100) return(NULL)
-
-  # Log-distance bins (more stable near zero)
-  d <- d[d > 0]
-  log_d <- log(d)
-
-  breaks <- seq(min(log_d), max(log_d), length.out = n_bins + 1)
-
-  bin_id <- cut(log_d, breaks = breaks, include.lowest = TRUE)
-
-  agg <- data.table::data.table(d = d, r2 = r2, bin = bin_id)[,
-                                                              .(
-                                                                d_mid = exp(mean(log(d))),
-                                                                r2_q = quantile(r2, q, na.rm = TRUE),
-                                                                n = .N
-                                                              ),
-                                                              by = bin
-  ]
-
-  agg <- agg[!is.na(r2_q) & n > 10]
 
   if (nrow(agg) < 10) return(NULL)
 
@@ -533,6 +469,8 @@ coef_ld_dec <- function(dt,
 
   if (is.null(fit)) return(NULL)
   coefs <- coef(fit)
+
+  #agg[,plot(d_mid,r2_q,col="red")]
 
   return(data.table(c=coefs["c"],a=coefs["a"],b,data=list(agg)))
 
@@ -1055,21 +993,20 @@ compute_ld_rhow_from_hist <- function(hist_mat,
 }
 
 
-compute_ld_int_vectorised <- function(el, snp_ids, a, d_star, n_bins) {
+compute_ld_int_vectorised <- function(el, snp_ids, a, n_bins) {
 
   # restrict to integration radius
-  el_sub <- el[d <= d_star]
-  if (nrow(el_sub) == 0)
+  if (nrow(el) == 0)
     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
 
   # distance grid
-  max_d     <- max(el_sub$d)
+  max_d     <- max(el$d)
   dist_unit <- signif(max_d / n_bins, 2)
 
-  el_sub[, dist_idx := floor(d / dist_unit)]
+  el[, dist_idx := floor(d / dist_unit)]
 
   # shell medians per SNP
-  shell_dt <- el_sub[, .(
+  shell_dt <- el[, .(
     med_r2 = median(r2)
   ), by = .(SNP, dist_idx)]
 
@@ -1080,6 +1017,7 @@ compute_ld_int_vectorised <- function(el, snp_ids, a, d_star, n_bins) {
   LD_dt <- shell_dt[, .(
     LD_int = weighted_median(med_r2, weight)
   ), by = SNP]
+
 
   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
   result[LD_dt$SNP] <- LD_dt$LD_int
