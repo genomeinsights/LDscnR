@@ -1,16 +1,16 @@
 #' Compute Chromosome-wise LD Structure
 #'
 #' Estimates linkage disequilibrium (LD) structure and LD-decay
-#' parameters for each chromosome, and constructs per-SNP LD
-#' histograms for downstream LD-based summary statistics.
+#' parameters for each chromosome and (i)ntegrated LD (D)ecay (P)ersistence (I)ndex (iDPI) and optionally compresses and saved per-SNP LD
+#' data for downstream LD-based summary statistics.
 #'
 #' The workflow consists of:
 #' \enumerate{
 #'   \item Estimation of background LD from inter-chromosomal pairs.
 #'   \item Sliding-window estimation of LD-decay parameters per chromosome.
 #'   \item Robust summarization of decay parameters.
-#'   \item Construction of per-SNP LD histograms within an adaptive
-#'         LD radius derived from the decay model.
+#'   \item Estimation of (i)ntegrated LD (D)ecay (P)ersistence (I)ndex (iDPI)
+#'   \item Optional saving of LD-data to files and histogram compression for downstream estimation of ld_w
 #' }
 #'
 #' LD decay is modeled as:
@@ -25,15 +25,18 @@
 #' }
 #'
 #' @param gds GDS file handle containing genotype data.
+#' @param el_data_folder Optional path to folder where edge-list of LD values are saved. If `"NULL"`, data not saved.
 #' @param q Quantile used for LD-decay fitting.
 #' @param n_sub_bg Number of SNPs used for background LD estimation.
 #' @param n_win_decay Number of sliding windows per chromosome for decay fitting.
 #' @param overlap Proportion of overlap between consecutive decay windows.
 #' @param prob_robust Central proportion of windows retained for robust decay estimation.
+#' @param keep_rho_hist Whether to save histograms for estimating ld_w values.
+#' @param keep_el Whether to save edge-lists directly. Useful for benchmarking smaller simulated data.
 #' @param target_dist_bins_for_decay Number of distance bins for decay fitting.
-#' @param n_snps_for_decay Target number of SNPs per decay window after thinning.
-#' @param n_dist_target_for_hist Number of distance bins for LD histograms.
-#' @param eps Relative LD tail tolerance used to derive integration radius.
+#' @param k_max Slide window for LD-estimation.
+#' @param n_rho_bins_hist Number of distance bins for saved LD histograms.
+#' @param rho Maximum distance for pair-wise LD-values relative to decay rate.
 #' @param r2_unit Bin width for r² values in histograms.
 #' @param cores Number of CPU cores used for parallel computations.
 #'
@@ -47,6 +50,7 @@
 #' @export
 compute_ld_structure <- function(
     gds,
+    el_data_folder=NULL,
     ## for LD-decay and bg
     q = 0.95,
     ## for bg
@@ -58,19 +62,18 @@ compute_ld_structure <- function(
     target_dist_bins_for_decay = 60,
     max_pairs = 5000,
     n_strata = 20,
-    ## keep what data?
-    keep_rho_hist = FALSE,
     keep_el = FALSE,
     ## for ld_int
     n_bins_ld_int = 20,
     ## only for initial filtering of el
     rho = 0.99,
     k_max=1000,
-    ## only for histogram with rho distances
-    n_rho_bins_hist = 20,
-    r2_unit = 0.01,
     cores = 1
 ) {
+
+
+  if(!is.null(el_data_folder)) if(!dir.exists(el_data_folder)) dir.create(el_data_folder)
+
 
   ids  <- .read_gds_ids(gds)
   chrs <- unique(ids$snp_chr)
@@ -81,15 +84,15 @@ compute_ld_structure <- function(
   names(out_by_chr) <- chrs
 
   #ch = "Chr1"
+  dist_unit_base = 10000
   for (ch in chrs) {
-
-
 
     chr_idx  <- which(ids$snp_chr == ch)
     pos_chr  <- ids$snp_pos[chr_idx]
     snps_chr <- ids$snp_id[chr_idx]
 
     cat("Processing ", ch, "-- getting edge list")
+
     el <- get_el(
       gds = gds,
       idx = chr_idx,
@@ -105,14 +108,10 @@ compute_ld_structure <- function(
     window_size <- (max(pos_chr) - min(pos_chr)) / n_win_decay
     step_size   <- window_size * overlap
 
-    #cat("Processing ", ch, "-- estimating LD-decay")
-
     # ---- LD-decay
     decay <- suppressWarnings(
       estimate_decay_chr(
         el = el[d<window_size],
-        chr_idx=chr_idx,
-        snp_pos = pos_chr,
         b=b,
         window_size = window_size,
         step_size   = step_size,
@@ -134,11 +133,12 @@ compute_ld_structure <- function(
 
     decay_sum <- summarize_decay(decay[regime=="structured",])
 
+    decay_sum[,chr_size := max(pos_chr)]
 
     if (is.null(decay_sum)) next
+
     decay_sum[,n_w_used := sum(na.omit(decay$regime == "structured"))]
     decay_sum[, Chr := ch]
-
 
     d_star <- d_from_rho(decay_sum$a, rho)
     el <- el[d<d_star]
@@ -154,33 +154,24 @@ compute_ld_structure <- function(
     cat(" -- frac_covered =", frac_covered)
     cat(" -- k_star =", k_star)
 
-    if(keep_rho_hist){
-      cat(" -- compressing data to histograms")
+    el[, dist_idx := floor(d / dist_unit_base)]
+    #el[,length(unique(dist_idx))]
+
+    shell_dt <- el[, .(
+      med_r2 = median(r2)
+    ), by = .(SNP, dist_idx)]
 
 
-      hist_list_rho <- parallel_apply(seq_along(snps_chr), function(i) {
+    #ld_int_vect <- compute_ld_int(el, snps_chr, decay_sum$a, n_bins=n_bins_ld_int)
 
-        dt <- el[J(snps_chr[i]), nomatch = 0]
-        dt[, r2 := pmin(r2, 1)]
-
-        build_hist_from_dt_rho(
-          dt = dt,
-          a = a,                   # <-- correct parameter
-          n_rho_bins = n_rho_bins_hist,
-          r2_unit = r2_unit
-        )
-
-      }, cores = cores)
-    }
-
-    ld_int_vect <- compute_ld_int_vectorised(el, snps_chr, decay_sum$a, n_bins=n_bins_ld_int)
+    if(!is.null(el_data_folder)) saveRDS(el,paste0(el_data_folder,ch,".rds")); cat(" -- Saving el")
 
     # ---- collect data
     out_by_chr[[ch]] <- list(
       snp_ids     = snps_chr,
-      hist_obj_rho   = if(keep_rho_hist) hist_list_rho else NULL,
       el          = if(keep_el) el else NULL,
-      ld_int_vect = ld_int_vect,
+      shell_dt    = shell_dt,
+      #ld_int_vect = ld_int_vect,
       decay       = decay,
       decay_sum   = decay_sum
     )
@@ -188,27 +179,72 @@ compute_ld_structure <- function(
     cat(" -- done\n")
   }
 
+  decay_sum <- rbindlist(lapply(out_by_chr,function(x) x$decay_sum))
+
+  d_mod <- rlm(log(a) ~ log(chr_size), data = decay_sum)
+
+  # decay_sum[,a_pred := exp(predict(d_mod,decay_sum))]
+  # decay_sum[,c_pred := median(c)]
+  # s_sum <- decay_sum[1,]
+  # apply(decay_sum, function(s_sum){
+  #
+  #   ld_int <- compute_ld_int_adaptive(out_by_chr$Chr1$el,snp_ids = out_by_chr$Chr1$snp_ids,s_sum$a_pred,delta = 5,min_pairs = 0 )
+  #   snp_ids <- out_by_chr$Chr1$snp_ids
+  #   plot(ld_int)
+  #   # bin width based on LD decay scale
+  #   shell_dt <- out_by_chr$Chr1$shell_dt
+  #   shell_dt[,dist_idx_old := dist_idx]
+  #
+  #   dist_unit <- 1 / s_sum$a_pred
+  #
+  #   shell_dt[, dist_idx := floor(d_val / dist_unit)]
+  #
+  #   #el[,length(unique(dist_idx))]
+  #   # shell medians
+  #   shell_dt <- shell_dt[, .(
+  #     med_r2 = if (.N >= min_pairs) median(med_r2) else NA_real_
+  #   ), by = .(SNP, dist_idx)]
+  #
+  #   shell_dt <- shell_dt[!is.na(med_r2)]
+  #
+  #   # distance value of each shell
+  #   shell_dt[, d_val := dist_idx * dist_unit]
+  #
+  #   # theoretical decay weight
+  #   shell_dt[, weight := (a / (1 + a * d_val)^2) * dist_unit]
+  #
+  #   # normalize weights per SNP (important for window edges)
+  #   shell_dt[, weight := weight / sum(weight), by = SNP]
+  #
+  #   # weighted median integration
+  #   LD_dt <- shell_dt[, .(
+  #     LD_int = weighted_median(med_r2, weight)
+  #   ), by = SNP]
+  #
+  #   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+  #   result[LD_dt$SNP] <- LD_dt$LD_int
+  #
+  #   plot(LD_dt$LD_int,ld_int)
+  #
+  # })
+
   out <- list(
     by_chr    = out_by_chr,
-    decay_sum = rbindlist(lapply(out_by_chr,function(x) x$decay_sum)),
+    decay_sum = decay_sum,
     params    = list( q = q,
                       n_sub_bg = n_sub_bg,
                       n_win_decay = n_win_decay,
                       overlap = overlap,
-                      n_dist_target_for_hist = n_dist_target_for_hist,
+                      el_data_folder=el_data_folder,
                       rho = rho,
-                      r2_unit = r2_unit,
-                      keep_rho_hist = keep_rho_hist,
+                      n_strata = n_strata,
+                      max_pairs = max_pairs,
                       keep_el   = keep_el,
-                      n_rho_bins_hist = n_rho_bins_hist,
                       n_bins_ld_int = n_bins_ld_int,
                       prob_robust = prob_robust,
                       target_dist_bins_for_decay = target_dist_bins_for_decay,
-                      n_snps_for_decay = n_snps_for_decay,
                       cores = cores)
   )
-
-
 
   class(out) <- "ld_structure"
 
@@ -304,17 +340,13 @@ subsample_pairs_for_decay <- function(sub,
 #'
 #' @export
 estimate_decay_chr <- function(el,
-                               chr_idx,
-                               snp_pos,
                                b,
                                window_size,
                                step_size,
-                               overlap = 0.5,
                                q = 0.95,
                                max_pairs=5000,
                                n_strata = 20,
-                               cores = 1,
-                               k_max=1000) {
+                               cores = 1) {
 
 
 
@@ -323,18 +355,22 @@ estimate_decay_chr <- function(el,
 
   starts <- seq(min_pos, max_pos - window_size, by = step_size)
   ends   <- starts + window_size
-
+  #i <- 1
   decay <- suppressWarnings(rbindlist(lapply(seq_along(starts), function(i) {
 
-    sub <- subsample_pairs_for_decay(
-      el[
+    sub <- el[
       pos1 >= starts[i] & pos1 < ends[i] &
         pos2 >= starts[i] & pos2 < ends[i]
-    ],max_pairs = max_pairs, n_strata = n_strata
+    ]
+
+    if(!nrow(sub)>100) return(NULL)
+
+    sub <- subsample_pairs_for_decay(
+      sub,max_pairs = max_pairs, n_strata = n_strata
     )
 
     coefs <- tryCatch(
-      coef_ld_dec(sub, q = q,  b = b,n_bins = target_dist_bins_for_decay),
+      coef_ld_dec(dt_strata=sub, q = q,  b = b),
       error = function(e) NULL
     )
 
@@ -344,9 +380,6 @@ estimate_decay_chr <- function(el,
       data.table(start = starts[i], end = ends[i],coefs)
     }
   }),fill=TRUE,use.names = TRUE))
-
-  decay[, k_star := thin$k_star]
-  decay[, reduction := signif(reduction,2)]
 
   return(decay)
 }
@@ -422,24 +455,20 @@ estimate_background_ld <- function(gds,
 #' \deqn{r^2(d) = b + \frac{c - b}{1 + a(d - d_0)}}
 #' to binned LD quantiles.
 #'
-#' @param el_ld LD edge data table.
+#' @param dt_strata LD edge data table with strata.
 #' @param q Quantile for LD binning.
-#' @param dist_unit Distance bin size.
 #' @param b Background LD.
 #'
 #' @return Named vector with parameters \code{c}, \code{a}, \code{d0}.
 #'
 #' @export
-coef_ld_dec <- function(dt,
+coef_ld_dec <- function(dt_strata,
                         q = 0.95,
-                        b,
-                        n_bins = 40,
-                        min_dist_quantile = 0.02,
-                        return_full=FALSE) {
+                        b) {
 
-  if (nrow(dt) < 100) return(NULL)
-  #dt <- sub
-  agg <- dt[, .(
+  if (nrow(dt_strata) < 100) return(NULL)
+  #dt_strata <- sub
+  agg <- dt_strata[, .(
     d_mid = exp(mean(log(d))),   # geometric midpoint
     r2_q  = quantile(r2, q, na.rm = TRUE),
     n     = .N
@@ -468,11 +497,10 @@ coef_ld_dec <- function(dt,
 
 
   if (is.null(fit)) return(NULL)
+
   coefs <- coef(fit)
 
-  #agg[,plot(d_mid,r2_q,col="red")]
-
-  return(data.table(c=coefs["c"],a=coefs["a"],b,data=list(agg)))
+  return(data.table(c=coefs["c"],a=coefs["a"],b,agg=list(agg),raw=list(dt_strata)))
 
 }
 
@@ -508,64 +536,6 @@ parallel_apply <- function(X, FUN, cores = 1) {
   }
 }
 
-
-build_hist_from_dt_rho <- function(dt,
-                                   a,
-                                   n_rho_bins = 20,
-                                   r2_unit = 0.01,
-                                   tol = 1e-12) {
-
-  if (nrow(dt) == 0) return(NULL)
-
-  dt[, rho := 1 - 1/(1 + a * d)]
-  dt[, rho := pmin(pmax(rho, 0), 1)]
-
-  rho_min <- min(dt$rho)
-  rho_max <- max(dt$rho)
-
-  # If no variation in rho → single bin
-  if ((rho_max - rho_min) < tol) {
-
-    dt[, rho_idx := 0]
-
-  } else {
-
-    breaks <- seq(rho_min, rho_max, length.out = n_rho_bins + 1)
-
-    # Ensure strictly increasing
-    breaks <- unique(breaks)
-
-    if (length(breaks) < 2) {
-      dt[, rho_idx := 0]
-    } else {
-      dt[, rho_idx := cut(rho,
-                          breaks = breaks,
-                          labels = FALSE,
-                          include.lowest = TRUE) - 1]
-    }
-  }
-
-  # r2 binning
-  dt[, r2_idx := floor(r2 / r2_unit)]
-
-  hist2d <- dt[, .N, by = .(rho_idx, r2_idx)]
-
-  mat <- xtabs(N ~ rho_idx + r2_idx, data = hist2d)
-  mat <- as.matrix(mat)
-
-  # assign rho midpoints
-  if ((rho_max - rho_min) < tol) {
-    rownames(mat) <- signif(rho_min, 4)
-  } else {
-    rho_vals <- (as.numeric(rownames(mat)) + 0.5) /
-      n_rho_bins * (rho_max - rho_min) + rho_min
-    rownames(mat) <- signif(rho_vals, 4)
-  }
-
-  colnames(mat) <- signif(as.numeric(colnames(mat)) * r2_unit, 4)
-
-  return(mat)
-}
 
 thin_to_k_target <- function(pos, d_star, k_target = 1000) {
 
@@ -785,173 +755,30 @@ plot.ld_structure <- function(x,
   invisible(x)
 }
 
-
-build_ld_shells <- function(
-    el,
-    snp_ids,
-    d_star,
-    n_bins = 20
-) {
-  # el must contain:
-  # SNP (focal)
-  # d   (distance)
-  # r2  (LD)
-
-  # Restrict to integration radius
-  el <- el[d <= d_star]
-  if (nrow(el) == 0) return(rep(list(NULL), length(snp_ids)))
-
-  # Log-distance bins (robust geometry)
-  d_min <- max(min(el$d[el$d > 0]), 1e-8)
-  breaks <- exp(seq(log(d_min), log(d_star), length.out = n_bins + 1))
-
-  # Precompute midpoints + widths
-  shell_mid <- sqrt(breaks[-1] * breaks[-length(breaks)])
-  shell_width <- diff(breaks)
-
-  # Assign shells
-  el[, shell := cut(d, breaks = breaks,
-                    labels = FALSE,
-                    include.lowest = TRUE)]
-
-  # Build shell summaries per SNP
-  shell_list <- lapply(snp_ids, function(snp) {
-
-    dt <- el[SNP == snp]
-    if (nrow(dt) == 0) return(NULL)
-
-    shell_dt <- dt[, .(
-      median_r2 = median(r2)
-    ), by = shell]
-
-    # Attach geometric info
-    shell_dt[, d_mid := shell_mid[shell]]
-    shell_dt[, delta_d := shell_width[shell]]
-
-    shell_dt
-  })
-
-  names(shell_list) <- snp_ids
-  shell_list
-}
-
-build_linear_hist <- function(dt, dist_unit, r2_unit) {
-
-  if (nrow(dt) == 0) return(NULL)
-
-  # # --- symmetry correction ---
-  # dt[, side := data.table::fifelse(pos_other > pos, "R", "L")]
-  #
-  # maxL <- if (any(dt$side == "L")) max(dt$d[dt$side == "L"]) else 0
-  # maxR <- if (any(dt$side == "R")) max(dt$d[dt$side == "R"]) else 0
-  # S <- min(maxL, maxR)
-  #
-  # if (S > 0 && maxL != maxR) {
-  #   long_side <- if (maxL > maxR) "L" else "R"
-  #   tail_dt <- dt[side == long_side & d > S]
-  #   if (nrow(tail_dt) > 0)
-  #     dt <- data.table::rbindlist(list(dt, tail_dt))
-  # }
-
-  # --- integer bins ---
-  dt[, dist_idx := floor(d / dist_unit)]
-  dt[, r2_idx   := floor(r2 / r2_unit)]
-
-  hist2d <- dt[, .N, by = .(dist_idx, r2_idx)]
-
-  mat <- xtabs(N ~ dist_idx + r2_idx, data = hist2d)
-  mat <- as.matrix(mat)
-
-  # convert indices to physical scale
-  dist_vals <- as.numeric(rownames(mat)) * dist_unit
-  r2_vals   <- as.numeric(colnames(mat)) * r2_unit
-
-  rownames(mat) <- signif(dist_vals, 6)
-  colnames(mat) <- signif(r2_vals, 6)
-  return(mat)
-
-}
-
-compute_ld_summary <- function(
+compute_ld_w <- function(
     ld_structure,
-    method = c("ld_int", "rho_w"),
     rho = 0.95,
     cores = 1
 ) {
 
-  method <- match.arg(method)
-
-  results <- parallel_apply(ld_structure$by_chr, function(chr_obj) {
+  ld_w <- unlist(parallel_apply(ld_structure$by_chr, function(chr_obj) {
 
     a <- chr_obj$decay_sum$a
     b <- chr_obj$decay_sum$b
 
     d_window <- d_from_rho(a, rho)
 
-    if (method == "ld_int") {
-      hist_obj <- chr_obj$hist_obj_linear
-      return(sapply(hist_obj, function(h)
-        integrate_ld_kernel_median(
-          hist_mat = h,
-          a = a,
-          d_window = d_window
-        )
-      ))
-    }
+    if(is.null(chr_obj$el)) stop("No edge list present")
 
-    if (method == "rho_w") {
+    ld_w <- chr_obj$el[d<d_window,.(r2_median=median(r2)),by=SNP]
 
-      if (is.null(d_window))
-        stop("d_window must be supplied for rho_w.")
+    ld_w[match(chr_obj$snp_ids,ld_w$SNP),r2_median]
 
-      hist_obj <- chr_obj$hist_obj_rho
-      return(sapply(hist_obj, function(h)
-        compute_ld_rhow_from_hist(
-          hist_mat = h,
-          d_window = d_window,
-          shell_type = shell_type,
-          b = b
-        )
-      ))
-    }
+  }, cores = cores))
 
-  }, cores = cores)
-
-  unlist(results)
+  return(ld_w)
 }
 
-integrate_ld_kernel_median <- function(hist_mat,
-                                       a,
-                                       d_window) {
-
-  if (is.null(hist_mat)) return(NA_real_)
-
-  dist_vals <- as.numeric(rownames(hist_mat))
-  keep <- dist_vals <= d_window
-
-  if (!any(keep)) return(NA_real_)
-
-  h_sub <- hist_mat[keep, , drop = FALSE]
-  dist_vals_sub <- as.numeric(rownames(h_sub))
-
-  # decay weights
-  w_d <- a / (1 + a * dist_vals_sub)^2
-
-  if (length(dist_vals_sub) > 1) {
-    delta_d <- c(diff(dist_vals_sub),
-                 tail(diff(dist_vals_sub), 1))
-  } else {
-    delta_d <- 1
-  }
-
-  w_use <- w_d * delta_d
-  if (sum(w_use) == 0) return(NA_real_)
-
-  # shell summaries
-  shell_vals <- apply(h_sub, 1, summarize_hist_shell)
-
-  weighted_median(shell_vals, w_use)
-}
 
 weighted_median <- function(x, w) {
   ord <- order(x)
@@ -962,38 +789,8 @@ weighted_median <- function(x, w) {
   x[which(cs >= 0.5)[1]]
 }
 
-summarize_hist_shell <- function(hist_row) {
 
-  total <- sum(hist_row)
-  if (total == 0) return(NA_real_)
-
-  r2_vals <- as.numeric(names(hist_row))
-
-  cs <- cumsum(hist_row)
-  idx <- which(cs >= total / 2)[1]
-  return(r2_vals[idx])
-}
-
-compute_ld_rhow_from_hist <- function(hist_mat,
-                                      d_window) {
-
-  if (is.null(hist_mat)) return(NA_real_)
-
-  dist_vals <- as.numeric(rownames(hist_mat))
-  keep <- dist_vals <= d_window
-
-  if (!any(keep)) return(NA_real_)
-
-  h_sub <- hist_mat[keep, , drop = FALSE]
-
-  # Collapse all rows into one distribution
-  combined <- colSums(h_sub)
-
-  summarize_hist_shell(combined)
-}
-
-
-compute_ld_int_vectorised <- function(el, snp_ids, a, n_bins) {
+compute_ld_int <- function(el, snp_ids, a, n_bins) {
 
   # restrict to integration radius
   if (nrow(el) == 0)
@@ -1011,13 +808,101 @@ compute_ld_int_vectorised <- function(el, snp_ids, a, n_bins) {
   ), by = .(SNP, dist_idx)]
 
   shell_dt[, d_val := dist_idx * dist_unit]
+
   shell_dt[, weight := (a / (1 + a * d_val)^2) * dist_unit]
 
-  # weighted median per SNP
   LD_dt <- shell_dt[, .(
     LD_int = weighted_median(med_r2, weight)
   ), by = SNP]
 
+
+
+  #plot(LD_dt[,LD_int],LD_dt_el[,LD_int])
+
+
+  result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+  result[LD_dt$SNP] <- LD_dt$LD_int
+
+  result
+}
+
+# n_bins_target <- 30
+#a=0.000001
+compute_ld_int_adaptive <- function(el, snp_ids, a, ld_resolution=2, min_shell_n = 3) {
+
+  if (nrow(el) == 0)
+    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+
+  # bin_frac_target <- max(el$d) * a / n_bins_target
+  #
+  # dist_unit <- (1 / a) * bin_frac
+  # el[, dist_idx := floor(d / dist_unit)]
+
+  max_d <- max(el$d)
+  n_bins <- ceiling(a * max_d / ld_resolution)
+
+  #el[,length(unique(dist_idx))]
+
+  shell_dt <- el[, .(
+    med_r2 = if (.N >= min_shell_n) median(r2) else NA_real_
+  ), by = .(SNP, dist_idx)]
+
+  shell_dt <- shell_dt[is.finite(med_r2)]
+  shell_dt[, d_val := dist_idx * dist_unit]
+  shell_dt[, weight := (a / (1 + a * d_val)^2) * dist_unit]
+
+  shell_dt[, weight := weight / sum(weight), by = SNP]
+  #shell_dt[SNP=="Chr1:10559176"]
+
+  LD_dt <- shell_dt[, .(
+    LD_int = weighted_median(med_r2, weight)
+  ), by = SNP]
+
+  #LD_dt[,plot(LD_int)]
+
+  #LD_dt_01 <- copy(LD_dt)
+  #LD_dt_1 <- copy(LD_dt)
+
+  #plot(LD_dt$LD_int,LD_dt_24$LD_int)
+
+  #plot(map[match(LD_dt$SNP,marker),max_LD_with_QTN],LD_dt$LD_int)
+
+  result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+  result[LD_dt$SNP] <- LD_dt$LD_int
+  result
+}
+
+compute_ld_int_adaptive <- function(el, snp_ids, a, delta = 1, min_pairs = 3) {
+
+  if (nrow(el) == 0)
+    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+
+  # bin width based on LD decay scale
+  dist_unit <- delta / a
+
+  # assign linear bins
+  el[, dist_idx := floor(d / dist_unit)]
+  #el[,length(unique(dist_idx))]
+  # shell medians
+  shell_dt <- el[, .(
+    med_r2 = if (.N >= min_pairs) median(r2) else NA_real_
+  ), by = .(SNP, dist_idx)]
+
+  shell_dt <- shell_dt[!is.na(med_r2)]
+
+  # distance value of each shell
+  shell_dt[, d_val := dist_idx * dist_unit]
+
+  # theoretical decay weight
+  shell_dt[, weight := (a / (1 + a * d_val)^2) * dist_unit]
+
+  # normalize weights per SNP (important for window edges)
+  shell_dt[, weight := weight / sum(weight), by = SNP]
+
+  # weighted median integration
+  LD_dt <- shell_dt[, .(
+    LD_int = weighted_median(med_r2, weight)
+  ), by = SNP]
 
   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
   result[LD_dt$SNP] <- LD_dt$LD_int

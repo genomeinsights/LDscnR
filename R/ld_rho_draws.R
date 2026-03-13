@@ -21,23 +21,25 @@
 ld_rho_draws <- function(gds,
                          ld_struct,
                          n_inds,
-                         F_vals,
-                         q_vals=NULL,
-                         stat_type = c("q","C"),
-                         mode = c("joint","per_method"),
-                         n_rho_w = 25,
-                         ld_w_int = NULL,
-                         n_draws = 100,
-                         rho_w_lim = list(min=0.8,max=0.99),
-                         rho_d_lim=list(min=0.5,max=0.999),
-                         rho_ld_lim=list(min=0.9,max=0.999),
-                         alpha_lim=list(min=1.31,max=4),
-                         lmin_lim=list(min=1,max=10),
+                         F_vals     = NULL,
+                         q_vals     = NULL,
+                         C_scores   = NULL,
+                         stat_type  = c("q","C"),
+                         mode       = c("joint","per_method"),
+                         n_rho_w    = 25,
+                         ld_w_int   = NULL,
+                         n_draws    = 100,
+                         rho_w_lim  = list(min=0.8,max=0.99),
+                         rho_d_lim  = list(min=0.5,max=0.999),
+                         rho_ld_lim = list(min=0.9,max=0.999),
+                         alpha_lim  = list(min=1.31,max=4),
+                         lmin_lim   = list(min=1,max=10),
+                         C_lim      = list(min=0,max=0.5),
                          cores=1
 
 ){
 
-
+  #mode = "per_method"
   n_inds <- .get_n_inds(gds)
 
   ids <- .read_gds_ids(gds)
@@ -52,57 +54,56 @@ ld_rho_draws <- function(gds,
     )
 
     q_primes_int <- do.call(cbind,lapply(scan_int$result,function(x) x$q_prime))
-    colnames(q_primes_int) <- paste(colnames(q_primes_int),"_prime_int",sep="_")
+    colnames(q_primes_int) <- paste0(colnames(q_primes_int),"_prime_int")
+
   }else{
     q_primes_int = NULL
   }
 
 
-  draws <- rbindlist(lapply(seq_len(n_rho_w),function(dr){
+  if(stat_type[1]=="q"){
+    draws <- rbindlist(lapply(seq_len(n_rho_w),function(dr){
       message("draw ",dr)
 
-    if(!is.null(rho_w_lim)){
-      rho_w <- runif(1, rho_w_lim$min,rho_w_lim$max)
+      if(!is.null(rho_w_lim)){
+        rho_w <- runif(1, rho_w_lim$min,rho_w_lim$max)
 
-      ld_w <- compute_ld_summary(ld_structure=ld_struct,
-                                 method = c("rho_w"),
-                                 eps = 0.005,
-                                 d_window = derive_ld_radius(ld_struct$by_chr$Chr1$decay_sum$a, 1-rho_w),
-                                 shell_type = "median",
-                                 cores = cores)
-    }else{
-      ld_w <- ld_w_int
-      rho_w <- NA
-    }
+        ld_w <- compute_ld_w(ld_struct,
+                             rho = rho_w,
+                             cores = cores)
 
-
-      scan <- ld_scan(
-        SNP_ids   = ids$snp_id,
-        F_vals    = F_vals,
-        ld_w      = ld_w,
-        n_inds    = n_inds,
-        full      = TRUE
-      )
+        scan <- ld_scan(
+          SNP_ids   = ids$snp_id,
+          F_vals    = F_vals,
+          ld_w      = ld_w,
+          n_inds    = n_inds,
+          full      = TRUE
+        )
 
 
-      q_primes <- do.call(cbind,lapply(scan$result,function(x) x$q_prime))
-      colnames(q_primes) <- paste0(colnames(q_primes),"_prime")
-
-      if(!is.null(ld_w_int))
+        q_primes <- do.call(cbind,lapply(scan$result,function(x) x$q_prime))
+        colnames(q_primes) <- paste0(colnames(q_primes),"_prime")
         qvals <- cbind(q_vals, q_primes,q_primes_int)
-      else
-        qvals <- cbind(q_vals, q_primes)
+
+      }else{
+        rho_w = NA
+        qvals <- cbind(q_vals, q_primes_int)
+      }
 
       q_min <- apply(qvals,1,min)
 
       ## pre-estimate all pairwise LD values for outliers
       idx <- which(q_min<1/10^alpha_lim$min)
-      el  <- get_el(gds, idx, slide_win_ld = -1,by_chr = TRUE)
+
+      if(length(idx)>0)
+        el  <- get_el(gds, idx, slide_win_ld = -1,by_chr = TRUE)
+      else
+        el  <- data.table(matrix(0,0,0))
 
       #n_or_draws=100
       draws <- or_draws(
         el         = el,
-        q_vals     = qvals,
+        vals       = qvals,
         SNP_ids    = ids$snp_id,
         SNP_chr    = ids$snp_chr,
         ld_struct  = ld_struct,
@@ -111,14 +112,45 @@ ld_rho_draws <- function(gds,
         rho_ld_lim = rho_ld_lim,
         alpha_lim  = alpha_lim,
         lmin_lim   = lmin_lim,
+        C_lim      = NULL,
         mode       = mode[1],
         stat_type  = stat_type[1],
         cores      = cores
       )
+
       draws[,rho_w:=rho_w]
       return(draws)
     }))
+  }
+  #stat_type <- "C"
+  if(stat_type[1]=="C"){
 
+
+      idx <- which(C_scores>0)
+
+      if(length(idx)>0)
+        el  <- get_el(gds, idx, slide_win_ld = -1,by_chr = TRUE)
+      else
+        el  <- data.table(matrix(0,0,0))
+
+      draws <- or_draws(
+        el         = el,
+        vals       = C_scores,
+        SNP_ids    = ids$snp_id,
+        SNP_chr    = ids$snp_chr,
+        ld_struct  = ld_struct,
+        n_draws    = n_draws,
+        rho_d_lim  = rho_d_lim,
+        rho_ld_lim = rho_ld_lim,
+        alpha_lim  = NULL,
+        lmin_lim   = NULL,
+        C_lim      = C_lim,
+        mode       = "per_method",
+        stat_type  = stat_type[1],
+        cores      = cores
+      )
+      draws[,rho_w:=NA]
+    }
 
   list(draws=draws[,.(draw_id, method, rho_w, rho_d, rho_ld, alpha, l_min, OR, OR_size)],class = "ld_rho_draws")
 }

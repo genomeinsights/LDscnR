@@ -2,7 +2,7 @@
 #'
 #' @export
 detect_or <- function(el,
-                      q_vals,
+                      vals,
                       ld_struct,
                       SNP_ids,
                       SNP_chr,
@@ -15,16 +15,14 @@ detect_or <- function(el,
                       ret_table = FALSE) {
 
 
-  if (is.null(colnames(q_vals)))
+  if (is.null(colnames(vals)))
     stop("q_vals must have column names.")
 
-  methods <- colnames(q_vals)
+  methods <- colnames(vals)
 
   mode <- match.arg(mode)
 
   stat_type <- infer_stat_type(methods)
-
-  sign_if <- if (stat_type == "C") "greater" else "less"
 
   outlier_fun <- switch(
     sign_if,
@@ -101,7 +99,7 @@ detect_or <- function(el,
   if (mode == "per_method") {
     #qs <- unlist(q_vals[,1])
 
-    out <- apply(as.matrix(q_vals), 2, function(qs) {
+    out <- apply(as.matrix(vals), 2, function(qs) {
 
       outliers <- SNP_ids[!is.na(qs) & outlier_fun(qs)]
       build_or_from_snps(outliers)
@@ -115,10 +113,7 @@ detect_or <- function(el,
   if (mode == "joint") {
 
     # union of outliers across methods
-    # outlier_matrix <- apply(q_vals, 2, function(qs) {
-    #   ids$snp_id[!is.na(qs) & outlier_fun(qs)]
-    # })
-    qs <- apply(q_vals, 1, min)
+    qs <- apply(vals, 1, min)
 
     outlers <- SNP_ids[!is.na(qs) & outlier_fun(qs)]
 
@@ -153,72 +148,83 @@ detect_or <- function(el,
 
 
 #' Draw ORs across parameter space (flat output)
-#'
 or_draws <- function(el,
-                     q_vals,
+                     vals,
                      SNP_ids,
                      SNP_chr,
                      ld_struct,
-                     n_draws = 25,
-                     stat_type = c("q","C"),
-                     mode = c("per_method","joint"),
-                     rho_d_lim = list(min=0.5,max=0.999),
+                     n_draws    = 25,
+                     stat_type  = c("q","C"),
+                     mode       = c("per_method","joint"),
+                     rho_d_lim  = list(min=0.5,max=0.999),
                      rho_ld_lim = list(min=0.9,max=0.999),
-                     alpha_lim = list(min=1.31,max=4),
-                     lmin_lim = list(min=1,max=10),
-                     cores = 1) {
+                     alpha_lim  = list(min=1.31,max=4),
+                     C_lim      = list(min=0,max=0.5),
+                     lmin_lim   = list(min=1,max=10),
+                     cores      = 1
+                     ) {
 
   stat_type <- match.arg(stat_type)
 
-  sign_if <- if (stat_type[1] == "C") "greater" else "less"
+  if (is.null(colnames(vals)))
+    stop("Values must have column names.")
+  #mod <- "joint"
 
-  if (is.null(colnames(q_vals)))
-    stop("q_vals must have column names.")
+  out <- rbindlist(lapply(mode,function(mod){
 
-  if(mode[1]=="joint") sign_if = "greater"
+    methods <- colnames(vals)
+
+    out <- rbindlist(parallel_apply(seq_len(n_draws),function(i) {
+
+      rho_d  <- runif(1, rho_d_lim$min, rho_d_lim$max)
+      rho_ld <- runif(1, rho_ld_lim$min, rho_ld_lim$max)
+
+      l_min    <- if (stat_type[1] == "C") 1 else sample(seq(lmin_lim$min, lmin_lim$max), 1)
+      alpha    <- if (stat_type[1] == "C") runif(1, C_lim$min, C_lim$max) else 1 / 10^(runif(1, alpha_lim$min, alpha_lim$max))
+      sign_if  <- if (stat_type[1] == "C") "greater" else "less"
 
 
-  methods <- colnames(q_vals)
+      if(length(el)==0)
+        return(data.table(
+          draw_id = i,
+          method  = methods,
+          rho_d   = rho_d,
+          rho_ld  = rho_ld,
+          alpha   = alpha,
+          l_min   = l_min,
+          OR      = replicate(length(methods), list(list()), simplify = FALSE),
+          OR_size = 0L
+        ))
 
-  if (is.null(colnames(q_vals)))
-    stop("q_vals must have column names.")
-
-  out_list <- rbindlist(parallel_apply(seq_len(n_draws),function(i) {
-
-    rho_d  <- runif(1, rho_d_lim$min, rho_d_lim$max)
-    rho_ld <- runif(1, rho_ld_lim$min, rho_ld_lim$max)
-    alpha  <- 1 / 10^(runif(1, alpha_lim$min, alpha_lim$max))
-    l_min  <- sample(seq(lmin_lim$min, lmin_lim$max), 1)
-
-    or_obj <- detect_or(
-      el        = el,
-      q_vals    = q_vals,
-      SNP_ids   = SNP_ids,
-      SNP_chr   = SNP_chr,
-      ld_struct = ld_struct,
-      sign_th   = alpha,
-      rho_d     = rho_d,
-      rho_ld    = rho_ld,
-      l_min     = l_min,
-      sign_if   = sign_if,
-      ret_table = FALSE,
-      mode      = mode[1]
-    )
-
-    OR_methods <- names(or_obj$ORs)
-    if (all(lengths(or_obj$ORs) == 0)) {
-      data.table(
-        draw_id = i,
-        method  = OR_methods,
-        rho_d   = rho_d,
-        rho_ld  = rho_ld,
-        alpha   = alpha,
-        l_min   = l_min,
-        OR      = replicate(length(OR_methods), list(list()), simplify = FALSE),
-        OR_size = 0L
+      or_obj <- detect_or(
+        el        = el,
+        vals      = vals,
+        SNP_ids   = SNP_ids,
+        SNP_chr   = SNP_chr,
+        ld_struct = ld_struct,
+        sign_th   = alpha,
+        sign_if   = sign_if,
+        rho_d     = rho_d,
+        rho_ld    = rho_ld,
+        l_min     = l_min,
+        ret_table = FALSE,
+        mode      = mod
       )
-      #meth  <- OR_methods[1]
-    }else{
+
+      OR_methods <- names(or_obj$ORs)
+      if (all(lengths(or_obj$ORs) == 0)) {
+        data.table(
+          draw_id = i,
+          method  = OR_methods,
+          rho_d   = rho_d,
+          rho_ld  = rho_ld,
+          alpha   = alpha,
+          l_min   = l_min,
+          OR      = replicate(length(OR_methods), list(list()), simplify = FALSE),
+          OR_size = 0L
+        )
+        #meth  <- OR_methods[1]
+      }else{
         rbindlist(lapply(OR_methods, function(meth) {
 
           or_list <- or_obj$ORs[[meth]]
@@ -248,9 +254,13 @@ or_draws <- function(el,
         }), fill = TRUE)
       }
 
-  },cores=8))
+    },cores=cores))
+
+  }))
+
 
 }
+
 
 #' Convert ld_or object to long table
 #'

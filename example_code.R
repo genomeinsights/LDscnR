@@ -3,6 +3,9 @@ library(ggplot2)
 library(data.table)
 library(SNPRelate)
 
+devtools::load_all()
+
+
 tmp <- readRDS("../LD-scaling-genome-scans/results_sim/c1_V0.5_rep4.rds")
 map_org <- tmp$SNP_res[,.(V,c,rep,Chr,Pos,marker,type, Chr_type,max_LD_with_QTN, bp_to_focal_QTN, focal_QTN, p_Va,emx_F,lfmm_F,emx_q,lfmm_q,a,b,c )]
 map <- tmp$SNP_res[,.(V,c,rep,Chr,Pos,marker,type, Chr_type,max_LD_with_QTN, bp_to_focal_QTN, focal_QTN, p_Va,emx_F,lfmm_F,emx_q,lfmm_q )]
@@ -72,9 +75,7 @@ ld_struct <- compute_ld_structure(
   overlap = 0.5,
   prob_robust = 0.95,
   target_dist_bins_for_decay = 60,
-  keep_rho_hist = FALSE,
   keep_el = TRUE,
-  n_rho_bins_hist = 20,
   n_bins_ld_int = 20,
   rho = 0.995,
   k_max=1000,
@@ -82,30 +83,18 @@ ld_struct <- compute_ld_structure(
 )
 t2 <- Sys.time()
 difftime(t2,t1)
-ld_struct$by_chr$Chr1$ld_int_vect
-plot(-log(ld_struct$decay_sum$a),map[,max(Pos),by=Chr][,V1])
+#plot(-log(ld_struct$decay_sum$a),map[,max(Pos),by=Chr][,V1])
 #rm(ld_struct)
-cor(unlist(lapply(ld_struct$by_chr, function(x)x$ld_int_vect)),map[,max_LD_with_QTN])^2
-# ld_w <- sapply(c(0.5,0.6,0.7,0.8,0.85,0.9,0.95,0.99),function(rh){
-#   tmp <- el[d<d_from_rho(decay_sum$a, rh),median(r2),by=SNP]
-#   tmp[match(snps_chr,SNP),V1]
-# })
-# colnames(ld_w) <- c(0.5,0.6,0.7,0.8,0.85,0.9,0.95,0.99)
-#
-# ld_int_vect <- sapply(c(10,15,20,25,30,40,50,100),function(n_bins_ld_int){
-#   ld_int_vect <- compute_ld_int_vectorised(el, snps_chr, a, n_bins=n_bins_ld_int)
-# })
-# colnames(ld_int_vect) <- c(10,15,20,25,30,40,50,100)
-# cat(" -- calculating LD_int")
 
-LD_int <- unlist(lapply(ld_struct$by_chr,function(x)x$ld_int))
 
-# map[,plot(ld_int,pch=ifelse(type=="QTN",3,16),col=ifelse(type=="QTN","red","black"))]
-# map[,plot(ld_int,lfmm_F,pch=ifelse(type=="QTN",3,16),col=ifelse(type=="QTN","red","black"))]
 
-lfmm_F_prime_full <- .compute_Fprime(map$lfmm_F,LD_int,n_rep=10,n_inds = nrow(geno),full=TRUE)
+map[,ld_int:=unlist(lapply(ld_struct$by_chr,function(x)x$ld_int))]
+
+map[,cor(ld_int*lfmm_F,max_LD_with_QTN)^2]
+
+lfmm_F_prime_full <- .compute_Fprime(map$lfmm_F,map$ld_int,n_rep=10,n_inds = nrow(geno),full=TRUE)
 map[,lfmm_q_prime := -log10(lfmm_F_prime_full[[1]]$q_prime)]
-map[,ld_int:=LD_int]
+
 p1 <- ggplot(map, aes(ld_int,lfmm_F,col=max_LD_with_QTN,shape=type,size=type)) +
   geom_point() +
   scale_color_viridis_c(option="turbo")+
@@ -154,98 +143,40 @@ map[type=="QTN", rho_ld:=1]
 
 F_cols=c("emx_F","lfmm_F")
 q_cols=c("emx_q","lfmm_q")
-#F_vals     = map[,..F_cols]
-#q_vals     = map[,..q_cols]
 
-#
-# t1 <- Sys.time()
-# draws_joint <- ld_rho_draws(gds,
-#                             ld_struct  = ld_struct,
-#                             F_vals     = map[,..F_cols],
-#                             q_vals     = map[,..q_cols],
-#                             n_rho_w    = 25,
-#                             n_draws    = 25,
-#                             ld_w_int   = NULL,
-#                             stat_type  = "q",
-#                             rho_w_lim  = list(min=0.5,max=0.99),
-#                             rho_d_lim  = list(min=0.5,max=0.99),
-#                             rho_ld_lim = list(min=0.5,max=0.99),
-#                             alpha_lim  = list(min=1.31,max=4),
-#                             lmin_lim   = list(min=1,max=10),
-#                             cores      = 8,
-#                             mode       = "joint"
-#
-# )
-# t2 <- Sys.time()
-# difftime(t2,t1)
-
-t1 <- Sys.time()
-draws_joint_int <- ld_rho_draws(gds,
-                            ld_struct  = ld_struct,
-                            F_vals     = map[,..F_cols],
-                            q_vals     = map[,..q_cols],
-                            n_rho_w    = 1,
-                            n_draws    = 25*25,
-                            ld_w_int   = map$ld_int,
-                            stat_type  = "q",
-                            rho_w_lim  = NULL,
-                            rho_d_lim  = list(min=0.5,max=0.99),
-                            rho_ld_lim = list(min=0.5,max=0.99),
-                            alpha_lim  = list(min=1.31,max=4),
-                            lmin_lim   = list(min=1,max=10),
-                            cores      = 8,
-                            mode       = "joint"
-
+draws_ld_w <- ld_rho_draws(gds,
+                      ld_struct  = ld_struct,
+                      F_vals     = map[,..F_cols],
+                      q_vals     = NULL,
+                      n_rho_w    = 25,
+                      n_draws    = 25,
+                      ld_w_int   = NULL,
+                      stat_type  = "q",
+                      rho_w_lim  = list(min=0.75,max=0.9999),
+                      rho_d_lim  = list(min=0.5,max=0.99),
+                      rho_ld_lim = list(min=0.5,max=0.99),
+                      alpha_lim  = list(min=1.31,max=4),
+                      lmin_lim   = list(min=1,max=10),
+                      cores      = 8,
+                      mode       = c("joint","per_method")
 )
-t2 <- Sys.time()
-difftime(t2,t1)
 
-draws_joint_int$draws[,method:="Joint_int"]
-
-t1 <- Sys.time()
-draws_per_method <- ld_rho_draws(gds,
-                            ld_struct  = ld_struct,
-                            F_vals     = map[,..F_cols],
-                            q_vals     = map[,..q_cols],
-                            n_rho_w    = 1,
-                            n_draws    = 25*25,
-                            ld_w_int   = map$ld_int,
-                            stat_type  = "q",
-                            rho_w_lim  = NULL,
-                            rho_d_lim  = list(min=0.5,max=0.99),
-                            rho_ld_lim = list(min=0.5,max=0.99),
-                            alpha_lim  = list(min=1.31,max=4),
-                            lmin_lim   = list(min=1,max=10),
-                            cores      = 8,
-                            mode       = "per_method"
-
+draws_ld_int <- ld_rho_draws(gds,
+                           ld_struct  = ld_struct,
+                           F_vals     = map[,..F_cols],
+                           q_vals     = NULL,
+                           n_rho_w    = 1,
+                           n_draws    = 25*25,
+                           ld_w_int   = map$ld_int,
+                           stat_type  = "q",
+                           rho_w_lim  = NULL,
+                           rho_d_lim  = list(min=0.5,max=0.99),
+                           rho_ld_lim = list(min=0.5,max=0.99),
+                           alpha_lim  = list(min=1.31,max=4),
+                           lmin_lim   = list(min=1,max=10),
+                           cores      = 8,
+                           mode       = c("joint","per_method")
 )
-t2 <- Sys.time()
-difftime(t2,t1)
-
-#
-# t1 <- Sys.time()
-# draws_LD_int <- ld_rho_draws(gds,
-#                                  ld_struct  = ld_struct,
-#                                  F_vals     = map[,..F_cols],
-#                                  q_vals     = map[,..q_cols],
-#                                  n_rho_w    = NULL,
-#                                  n_draws    = 625,
-#                                  ld_w       = ld_w_int,
-#                                  stat_type  = "q",
-#                                  rho_w_lim  = list(min=0.5,max=0.99),
-#                                  rho_d_lim  = list(min=0.5,max=0.99),
-#                                  rho_ld_lim = list(min=0.5,max=0.99),
-#                                  alpha_lim  = list(min=1.31,max=4),
-#                                  lmin_lim   = list(min=1,max=10),
-#                                  cores      = 8,
-#                                  mode       = "joint"
-#
-# )
-# t2 <- Sys.time()
-# difftime(t2,t1)
-
-#abline(0,1)
 
 
 ld_test_th = 0.75
@@ -253,29 +184,26 @@ d_test_th  = 0.95
 p_Va_th    = 0.05
 map_filt <- map[rho_ld > ld_test_th & rho_d < d_test_th]
 
-PR_joint <- get_PR(draws_joint$draws$OR,map_filt)
-PR_joint <- cbind(map[1,.(c,V,rep)],draws_joint$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)],PR_joint)
+PR_ld_w <- get_PR(draws_ld_w$draws$OR,map_filt)
+PR_ld_w <- cbind(map[1,.(c,V,rep)],draws_ld_w$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)],PR_ld_w)
 
 
-PR_per_meth <- get_PR(draws_per_method$draws$OR,map_filt)
-PR_per_meth <- cbind(map[1,.(c,V,rep)],draws_per_method$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)],PR_per_meth)
+PR_int <- get_PR(draws_ld_int$draws$OR,map_filt)
+PR_int <- cbind(map[1,.(c,V,rep)],draws_ld_int$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)],PR_int)
+#PR_int[method=="Joint",method:="Joint_int"]
 
-PR_joint_int <- get_PR(draws_joint_int$draws$OR,map_filt)
-PR_joint_int <- cbind(map[1,.(c,V,rep)],draws_joint_int$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)],PR_joint_int)
+PR_int[,ld:="int"]
+PR_int[,method := gsub("_int","",method)]
+PR_ld_w[,ld:="rho_w"]
+PR_data <- rbind(PR_ld_w,PR_int)
 
-# PR_LD_int <- get_PR(draws_LD_int$draws$OR,map_filt)
-# PR_LD_int <- cbind(map[1,.(c,V,rep)],draws_per_method$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)],PR_LD_int)
-# PR_LD_int[,method:="Joint_int"]
-PR_data <- rbind(PR_per_meth,PR_joint_int)
-
-PR_data[!duplicated(method)]
-
-PR_data[,median(PR)/mad(PR, constant = 1),by=method]
+PR_data[,median(PR)/mad(PR, constant = 1),by=.(method,ld)]
 
 ggplot(PR_data,
        aes(x = recall,
            y = precision,
            colour = method)) +
+  facet_grid(ld~.)+
   geom_point(alpha = 0.5) +
   geom_smooth(se = FALSE) +
   theme_bw() +
@@ -284,95 +212,57 @@ ggplot(PR_data,
 ggplot(PR_data,
        aes(x = method,
            y = PR,
-           fill = method)) +
-  geom_violin(alpha = 0.4) +
+           fill = ld)) +
+  #facet_grid(ld~.)+
+  #geom_violin(alpha = 0.4) +
   geom_boxplot(width = 0.2, outlier.shape = NA) +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
   labs(title = "Distribution of PR score across parameter draws")
 
 
-map2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_joint$draws))
+#map2[,plot(Joint_int_C)]
 
-map2[,plot(Joint_C)]
+map2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_ld_int$draws))
 
-p5 <- ggplot(map2, aes(1:nrow(map),Joint_C,col=max_LD_with_QTN,shape=type,size=type)) +
+
+p1 <- ggplot(map2, aes(1:nrow(map),Joint_C,col=max_LD_with_QTN,shape=type,size=type)) +
   geom_point() +
   scale_color_viridis_c(option="turbo") +
   scale_shape_manual(values=c(20,3)) +
-  scale_size_manual(values=c(1,3))
+  scale_size_manual(values=c(1,3)) +
+  geom_hline(yintercept = 0.03)
 
-p5
-
-long_dt <- draws_joint$draws[
-  , .(SNP = unlist(OR)),
-  by = .(method)
-]
-
-n_draws <- draws_joint$draws[method==method[1],.N]
-C_dt <- long_dt[, .N, by = .(SNP,method)]
-
-#total_draws <- or_dt$n_rho*or_dt$n_or_draws
-
-C_dt[, C := N / n_draws]
-
-C_obj <- structure(
-  list(
-    consistency = C_dt,
-    total_draws = n_draws
-  ),
-  class = "ld_consistency"
-)
+map2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_ld_w$draws))
 
 
-plot(C_obj$consistency$C)
+p2 <- ggplot(map2, aes(1:nrow(map),Joint_C,col=max_LD_with_QTN,shape=type,size=type)) +
+  geom_point() +
+  scale_color_viridis_c(option="turbo") +
+  scale_shape_manual(values=c(20,3)) +
+  scale_size_manual(values=c(1,3)) +
+  geom_hline(yintercept = 0.03)
 
-ggplot(PR_data,
-       aes(x = rho_d,
-           y = PR,
-           colour = method)) +
-  geom_point(alpha = 0.4) +
-  geom_smooth(se = FALSE) +
-  theme_bw() +
-  labs(title = "Sensitivity of PR to rho_d")
-
-ggplot(PR_data[method == "lfmm_F_prime"],
-       aes(x = rho_d,
-           y = rho_ld,
-           fill = PR)) +
-  geom_tile() +
-  scale_fill_viridis_c() +
-  theme_bw() +
-  labs(title = "PR surface across LD thresholds")
-
-ggplot(PR_data[method == "lfmm_F_prime"],
-       aes(x = rho_d,
-           y = rho_ld,
-           fill = PR)) +
-  geom_tile() +
-  scale_fill_viridis_c() +
-  theme_bw() +
-  labs(title = "PR surface across LD thresholds")
-
+p1 / p2
 
 library(dplyr)
 library(tidyr)
-PR_data[,length(table(unique(paste0(rho_w,rho_d,rho_ld,alpha,l_min))))/length(unique(method))]
+#PR_data[,length(table(unique(paste0(rho_w,rho_d,rho_ld,alpha,l_min))))/length(unique(method))]
 
-best <- PR_data[method] %>%
+best <- PR_data %>%
   group_by(rho_d, rho_ld, alpha, l_min) %>%
   slice_max(PR, n = 1, with_ties = FALSE) %>%
   ungroup()
 #table(best$method)
 
 prop_df <- best %>%
-  count(method) %>%
+  count(method,ld) %>%
   mutate(prop = n / sum(n))
 # prop_df <- prop_df %>%
 #   mutate(prop = wins / total_draws)
 
-ggplot(prop_df, aes(method, prop, fill = method)) +
-  geom_col() +
+ggplot(prop_df, aes(method, prop, fill = ld)) +
+  geom_col(position = "dodge") +
   scale_y_continuous(labels = scales::percent_format()) +
   theme_bw() +
   theme(legend.position = "none") +
@@ -381,6 +271,7 @@ ggplot(prop_df, aes(method, prop, fill = method)) +
     x = "Method",
     title = "Dominance across OR parameter space"
   )
+
 
 better_df <- PR_data %>%
   tidyr::pivot_wider(

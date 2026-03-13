@@ -148,7 +148,7 @@ compute_ld_int_from_shells <- function(
   })
 }
 
-###### rests #####
+###### rests
 integrate_ld_int_from_hist <- function(hist_mat, a, d_star) {
 
   if (is.null(hist_mat)) return(NA_real_)

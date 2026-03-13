@@ -9,7 +9,7 @@
 
 
 get_PR <- function(draw_ORs,
-                   map_filt) {
+                   map_filt,cores=1) {
 
 
   true <- unique(map_filt[p_Va > p_Va_th, focal_QTN])
@@ -84,10 +84,9 @@ get_PR <- function(draw_ORs,
 #   n_rep - number of draws
 ###
 
-get_ORs_from_C <- function(GTs,
-                           map,
+get_ORs_from_C <- function(gds,
                            C_vals,
-                           decay_tbl,
+                           dt_struct,
                            rho_ld_lim = list(min = 0.5, max = 1.0),
                            rho_d_lim  = list(min = 0.90, max = 1.0),
                            tau_C_lim  = list(min = 1e-6, max = 0.5),
@@ -95,11 +94,9 @@ get_ORs_from_C <- function(GTs,
                            n_rep      = 500) {
 
   ## ---- create GDS ----
-  gds_path <- tempfile(fileext = ".gds")
-  gds <- create_gds_from_geno(geno = GTs, map = map, gds_path)
-  on.exit({ snpgdsClose(gds); unlink(gds_path) }, add = TRUE)
+  ids  <- .read_gds_ids(gds)
+  chrs <- unique(ids$snp_chr)
 
-  ids <- read_gds_ids(gds)
   C_vals <- as.matrix(C_vals)
   methods <- colnames(C_vals)
 
@@ -178,3 +175,36 @@ get_ORs_from_C <- function(GTs,
   }
   rbindlist(out)
 }
+
+get_AUC_OR <- function(PR_data, n1=500, n2=500,cores=1){
+
+  ## get running maximum
+
+  cummax_PR <- rbindlist(parallel_apply(1:n1, function(x){
+    rbindlist(lapply(PR_data[,unique(method)],function(meth){
+      cbind(indx=1:n2,method=meth,PR_data[method==meth][sample(1:.N,n2,replace = TRUE),.(value=cummax(PR),rep=x)])
+    }))
+  },cores = cores))
+
+  AUC_norm <- list()
+  AUC <- list()
+
+  ## get AUC for each method
+  for(meth in cummax_PR[,unique(method)]){
+    PR_star <- cummax_PR[ method==meth,mean(value),by=.(method,indx)][,V1]
+    k <- seq_along(PR_star)
+    AUC_pracma <- pracma::trapz(k, PR_star)
+    PR_star_max <- pracma::trapz(k, c(0,rep(1,(max(k)-1))))
+    AUC_norm[[meth]] <- AUC_pracma / PR_star_max
+    AUC[[meth]] <- AUC_pracma
+  }
+
+  data_auc <- cummax_PR[,.(mean_PR=mean(value)),by=.(method,indx)]
+
+  max_PR <- cummax_PR[,max(value),by=method]
+  max_PR <- max_PR[match(names(AUC),max_PR$method),V1]
+  AUC <- data.table(method=names(AUC),AUC=unlist(AUC),AUC_norm=unlist(AUC_norm),max_PR)
+
+  return(list(data=data_auc,AUC=AUC))
+}
+

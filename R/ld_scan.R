@@ -23,15 +23,17 @@ ld_scan <- function(ld_w,
                     SNP_ids,
                     n_inds,
                     n_rep = 10,
-                    full = TRUE) {
+                    full = TRUE,
+                    enforce_null_floor = TRUE) {
 
 
-  scan_res <- .compute_Fprime(
+  scan_res <- compute_Fprime(
     F_vals = F_vals,
     ld_w   = ld_w,
     n_rep  = n_rep,
     n_inds = n_inds,
-    full   = full
+    full   = full,
+    enforce_null_floor = enforce_null_floor
   )
 
   ## 3 Wrap into S3 object
@@ -47,8 +49,23 @@ ld_scan <- function(ld_w,
   class(out) <- "ld_scan"
   out
 }
+enforce_parallel_below_null <- function(y, x) {
+  stopifnot(length(y) == length(x))
 
-.compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, full) {
+  d <- y - x
+  bad <- which(d < cummax(d))
+
+  if (length(bad) == 0L) return(y)
+
+  i0 <- bad[1]
+  offset <- cummax(d)[i0 - 1L]
+
+  out <- y
+  out[i0:length(y)] <- x[i0:length(y)] + offset
+  out
+}
+
+compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, enforce_null_floor = TRUE,full) {
 
   F_mat <- as.matrix(F_vals)
   n <- nrow(F_mat)
@@ -112,7 +129,13 @@ ld_scan <- function(ld_w,
     )
 
     q_F_prime_cor <- F_prime_obs_sorted - (null_perm - null_true)
-    q_F_prime_cor_adj <- cummax(q_F_prime_cor)
+
+    if(enforce_null_floor){
+      offset <- cummax(q_F_prime_cor - null_true)
+      q_F_prime_cor_adj <- null_true + offset
+    }else{
+      q_F_prime_cor_adj <- cummax(q_F_prime_cor)
+    }
 
     F_prime <- numeric(n)
     F_prime[ord] <- q_F_prime_cor_adj
