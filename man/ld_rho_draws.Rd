@@ -6,10 +6,11 @@
 \usage{
 ld_rho_draws(
   gds,
-  ld_struct,
+  ld_decay,
   n_inds,
-  F_vals,
+  F_vals = NULL,
   q_vals = NULL,
+  C_scores = NULL,
   stat_type = c("q", "C"),
   mode = c("joint", "per_method"),
   n_rho_w = 25,
@@ -20,6 +21,7 @@ ld_rho_draws(
   rho_ld_lim = list(min = 0.9, max = 0.999),
   alpha_lim = list(min = 1.31, max = 4),
   lmin_lim = list(min = 1, max = 10),
+  C_lim = list(min = 0, max = 0.5),
   cores = 1
 )
 }

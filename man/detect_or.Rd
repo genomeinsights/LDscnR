@@ -6,8 +6,8 @@
 \usage{
 detect_or(
   el,
-  q_vals,
-  ld_struct,
+  vals,
+  ld_decay,
   SNP_ids,
   SNP_chr,
   sign_th = 0.05,

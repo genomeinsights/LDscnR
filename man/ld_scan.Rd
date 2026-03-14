@@ -4,7 +4,15 @@
 \alias{ld_scan}
 \title{LD-scaled genome scan}
 \usage{
-ld_scan(ld_w, F_vals, SNP_ids, n_inds, n_rep = 10, full = TRUE)
+ld_scan(
+  ld_w,
+  F_vals,
+  SNP_ids,
+  n_inds,
+  n_rep = 10,
+  full = TRUE,
+  enforce_null_floor = TRUE
+)
 }
 \arguments{
 \item{F_vals}{Numeric vector or matrix of F-statistics (n_snp x n_method).}

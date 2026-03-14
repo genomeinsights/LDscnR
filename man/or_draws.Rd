@@ -6,16 +6,17 @@
 \usage{
 or_draws(
   el,
-  q_vals,
+  vals,
   SNP_ids,
   SNP_chr,
-  ld_struct,
+  ld_decay,
   n_draws = 25,
   stat_type = c("q", "C"),
   mode = c("per_method", "joint"),
   rho_d_lim = list(min = 0.5, max = 0.999),
   rho_ld_lim = list(min = 0.9, max = 0.999),
   alpha_lim = list(min = 1.31, max = 4),
+  C_lim = list(min = 0, max = 0.5),
   lmin_lim = list(min = 1, max = 10),
   cores = 1
 )

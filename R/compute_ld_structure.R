@@ -48,9 +48,9 @@
 #' }
 #'
 #' @export
-compute_ld_structure <- function(
+compute_LD_decay <- function(
     gds,
-    el_data_folder=NULL,
+    el_data_folder = NULL,
     ## for LD-decay and bg
     q = 0.95,
     ## for bg
@@ -58,22 +58,20 @@ compute_ld_structure <- function(
     ## for decay
     n_win_decay = 20,
     overlap = 0.5,
+    max_SNPs_decay = Inf,
     prob_robust = 0.95,
-    target_dist_bins_for_decay = 60,
     max_pairs = 5000,
     n_strata = 20,
     keep_el = FALSE,
-    ## for ld_int
-    n_bins_ld_int = 20,
-    ## only for initial filtering of el
-    rho = 0.99,
-    k_max=1000,
+    ## for ld_int / LD support
+    slide = 1000,                  # in SNPs
+    rho_targets = c(0.90, 0.95, 0.99),
     cores = 1
 ) {
 
-
-  if(!is.null(el_data_folder)) if(!dir.exists(el_data_folder)) dir.create(el_data_folder)
-
+  if (!is.null(el_data_folder)) {
+    if (!dir.exists(el_data_folder)) dir.create(el_data_folder, recursive = TRUE)
+  }
 
   ids  <- .read_gds_ids(gds)
   chrs <- unique(ids$snp_chr)
@@ -83,20 +81,38 @@ compute_ld_structure <- function(
   out_by_chr <- vector("list", length(chrs))
   names(out_by_chr) <- chrs
 
-  #ch = "Chr1"
-  dist_unit_base = 10000
+  message("Estimating LD-decay")
   for (ch in chrs) {
 
     chr_idx  <- which(ids$snp_chr == ch)
     pos_chr  <- ids$snp_pos[chr_idx]
     snps_chr <- ids$snp_id[chr_idx]
 
-    cat("Processing ", ch, "-- getting edge list")
+    cat(ch, " - ")
+
+    ## robust chromosome-specific bp per SNP scale
+    chr_size_bp <- max(pos_chr) - min(pos_chr)
+    n_snps_chr  <- length(chr_idx)
+
+    bp_per_snp <- if (n_snps_chr > 1) {
+      chr_size_bp / (n_snps_chr - 1)
+    } else {
+      NA_real_
+    }
+
+    ## current slide converted to bp
+    slide_bp <- slide * bp_per_snp
+
+    sample_idx <- sort(sample(
+      chr_idx,
+      size = min(max_SNPs_decay, length(chr_idx)),
+      replace = FALSE
+    ))
 
     el <- get_el(
       gds = gds,
-      idx = chr_idx,
-      slide_win_ld = k_max,
+      idx = sample_idx,
+      slide_win_ld = slide,   # still in SNPs for get_el
       cores = cores,
       by_chr = TRUE,
       symmetric = TRUE,
@@ -105,25 +121,24 @@ compute_ld_structure <- function(
 
     data.table::setkey(el, SNP)
 
-    window_size <- (max(pos_chr) - min(pos_chr)) / n_win_decay
+    window_size <- chr_size_bp / n_win_decay
     step_size   <- window_size * overlap
 
-    # ---- LD-decay
+    ## ---- LD-decay
     decay <- suppressWarnings(
       estimate_decay_chr(
-        el = el[d<window_size],
-        b=b,
+        el = el[d < window_size],
+        b = b,
         window_size = window_size,
         step_size   = step_size,
-        max_pairs=max_pairs,
-        n_strata = n_strata,
+        max_pairs   = max_pairs,
+        n_strata    = n_strata,
         q = q,
         cores = cores
       )
     )
 
-    #decay_dt <- decay
-    decay[,contrast:=c - b]
+    decay[, contrast := c - b]
 
     decay[, regime := ifelse(
       contrast < 0.05,
@@ -131,125 +146,267 @@ compute_ld_structure <- function(
       "structured"
     )]
 
-    decay_sum <- summarize_decay(decay[regime=="structured",])
+    decay_sum_chr <- summarize_decay(decay[regime == "structured", ])
 
-    decay_sum[,chr_size := max(pos_chr)]
+    if (is.null(decay_sum_chr)) next
 
-    if (is.null(decay_sum)) next
+    decay_sum_chr[, chr_size := max(pos_chr)]
+    decay_sum_chr[, n_snp_chr := n_snps_chr]
+    decay_sum_chr[, bp_per_snp := bp_per_snp]
+    decay_sum_chr[, slide_snp := slide]
+    decay_sum_chr[, slide_bp := slide_bp]
+    decay_sum_chr[, n_w_used := sum(na.omit(decay$regime == "structured"))]
+    decay_sum_chr[, Chr := ch]
 
-    decay_sum[,n_w_used := sum(na.omit(decay$regime == "structured"))]
-    decay_sum[, Chr := ch]
+    ## rho actually covered by the user-supplied slide, using raw chromosome a
+    if (is.finite(decay_sum_chr$a) && decay_sum_chr$a > 0 &&
+        is.finite(slide_bp) && slide_bp > 0) {
+      decay_sum_chr[, rho_slide_raw := (a * slide_bp) / (1 + a * slide_bp)]
+    } else {
+      decay_sum_chr[, rho_slide_raw := NA_real_]
+    }
 
-    d_star <- d_from_rho(decay_sum$a, rho)
-    el <- el[d<d_star]
-
-    spacing <- diff(sort(pos_chr))
-    q_spacing <- quantile(spacing, 0.75)
-    k_star <- ceiling(d_star / q_spacing)
-
-    max_d_available <- max(el$d)
-    frac_covered <- signif(max_d_available / d_star,3)
-    exceeds_kmax <- k_star > k_max
-
-    cat(" -- frac_covered =", frac_covered)
-    cat(" -- k_star =", k_star)
-
-    el[, dist_idx := floor(d / dist_unit_base)]
-    #el[,length(unique(dist_idx))]
-
-    shell_dt <- el[, .(
-      med_r2 = median(r2)
-    ), by = .(SNP, dist_idx)]
-
-
-    #ld_int_vect <- compute_ld_int(el, snps_chr, decay_sum$a, n_bins=n_bins_ld_int)
-
-    if(!is.null(el_data_folder)) saveRDS(el,paste0(el_data_folder,ch,".rds")); cat(" -- Saving el")
-
-    # ---- collect data
     out_by_chr[[ch]] <- list(
-      snp_ids     = snps_chr,
-      el          = if(keep_el) el else NULL,
-      shell_dt    = shell_dt,
-      #ld_int_vect = ld_int_vect,
-      decay       = decay,
-      decay_sum   = decay_sum
+      snp_ids   = snps_chr,
+      el        = if (keep_el) el else NULL,
+      decay     = decay,
+      decay_sum = decay_sum_chr
     )
-
-    cat(" -- done\n")
   }
 
-  decay_sum <- rbindlist(lapply(out_by_chr,function(x) x$decay_sum))
-
-  d_mod <- rlm(log(a) ~ log(chr_size), data = decay_sum)
-
-  # decay_sum[,a_pred := exp(predict(d_mod,decay_sum))]
-  # decay_sum[,c_pred := median(c)]
-  # s_sum <- decay_sum[1,]
-  # apply(decay_sum, function(s_sum){
-  #
-  #   ld_int <- compute_ld_int_adaptive(out_by_chr$Chr1$el,snp_ids = out_by_chr$Chr1$snp_ids,s_sum$a_pred,delta = 5,min_pairs = 0 )
-  #   snp_ids <- out_by_chr$Chr1$snp_ids
-  #   plot(ld_int)
-  #   # bin width based on LD decay scale
-  #   shell_dt <- out_by_chr$Chr1$shell_dt
-  #   shell_dt[,dist_idx_old := dist_idx]
-  #
-  #   dist_unit <- 1 / s_sum$a_pred
-  #
-  #   shell_dt[, dist_idx := floor(d_val / dist_unit)]
-  #
-  #   #el[,length(unique(dist_idx))]
-  #   # shell medians
-  #   shell_dt <- shell_dt[, .(
-  #     med_r2 = if (.N >= min_pairs) median(med_r2) else NA_real_
-  #   ), by = .(SNP, dist_idx)]
-  #
-  #   shell_dt <- shell_dt[!is.na(med_r2)]
-  #
-  #   # distance value of each shell
-  #   shell_dt[, d_val := dist_idx * dist_unit]
-  #
-  #   # theoretical decay weight
-  #   shell_dt[, weight := (a / (1 + a * d_val)^2) * dist_unit]
-  #
-  #   # normalize weights per SNP (important for window edges)
-  #   shell_dt[, weight := weight / sum(weight), by = SNP]
-  #
-  #   # weighted median integration
-  #   LD_dt <- shell_dt[, .(
-  #     LD_int = weighted_median(med_r2, weight)
-  #   ), by = SNP]
-  #
-  #   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-  #   result[LD_dt$SNP] <- LD_dt$LD_int
-  #
-  #   plot(LD_dt$LD_int,ld_int)
-  #
-  # })
-
-  out <- list(
-    by_chr    = out_by_chr,
-    decay_sum = decay_sum,
-    params    = list( q = q,
-                      n_sub_bg = n_sub_bg,
-                      n_win_decay = n_win_decay,
-                      overlap = overlap,
-                      el_data_folder=el_data_folder,
-                      rho = rho,
-                      n_strata = n_strata,
-                      max_pairs = max_pairs,
-                      keep_el   = keep_el,
-                      n_bins_ld_int = n_bins_ld_int,
-                      prob_robust = prob_robust,
-                      target_dist_bins_for_decay = target_dist_bins_for_decay,
-                      cores = cores)
+  message("Predicting a from chromosome size")
+  decay_sum <- data.table::rbindlist(
+    lapply(out_by_chr, function(x) x$decay_sum),
+    fill = TRUE
   )
 
-  class(out) <- "ld_structure"
+  ## robust background decay model
+  d_mod <- MASS::rlm(log(a) ~ log(chr_size), data = decay_sum)
+
+  decay_sum[, a_pred := exp(predict(d_mod, decay_sum))]
+  decay_sum[, c_pred := median(c, na.rm = TRUE)]
+
+  ## rho covered by the current slide using predicted background a
+  decay_sum[, rho_slide_pred := (a_pred * slide_bp) / (1 + a_pred * slide_bp)]
+
+  ## recommended slide for each requested rho target
+  rho_targets <- sort(unique(rho_targets))
+  rho_targets <- rho_targets[is.finite(rho_targets) & rho_targets > 0 & rho_targets < 1]
+
+  for (rho_t in rho_targets) {
+    nm_bp  <- paste0("slide_bp_rho_",  formatC(rho_t, format = "f", digits = 2))
+    nm_snp <- paste0("slide_snp_rho_", formatC(rho_t, format = "f", digits = 2))
+
+    ## required physical window
+    decay_sum[, (nm_bp) := rho_t / (a_pred * (1 - rho_t))]
+
+    ## convert required bp window back to SNP window
+    decay_sum[, (nm_snp) := get(nm_bp) / bp_per_snp]
+  }
+
+  ## optional compact summary for user-facing reporting
+  rec_cols_snp <- grep("^slide_snp_rho_", names(decay_sum), value = TRUE)
+
+  recommendation <- list(
+    slide_input_snp = slide,
+    rho_targets = rho_targets,
+
+    rho_covered = decay_sum[, .(
+      Chr,
+      chr_size,
+      n_snp_chr,
+      bp_per_snp,
+      a_pred,
+      slide_snp,
+      slide_bp,
+      rho_slide_pred
+    )],
+
+    suggested_slide_by_chr = decay_sum[, c(
+      "Chr", "chr_size", "n_snp_chr", "bp_per_snp", "a_pred", rec_cols_snp
+    ), with = FALSE],
+
+    suggested_slide_summary = if (length(rec_cols_snp) > 0) {
+      tmp <- lapply(rec_cols_snp, function(cc) {
+        vals <- decay_sum[[cc]]
+        data.table::data.table(
+          target = sub("^slide_snp_rho_", "", cc),
+          median = stats::median(vals, na.rm = TRUE),
+          p90    = stats::quantile(vals, probs = 0.90, na.rm = TRUE),
+          max    = max(vals, na.rm = TRUE)
+        )
+      })
+      data.table::rbindlist(tmp)
+    } else {
+      NULL
+    }
+  )
+
+  out <- list(
+    by_chr         = out_by_chr,
+    decay_sum      = decay_sum,
+    decay_model    = d_mod,
+    recommendation = recommendation,
+    params         = list(
+      q = q,
+      n_sub_bg = n_sub_bg,
+      n_win_decay = n_win_decay,
+      overlap = overlap,
+      el_data_folder = el_data_folder,
+      n_strata = n_strata,
+      max_pairs = max_pairs,
+      keep_el = keep_el,
+      prob_robust = prob_robust,
+      slide = slide,             # in SNPs
+      rho_targets = rho_targets,
+      cores = cores
+    )
+  )
+
+  class(out) <- "ld_decay"
+
+  if (!is.null(recommendation$suggested_slide_summary)) {
+    message("Current slide covers the following rho range (using predicted background a):")
+    print(decay_sum[, .(
+      min_rho = min(rho_slide_pred, na.rm = TRUE),
+      median_rho = median(rho_slide_pred, na.rm = TRUE),
+      max_rho = max(rho_slide_pred, na.rm = TRUE)
+    )])
+
+    message("Suggested slide windows in SNPs for target rho:")
+    print(recommendation$suggested_slide_summary)
+  }
 
   out
 }
+#
+# compute_LD_decay <- function(
+#     gds,
+#     el_data_folder=NULL,
+#     ## for LD-decay and bg
+#     q = 0.95,
+#     ## for bg
+#     n_sub_bg = 5000,
+#     ## for decay
+#     n_win_decay = 20,
+#     overlap = 0.5,
+#     max_SNPs_decay = Inf,
+#     prob_robust = 0.95,
+#     max_pairs = 5000,
+#     n_strata = 20,
+#     keep_el = FALSE,
+#     ## for ld_int
+#     slide=1000,
+#     cores = 1
+# ) {
+#
+#
+#   if(!is.null(el_data_folder)) if(!dir.exists(el_data_folder)) dir.create(el_data_folder)
+#
+#
+#   ids  <- .read_gds_ids(gds)
+#   chrs <- unique(ids$snp_chr)
+#
+#   b <- estimate_background_ld(gds, n_sub = n_sub_bg, q = q)
+#
+#   out_by_chr <- vector("list", length(chrs))
+#   names(out_by_chr) <- chrs
+#
+#   message("Estimating LD-decay")
+#   for (ch in chrs) {
+#
+#     chr_idx  <- which(ids$snp_chr == ch)
+#     pos_chr  <- ids$snp_pos[chr_idx]
+#     snps_chr <- ids$snp_id[chr_idx]
+#
+#     cat(ch, " - ")
+#
+#
+#     sample_idx <- sort(sample(chr_idx, size = min(max_SNPs_decay, length(chr_idx)),replace = FALSE))
+#
+#     el <- get_el(
+#       gds = gds,
+#       idx = sample_idx,
+#       slide_win_ld = slide,
+#       cores = cores,
+#       by_chr = TRUE,
+#       symmetric = TRUE,
+#       edge_symmetry = FALSE
+#     )
+#
+#     data.table::setkey(el, SNP)
+#
+#     window_size <- (max(pos_chr) - min(pos_chr)) / n_win_decay
+#     step_size   <- window_size * overlap
+#
+#     # ---- LD-decay
+#     decay <- suppressWarnings(
+#       estimate_decay_chr(
+#         el = el[d<window_size],
+#         b  = b,
+#         window_size = window_size,
+#         step_size   = step_size,
+#         max_pairs   = max_pairs,
+#         n_strata    = n_strata,
+#         q = q,
+#         cores = cores
+#       )
+#     )
+#
+#     #decay_dt <- decay
+#     decay[,contrast:=c - b]
+#
+#     decay[, regime := ifelse(
+#       contrast < 0.05,
+#       "weak",
+#       "structured"
+#     )]
+#
+#     decay_sum <- summarize_decay(decay[regime=="structured",])
+#
+#     decay_sum[,chr_size := max(pos_chr)]
+#
+#     if (is.null(decay_sum)) next
+#
+#     decay_sum[,n_w_used := sum(na.omit(decay$regime == "structured"))]
+#     decay_sum[, Chr := ch]
+#
+#     out_by_chr[[ch]] <- list(
+#       snp_ids     = snps_chr,
+#       el          = if(keep_el) el else NULL,
+#       decay       = decay,
+#       decay_sum   = decay_sum
+#     )
+#   }
+#
+#   message("Predicting a from chromosome size")
+#   decay_sum <- rbindlist(lapply(out_by_chr,function(x) x$decay_sum))
+#
+#   d_mod <- MASS::rlm(log(a) ~ log(chr_size), data = decay_sum)
+#
+#   decay_sum[,a_pred := exp(predict(d_mod,decay_sum))]
+#   decay_sum[,c_pred := median(c)]
+#
+#   out <- list(
+#     by_chr    = out_by_chr,
+#     decay_sum = decay_sum,
+#     params    = list( q = q,
+#                       n_sub_bg = n_sub_bg,
+#                       n_win_decay = n_win_decay,
+#                       overlap = overlap,
+#                       el_data_folder=el_data_folder,
+#                       n_strata = n_strata,
+#                       max_pairs = max_pairs,
+#                       keep_el   = keep_el,
+#                       prob_robust = prob_robust,
+#                       cores = cores)
+#   )
+#
+#   class(out) <- "ld_decay"
+#
+#   out
+# }
+
 
 #' Summarize LD Decay Parameters
 #'
@@ -576,57 +733,141 @@ thin_to_k_target <- function(pos, d_star, k_target = 1000) {
 #' @param ... Additional arguments (unused).
 #'
 #' @export
-print.ld_structure <- function(x, ...) {
+print.ld_decay <- function(x, digits = 3, ...) {
 
-  if (!inherits(x, "ld_structure"))
-    stop("Object must be of class 'ld_structure'.")
+  cat("<ld_decay>\n")
 
-  cat("LD Structure Object\n")
-  cat("-------------------\n")
+  ## ---- parameters
+  if (!is.null(x$params)) {
 
-  # Chromosomes
-  chrs <- names(x$by_chr)
-  n_chr <- length(chrs)
-  cat("Chromosomes:", n_chr, "\n")
+    cat("\nRun parameters:\n")
 
-  # Total SNPs
-  n_snps <- sum(
-    vapply(x$by_chr, function(chr)
-      length(chr$snp_ids), numeric(1)),
-    na.rm = TRUE
-  )
-  cat("Total SNPs:", n_snps, "\n\n")
+    cat(
+      "  slide window:",
+      format(x$params$slide, big.mark = ","),
+      "SNPs\n"
+    )
 
-  # Decay summary
-  if (!is.null(x$decay_sum) && nrow(x$decay_sum) > 0) {
+    cat(
+      "  background LD quantile q:",
+      signif(x$params$q, digits),
+      "\n"
+    )
 
-    cat("Robust LD-decay parameters (median across chromosomes):\n")
+    cat(
+      "  chromosomes analysed:",
+      length(x$by_chr),
+      "\n"
+    )
 
-    if ("a" %in% names(x$decay_sum))
-      cat("  a =", signif(median(x$decay_sum$a, na.rm = TRUE), 3), "\n")
-
-    if ("c" %in% names(x$decay_sum))
-      cat("  c =", signif(median(x$decay_sum$c, na.rm = TRUE), 3), "\n")
-
-    if ("b" %in% names(x$decay_sum))
-      cat("  b =", signif(median(x$decay_sum$b, na.rm = TRUE), 3), "\n")
-
-    if ("k_star" %in% names(x$decay_sum))
-      cat("  k* (median) =",
-          signif(median(x$decay_sum$k_star, na.rm = TRUE), 3), "\n")
+    cat(
+      "  keep_el:",
+      x$params$keep_el,
+      "\n"
+    )
   }
 
-  cat("\nParameters used:\n")
+  ds <- x$decay_sum
 
-  if (!is.null(x$params)) {
-    for (nm in names(x$params)) {
-      cat(" ", nm, "=", x$params[[nm]], "\n")
+  if (!is.null(ds) && nrow(ds) > 0) {
+
+    cat("\nDecay parameter summary:\n")
+
+    if ("a_pred" %in% names(ds)) {
+
+      cat(
+        "  predicted a:",
+        "median =", signif(stats::median(ds$a_pred, na.rm = TRUE), digits),
+        " range = [",
+        signif(min(ds$a_pred, na.rm = TRUE), digits), ", ",
+        signif(max(ds$a_pred, na.rm = TRUE), digits), "]\n",
+        sep = ""
+      )
+    }
+
+    if ("c_pred" %in% names(ds)) {
+
+      cat(
+        "  predicted c:",
+        signif(stats::median(ds$c_pred, na.rm = TRUE), digits),
+        "\n"
+      )
+    }
+
+    if ("n_w_used" %in% names(ds)) {
+
+      cat(
+        "  structured decay windows:",
+        "median =", stats::median(ds$n_w_used, na.rm = TRUE),
+        " range = [",
+        min(ds$n_w_used, na.rm = TRUE), ", ",
+        max(ds$n_w_used, na.rm = TRUE), "]\n",
+        sep = ""
+      )
     }
   }
 
-  cat("\nLD histograms stored per chromosome (not printed).\n")
+  ## ---- rho coverage
+  rec <- x$recommendation
+
+  if (!is.null(rec)) {
+
+    rho_cov <- rec$rho_covered
+
+    if (!is.null(rho_cov) && "rho_slide_pred" %in% names(rho_cov)) {
+
+      cat("\nCurrent slide window coverage:\n")
+
+      cat(
+        "  rho covered:",
+        "median =", signif(stats::median(rho_cov$rho_slide_pred, na.rm = TRUE), digits),
+        " range = [",
+        signif(min(rho_cov$rho_slide_pred, na.rm = TRUE), digits), ", ",
+        signif(max(rho_cov$rho_slide_pred, na.rm = TRUE), digits), "]\n",
+        sep = ""
+      )
+
+      cat(
+        "  (slide =", format(x$params$slide, big.mark = ","), "SNPs)\n"
+      )
+    }
+
+    ## ---- suggested slide windows
+    ss <- rec$suggested_slide_summary
+
+    if (!is.null(ss) && nrow(ss) > 0) {
+
+      cat("\nSuggested slide windows for target rho:\n")
+
+      for (i in seq_len(nrow(ss))) {
+
+        cat(
+          "  rho =", ss$target[i],
+          ": median =", format(round(ss$median[i]), big.mark = ","), "SNPs",
+          ", p90 =", format(round(ss$p90[i]), big.mark = ","), "SNPs",
+          ", max =", format(round(ss$max[i]), big.mark = ","), "SNPs",
+          "\n"
+        )
+      }
+
+      cat(
+        "  (median = typical chromosome, p90 = covers most chromosomes)\n"
+      )
+    }
+  }
+
+  ## ---- stored components
+  cat("\nStored components:\n")
+
+  cat(
+    "  by_chr, decay_sum, decay_model, recommendation, params\n"
+  )
 
   invisible(x)
+}
+
+summary.ld_decay <- function(object, ...) {
+  object$recommendation$suggested_slide_summary
 }
 
 
@@ -641,119 +882,7 @@ print.ld_structure <- function(x, ...) {
 #' @param ... Additional graphical parameters.
 #'
 #' @export
-plot.ld_structure <- function(x,
-                              type = c("decay", "a_dist"),
-                              use = c("robust", "median"),
-                              alpha = 0.4,
-                              ...) {
 
-  if(!is.null(dev.list())) dev.off()
-  if (!inherits(x, "ld_structure"))
-    stop("Object must be of class 'ld_structure'.")
-
-  type <- match.arg(type)
-  #use  <- match.arg(use)
-
-  chrs <- names(x$by_chr)
-
-
-  if (type == "decay") {
-
-    n_chr <- length(chrs)
-    ncol = ceiling(sqrt(n_chr))
-    nrow_plot <- ceiling(n_chr / ncol)
-
-    oldpar <- par(no.readonly = TRUE)
-    on.exit(par(oldpar))
-
-    par(mfrow = c(nrow_plot, ncol))
-    par(mar = c(2, 2, 2, 1))
-
-    for (ch in chrs) {
-
-      z     <- x$by_chr[[ch]]
-      decay <- z$decay
-
-      if (is.null(decay) || nrow(decay) < 5) {
-        plot.new()
-        next
-      }
-
-      b <- as.numeric(na.omit(decay$b)[1])
-
-      # Distance grid
-      max_d <- max(decay$end, na.rm = TRUE)
-      d <- seq(0, max_d, length.out = 200)
-
-      plot(NULL,
-           xlim = c(0, max_d),
-           ylim = c(0, 1),
-           xlab = "",
-           ylab = "",
-           main = ch)
-
-      abline(h = b, lty = 2, col = "grey40")
-
-      # Plot window-specific fits
-      for (i in seq_len(nrow(decay))) {
-
-        a_i  <- decay$a[i]
-        c_i  <- decay$c[i]
-        d0_i <- if ("d0" %in% names(decay)) decay$d0[i] else 0
-
-        if (is.na(a_i) || a_i <= 0) next
-
-        r2 <- b + (c_i - b) /
-          (1 + a_i * pmax(d - d0_i, 0))
-
-        lines(d, r2,
-              lwd = 1.5,
-              col = scales::alpha("steelblue", alpha))
-      }
-
-      # Representative curve
-      #y <- use[1]
-      lapply(use,function(y){
-        summary_use <- z$summary[[y]]
-
-        if (!is.null(summary_use)) {
-
-          a_rep  <- summary_use$a
-          c_rep  <- summary_use$c
-          d0_rep <- summary_use$d0
-
-          r2_rep <- b + (c_rep - b) /
-            (1 + a_rep * pmax(d - d0_rep, 0))
-
-          lines(d, r2_rep,
-                lwd = 3,
-                col = c("firebrick","salmon")[use==y])
-        }
-      })
-
-    }
-  }
-
-  if (type == "a_dist") {
-
-    a_vals <- rbindlist(lapply(x$by_chr, function(z) {
-      z$decay[!is.na(a) & a > 0, .(a)]
-    }))
-
-    hist(a_vals$a,
-         breaks = 40,
-         col = "grey70",
-         border = "white",
-         main = "Distribution of LD-decay rate (a)",
-         xlab = "a")
-
-    abline(v = median(a_vals$a, na.rm = TRUE),
-           col = "firebrick",
-           lwd = 2)
-  }
-
-  invisible(x)
-}
 
 compute_ld_w <- function(
     ld_structure,
@@ -789,36 +918,121 @@ weighted_median <- function(x, w) {
   x[which(cs >= 0.5)[1]]
 }
 
+compute_ld_int_fill <- function(
+    el,
+    snp_ids,
+    a,
+    n_bins = 20,
+    rho_max = 0.90,
+    edge_mode = c("none", "trim", "fill")
+) {
 
-compute_ld_int <- function(el, snp_ids, a, n_bins) {
+  edge_mode <- match.arg(edge_mode)
 
-  # restrict to integration radius
-  if (nrow(el) == 0)
+  if (nrow(el) == 0L) {
     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+  }
 
-  # distance grid
-  max_d     <- max(el$d)
-  dist_unit <- signif(max_d / n_bins, 2)
+  if (!is.finite(a) || a <= 0) {
+    stop("`a` must be a positive finite number.")
+  }
 
-  el[, dist_idx := floor(d / dist_unit)]
+  if (!is.numeric(rho_max) || length(rho_max) != 1L || rho_max <= 0 || rho_max >= 1) {
+    stop("`rho_max` must be a single number in (0, 1).")
+  }
 
-  # shell medians per SNP
-  shell_dt <- el[, .(
-    med_r2 = median(r2)
-  ), by = .(SNP, dist_idx)]
+  n_bins <- as.integer(n_bins)
+  if (!is.finite(n_bins) || n_bins < 1L) {
+    stop("`n_bins` must be a positive integer.")
+  }
 
-  shell_dt[, d_val := dist_idx * dist_unit]
+  if (!all(c("SNP", "d", "r2", "pos1", "pos2") %in% names(el))) {
+    stop("`el` must contain columns: SNP, d, r2, pos1, pos2")
+  }
 
-  shell_dt[, weight := (a / (1 + a * d_val)^2) * dist_unit]
+  # truncate to rho support
+  d_cap <- rho_max / (a * (1 - rho_max))
+  el_use <- el[d <= d_cap, .(SNP, d, r2, pos1, pos2)]
 
-  LD_dt <- shell_dt[, .(
-    LD_int = weighted_median(med_r2, weight)
+  if (nrow(el_use) == 0L) {
+    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+  }
+
+  # left/right leg
+  el_use[, side := data.table::fifelse(pos2 > pos1, "R", "L")]
+
+  # optional symmetric trimming to common support
+  if (edge_mode == "trim") {
+    support_dt <- el_use[, .(
+      maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
+      maxR = if (any(side == "R")) max(d[side == "R"]) else 0
+    ), by = SNP]
+
+    support_dt[, S := pmin(maxL, maxR)]
+
+    el_use <- support_dt[el_use, on = "SNP"]
+    el_use <- el_use[d <= S, .(SNP, d, r2, pos1, pos2, side)]
+  }
+
+  if (nrow(el_use) == 0L) {
+    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+  }
+
+  # equal-rho bins via direct mapping
+  rho <- (a * el_use$d) / (1 + a * el_use$d)
+  dist_idx <- as.integer(floor(n_bins * rho / rho_max) + 1L)
+  dist_idx[dist_idx < 1L] <- 1L
+  dist_idx[dist_idx > n_bins] <- n_bins
+  el_use[, dist_idx := dist_idx]
+
+  # side-specific bin medians
+  shell_side <- el_use[, .(
+    n_pairs = .N,
+    med_r2 = median(r2,na.rm = TRUE)
+  ), by = .(SNP, side, dist_idx)]
+
+  shell_side <- shell_side[is.finite(med_r2)]
+
+  if (nrow(shell_side) == 0L) {
+    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+  }
+
+  # wide table: one row per SNP x bin, columns for left and right medians
+  shell_wide <- data.table::dcast(
+    shell_side,
+    SNP + dist_idx ~ side,
+    value.var = "med_r2"
+  )
+
+  # bin-level summary depending on edge handling
+  if (edge_mode == "none" || edge_mode == "trim") {
+    # use whatever is observed in that bin
+    shell_wide[, bin_val := data.table::fifelse(
+      !is.na(L) & !is.na(R), (L + R) / 2,
+      data.table::fifelse(!is.na(L), L, R)
+    )]
+  }
+
+  if (edge_mode == "fill") {
+    # if one side is missing, fill it from the other side
+    shell_wide[, bin_val := data.table::fifelse(
+      !is.na(L) & !is.na(R), (L + R) / 2,
+      data.table::fifelse(!is.na(L), L, R)
+    )]
+    # algebraically same bin value, but conceptually this is a symmetric fill
+    # because missing leg bins are completed by the observed leg before combining
+  }
+
+  shell_wide <- shell_wide[is.finite(bin_val)]
+
+  if (nrow(shell_wide) == 0L) {
+    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+  }
+
+  # final DPI: median across occupied rho-bins
+  LD_dt <- shell_wide[, .(
+    LD_int = median(bin_val)
   ), by = SNP]
-
-
-
-  #plot(LD_dt[,LD_int],LD_dt_el[,LD_int])
-
 
   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
   result[LD_dt$SNP] <- LD_dt$LD_int
@@ -826,86 +1040,3 @@ compute_ld_int <- function(el, snp_ids, a, n_bins) {
   result
 }
 
-# n_bins_target <- 30
-#a=0.000001
-compute_ld_int_adaptive <- function(el, snp_ids, a, ld_resolution=2, min_shell_n = 3) {
-
-  if (nrow(el) == 0)
-    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-
-  # bin_frac_target <- max(el$d) * a / n_bins_target
-  #
-  # dist_unit <- (1 / a) * bin_frac
-  # el[, dist_idx := floor(d / dist_unit)]
-
-  max_d <- max(el$d)
-  n_bins <- ceiling(a * max_d / ld_resolution)
-
-  #el[,length(unique(dist_idx))]
-
-  shell_dt <- el[, .(
-    med_r2 = if (.N >= min_shell_n) median(r2) else NA_real_
-  ), by = .(SNP, dist_idx)]
-
-  shell_dt <- shell_dt[is.finite(med_r2)]
-  shell_dt[, d_val := dist_idx * dist_unit]
-  shell_dt[, weight := (a / (1 + a * d_val)^2) * dist_unit]
-
-  shell_dt[, weight := weight / sum(weight), by = SNP]
-  #shell_dt[SNP=="Chr1:10559176"]
-
-  LD_dt <- shell_dt[, .(
-    LD_int = weighted_median(med_r2, weight)
-  ), by = SNP]
-
-  #LD_dt[,plot(LD_int)]
-
-  #LD_dt_01 <- copy(LD_dt)
-  #LD_dt_1 <- copy(LD_dt)
-
-  #plot(LD_dt$LD_int,LD_dt_24$LD_int)
-
-  #plot(map[match(LD_dt$SNP,marker),max_LD_with_QTN],LD_dt$LD_int)
-
-  result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-  result[LD_dt$SNP] <- LD_dt$LD_int
-  result
-}
-
-compute_ld_int_adaptive <- function(el, snp_ids, a, delta = 1, min_pairs = 3) {
-
-  if (nrow(el) == 0)
-    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-
-  # bin width based on LD decay scale
-  dist_unit <- delta / a
-
-  # assign linear bins
-  el[, dist_idx := floor(d / dist_unit)]
-  #el[,length(unique(dist_idx))]
-  # shell medians
-  shell_dt <- el[, .(
-    med_r2 = if (.N >= min_pairs) median(r2) else NA_real_
-  ), by = .(SNP, dist_idx)]
-
-  shell_dt <- shell_dt[!is.na(med_r2)]
-
-  # distance value of each shell
-  shell_dt[, d_val := dist_idx * dist_unit]
-
-  # theoretical decay weight
-  shell_dt[, weight := (a / (1 + a * d_val)^2) * dist_unit]
-
-  # normalize weights per SNP (important for window edges)
-  shell_dt[, weight := weight / sum(weight), by = SNP]
-
-  # weighted median integration
-  LD_dt <- shell_dt[, .(
-    LD_int = weighted_median(med_r2, weight)
-  ), by = SNP]
-
-  result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-  result[LD_dt$SNP] <- LD_dt$LD_int
-
-  result
-}

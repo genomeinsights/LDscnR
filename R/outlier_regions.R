@@ -3,7 +3,7 @@
 #' @export
 detect_or <- function(el,
                       vals,
-                      ld_struct,
+                      ld_decay,
                       SNP_ids,
                       SNP_chr,
                       sign_th = 0.05,
@@ -61,9 +61,9 @@ detect_or <- function(el,
         next
 
       # thresholds
-      a_chr  <- ld_struct$decay_sum[Chr == ch, a]
-      b_chr  <- ld_struct$decay_sum[Chr == ch, b]
-      c_chr  <- ld_struct$decay_sum[Chr == ch, c]
+      a_chr  <- ld_decay$decay_sum[Chr == ch, a]
+      b_chr  <- ld_decay$decay_sum[Chr == ch, b]
+      c_chr  <- ld_decay$decay_sum[Chr == ch, c]
 
 
       d_th  <- d_from_rho(a_chr, rho = rho_d)
@@ -152,7 +152,7 @@ or_draws <- function(el,
                      vals,
                      SNP_ids,
                      SNP_chr,
-                     ld_struct,
+                     ld_decay,
                      n_draws    = 25,
                      stat_type  = c("q","C"),
                      mode       = c("per_method","joint"),
@@ -201,7 +201,7 @@ or_draws <- function(el,
         vals      = vals,
         SNP_ids   = SNP_ids,
         SNP_chr   = SNP_chr,
-        ld_struct = ld_struct,
+        ld_decay = ld_decay,
         sign_th   = alpha,
         sign_if   = sign_if,
         rho_d     = rho_d,

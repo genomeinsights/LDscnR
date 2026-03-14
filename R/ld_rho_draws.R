@@ -19,7 +19,7 @@
 #' @return Object of class "ld_rho_draws".
 #' @export
 ld_rho_draws <- function(gds,
-                         ld_struct,
+                         ld_decay,
                          n_inds,
                          F_vals     = NULL,
                          q_vals     = NULL,
@@ -63,12 +63,12 @@ ld_rho_draws <- function(gds,
 
   if(stat_type[1]=="q"){
     draws <- rbindlist(lapply(seq_len(n_rho_w),function(dr){
-      message("draw ",dr)
+      #message("draw ",dr)
 
       if(!is.null(rho_w_lim)){
         rho_w <- runif(1, rho_w_lim$min,rho_w_lim$max)
 
-        ld_w <- compute_ld_w(ld_struct,
+        ld_w <- compute_ld_w(ld_decay,
                              rho = rho_w,
                              cores = cores)
 
@@ -106,7 +106,7 @@ ld_rho_draws <- function(gds,
         vals       = qvals,
         SNP_ids    = ids$snp_id,
         SNP_chr    = ids$snp_chr,
-        ld_struct  = ld_struct,
+        ld_decay  = ld_decay,
         n_draws    = n_draws,
         rho_d_lim  = rho_d_lim,
         rho_ld_lim = rho_ld_lim,
@@ -138,7 +138,7 @@ ld_rho_draws <- function(gds,
         vals       = C_scores,
         SNP_ids    = ids$snp_id,
         SNP_chr    = ids$snp_chr,
-        ld_struct  = ld_struct,
+        ld_decay  = ld_decay,
         n_draws    = n_draws,
         rho_d_lim  = rho_d_lim,
         rho_ld_lim = rho_ld_lim,
