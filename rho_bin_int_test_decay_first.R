@@ -15,7 +15,7 @@ d_test_th  = 0.95
 p_Va_th    = 0.05
 cores = 8
 
-done <- list.files("./PR_out_robust_fill/")
+done <- list.files("./PR_out/")
 todo <- do.call(rbind,strsplit(files,"/"))
 todo <- todo[,ncol(todo)]
 
@@ -47,7 +47,7 @@ for(file in files[which(!todo %in% done)][-1]){
     prob_robust = 0.95,
     keep_el = TRUE,
     slide=2000,
-    cores = 8
+    cores = 10
   )
 
 
@@ -64,7 +64,7 @@ for(file in files[which(!todo %in% done)][-1]){
 
   map_filt <- map[rho_ld > ld_test_th & rho_d < d_test_th]
 
-
+  #min_alpha==0.75
   rho_bin_int_data <- rbindlist(lapply(-log10(c(0.05,0.25,0.5,0.75)),function(min_alpha){
 
     message("working on min_alpha=", 1/10^min_alpha,"\n")
@@ -82,16 +82,18 @@ for(file in files[which(!todo %in% done)][-1]){
                                rho_ld_lim = list(min=0.5,max=0.99),
                                alpha_lim  = list(min=min_alpha,max=4),
                                lmin_lim   = list(min=1,max=10),
-                               cores      = 8,
+                               cores      = 10,
                                mode       = c("joint")
     )
 
-    PR_w <- get_PR(draws_ld_w$draws$OR,map_filt,cores=8)
+    PR_w <- get_PR(draws_ld_w$draws$OR,map_filt,cores=10)
+
+
     C_scores <- data.table(add_consistency_to_map(map, consistency_obj = consistency_score(draws_ld_w$draws[method=="Joint"]))[,.(marker=marker,Joint_C=Joint_C)])
 
     PR_w <- cbind(draws_ld_w$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)],PR_w)
 
-
+    #PR_w$PR_dat
     PR_w <- PR_w[,.(AUC_PR="PR*",
                     C_scores=list(C_scores[!is.na(Joint_C)]),
                     PR_dat=list(PR_w),
@@ -112,11 +114,11 @@ for(file in files[which(!todo %in% done)][-1]){
                                  alpha_lim  = NULL,
                                  lmin_lim   = NULL,
                                  C_lim      = list(min=0,max=0.5),
-                                 cores      = 8,
+                                 cores      = 10,
                                  mode       = c("joint")
     )
 
-    PR_C <- get_PR(draws_ld_w_C$draws$OR,map_filt,cores=8)
+    PR_C <- get_PR(draws_ld_w_C$draws$OR,map_filt,cores=10)
 
 
     PR_C <- cbind(draws_ld_w_C$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)],PR_C)
@@ -168,11 +170,13 @@ for(file in files[which(!todo %in% done)][-1]){
                                      alpha_lim  = list(min=min_alpha,max=4),
                                      lmin_lim   = list(min=1,max=10),
                                      C_lim      = NULL,
-                                     cores      = 8,
+                                     cores      = 10,
                                      mode       = c("joint")
         )
 
         PR_int <- get_PR(draws_ld_int$draws$OR,map_filt,cores=cores)
+
+        #map$Joint_C <- NULL
         C_scores <- data.table(add_consistency_to_map(map, consistency_obj = consistency_score(draws_ld_int$draws[method=="Joint"]))[,.(marker=marker,Joint_C=Joint_C)])
 
         PR_int <- cbind(draws_ld_int$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)],PR_int)
@@ -185,7 +189,7 @@ for(file in files[which(!todo %in% done)][-1]){
                             PR_dat=list(PR_int),
                             AUC=get_AUC_OR(PR_int)$AUC$AUC_norm)]
 
-        #PR_int
+        #PR_int$PR_dat
 
         draws_ld_int_C <- ld_rho_draws(gds,
                                        ld_decay  = ld_decay,
@@ -202,14 +206,14 @@ for(file in files[which(!todo %in% done)][-1]){
                                        alpha_lim  = NULL,
                                        lmin_lim   = NULL,
                                        C_lim      = list(min=0,max=0.5),
-                                       cores      = 8,
+                                       cores      = 10,
                                        mode       = c("joint")
         )
 
         PR_C <- get_PR(draws_ld_int_C$draws$OR,map_filt,cores=cores)
 
 
-        PR_C <- cbind(draws_ld_int$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)], PR_C)
+        PR_C <- cbind(draws_ld_int_C$draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min,n_ORs=OR_size)], PR_C)
 
         PR_C <- PR_C[,.(AUC_PR="PR-C",
                         rho = rho,
@@ -227,16 +231,16 @@ for(file in files[which(!todo %in% done)][-1]){
     }),fill=TRUE,use.names = TRUE)
     PR_ld_int[,ld:="DPI"]
 
+
     cbind(rbind(PR_ld_w,PR_ld_int,fill=TRUE,use.names=TRUE),alpha_min=min_alpha)
 
   }))
 
-  saveRDS(cbind(map[1,.(c,V,rep)],rho_bin_int_data),paste0("./PR_out_robust_fill/",out_file))
+  saveRDS(cbind(map[1,.(c,V,rep)],rho_bin_int_data),paste0("./PR_out/",out_file))
 
 }
 
 
-#rm(bins)
 q("no")
 PR_ld_int_fill[,edge:="fill"]
 PR_ld_int[,edge:="none"]
@@ -287,15 +291,15 @@ rho_levels <- unique(dt[AUC_PR == "PR-C" & ld == "DPI", rho])
 baseline_rhow <- dt[
   AUC_PR == "PR-C" & ld == "rho_w",
   .(AUC_mean = unique(AUC_mean)),
-  by = .(alpha)
+  by = .(alpha,c)
 ]
 
 baseline_rhow <- baseline_rhow[
-  , .(rho = rho_levels), by = .(alpha, AUC_mean)
+  , .(rho = rho_levels), by = .(alpha, c,AUC_mean)
 ]
 
 p1 <- ggplot(
-  dt[AUC_PR == "PR-C" & ld == "DPI"],
+  dt[AUC_PR == "PR-C" & ld == "DPI" & c=="c2"],
   aes(log(bins), AUC_mean)
 ) +
   geom_line() +
@@ -313,7 +317,7 @@ p1 <- ggplot(
   geom_line() +
   #geom_point(size = 1.5, shape = 1)+
   geom_hline(
-    data = baseline_rhow,
+    data = baseline_rhow[c=="c2"],
     aes(yintercept = AUC_mean),
     linetype = 2
   ) +
@@ -330,13 +334,49 @@ p1 <- ggplot(
 
 p1
 
+p2 <- ggplot(
+  dt[AUC_PR == "PR-C" & ld == "DPI" & c=="c1.5"],
+  aes(log(bins), AUC_mean)
+) +
+  geom_line() +
+  geom_hline(
+    yintercept = baseline_rhow[1,AUC_mean], col="salmon"
+  )+
+  geom_point(size = 2, shape = 1) +
+  #geom_errorbar(aes(ymin = AUC_lwr, ymax = AUC_upr), width = 0.02) +
+  facet_grid(rho ~ alpha,labeller = label_parsed) +
+  theme_bw() +
+  theme(aspect.ratio = 1) +
+  xlab("log(bins)") +
+  ylab("AUC") +
+  geom_ribbon(aes(ymin = AUC_lwr, ymax = AUC_upr, group = 1), alpha = 0.15, fill = "grey20") +
+  geom_line() +
+  #geom_point(size = 1.5, shape = 1)+
+  geom_hline(
+    data = baseline_rhow[c=="c1.5"],
+    aes(yintercept = AUC_mean),
+    linetype = 2
+  ) +
+  theme(
+    aspect.ratio = 1,
+    #strip.text = element_text(margin = margin(1, 1, 1, 1)),
+    #plot.margin = margin(1, 1, 1, 1),
+    #panel.spacing = unit(0.05, "lines"),
+    #axis.text.x = element_text(angle = 90, hjust = 1),
+    strip.background = element_blank(),
+    panel.grid.major = element_blank(),
+    #legend.position = "right"
+  )
+
+p2
+
 
 dt <- rho_bin_int_data[bins>500  | is.na(bins),.(AUC=median(AUC)),by=.(AUC_PR,alpha_min,c,V,ld,rho)]
 
 p1 <- ggplot(dt[AUC_PR=="PR-C"& ld=="DPI"],aes(rho,AUC,col=factor(1/10^(alpha_min)))) +
   geom_line() +
   geom_point(size=2,shape=1) +
-  #facet_grid(.~bins) +
+  facet_grid(c~.,scales="free_y") +
   scale_color_viridis_d(option="turbo",name="alpha")+
   theme_bw() +
   theme(aspect.ratio = 1)+
@@ -347,10 +387,10 @@ p1 <- ggplot(dt[AUC_PR=="PR-C"& ld=="DPI"],aes(rho,AUC,col=factor(1/10^(alpha_mi
 
 dt <- rho_bin_int_data[rho>0.9 | is.na(rho),.(AUC=median(AUC)),by=.(AUC_PR,alpha_min,c,V,ld,bins)]
 
-p2 <- ggplot(dt[AUC_PR=="PR-C" & ld=="DPI"],aes(bins,AUC,col=factor(1/10^(alpha_min)))) +
+p2 <- ggplot(dt[AUC_PR=="PR-C" & ld=="DPI"],aes(log(bins),AUC,col=factor(1/10^(alpha_min)))) +
   geom_line() +
   geom_point(size=2,shape=1) +
-  #facet_grid(.~paste("max rho=",rho)) +
+  facet_grid(c~.,scales="free_y") +
   theme_bw() +
   scale_color_viridis_d(option="turbo",name="alpha")+
   theme(aspect.ratio = 1) +

@@ -138,7 +138,7 @@ ld_rho_draws <- function(gds,
         vals       = C_scores,
         SNP_ids    = ids$snp_id,
         SNP_chr    = ids$snp_chr,
-        ld_decay  = ld_decay,
+        ld_decay   = ld_decay,
         n_draws    = n_draws,
         rho_d_lim  = rho_d_lim,
         rho_ld_lim = rho_ld_lim,
@@ -146,9 +146,10 @@ ld_rho_draws <- function(gds,
         lmin_lim   = NULL,
         C_lim      = C_lim,
         mode       = "per_method",
-        stat_type  = stat_type[1],
+        stat_type  = "C",
         cores      = cores
       )
+
       draws[,rho_w:=NA]
     }
 
