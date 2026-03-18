@@ -46,6 +46,7 @@
 #'
 #' SNPs not assigned to any detected outlier region are labelled \code{"ns"}
 #' and plotted in grey when \code{col_var} is used.
+#' @export
 plot_manhattan <- function(map,
                            gds,
                            ld_decay,
