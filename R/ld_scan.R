@@ -1,22 +1,55 @@
-#' LD-scaled genome scan
+#' LD-scaled genome scan statistics
 #'
-#' Performs LD-weighted and LD-scaled genome scan statistics
-#' by combining association statistics with pre-computed
-#' LD summary values.
+#' Computes LD-weighted and LD-scaled genome scan statistics by combining
+#' per-SNP test statistics with precomputed local LD support values.
 #'
-#' The procedure:
-#' 1) Computes raw LD-weighted statistic F × LD
-#' 2) Estimates LD-induced distortion via circular permutation
-#' 3) Performs quantile correction relative to theoretical null
-#' 4) Returns LD-scaled statistic F′ on the original F scale
+#' The procedure consists of:
+#' \enumerate{
+#'   \item computing a raw LD-weighted statistic by multiplying \eqn{F} by \code{ld_w},
+#'   \item estimating LD-induced distortion using circular permutation of \code{ld_w},
+#'   \item correcting the observed quantiles relative to the theoretical null,
+#'   \item returning the LD-scaled statistic \eqn{F'} on the original \eqn{F} scale.
+#' }
 #'
-#' @param F_vals Numeric vector or matrix of F-statistics (n_snp x n_method).
-#' @param rho_w Numeric in (0,1). LD-decay quantile defining window size.
-#' @param n_inds Number of individuals (for F null df2 = n_inds - 2).
-#' @param n_rep Number of circular-shift permutations.
-#' @param full Logical; if TRUE return QQ diagnostics.
+#' @param ld_w Numeric vector of local LD support values, one per SNP.
+#' @param F_vals Numeric vector, matrix, or data.frame of test statistics on the
+#'   \eqn{F} scale, with SNPs in rows and methods in columns.
+#' @param SNP_ids Vector of SNP identifiers in the same order as \code{F_vals}
+#'   and \code{ld_w}.
+#' @param n_inds Number of individuals, used to define the theoretical null
+#'   distribution with denominator degrees of freedom \code{n_inds - 2}.
+#' @param n_rep Number of circular-shift permutations used to estimate the
+#'   LD-induced null distribution.
+#' @param full Logical; if \code{TRUE}, stores quantile-level diagnostic data
+#'   for plotting and inspection.
+#' @param enforce_null_floor Logical; if \code{TRUE}, constrains the corrected
+#'   quantile curve to remain at or above the theoretical null.
 #'
-#' @return An object of class `"ld_scan"`.
+#' @return An object of class \code{"ld_scan"} containing:
+#' \describe{
+#'   \item{F_vals}{Original input statistics.}
+#'   \item{n_inds}{Number of individuals.}
+#'   \item{SNP_ids}{SNP identifiers.}
+#'   \item{ld_w}{Local LD support values used in the scan.}
+#'   \item{result}{A named list of method-specific results, each containing
+#'   \code{F_prime}, \code{p_prime}, \code{q_prime}, and optionally
+#'   \code{qq_data}.}
+#'   \item{call}{Matched function call.}
+#' }
+#'
+#' @details
+#' The LD-weighted statistic is normalized to preserve the mean scale of the
+#' original \eqn{F} statistic. LD-induced distortion is then estimated by
+#' repeatedly circularly shifting \code{ld_w} relative to \code{F_vals},
+#' which preserves the marginal structure of both vectors while breaking their
+#' positional alignment.
+#'
+#' The corrected statistic \eqn{F'} is obtained by quantile correction against
+#' the permutation-derived null and mapped back to the original SNP order.
+#'
+#' If \code{full = TRUE}, the returned object contains quantile-level
+#' decomposition data that can be visualized with \code{plot()}.
+#'
 #' @export
 ld_scan <- function(ld_w,
                     F_vals,
@@ -50,7 +83,22 @@ ld_scan <- function(ld_w,
   out
 }
 
-
+#' Compute LD-scaled F statistics
+#'
+#' Internal helper for \code{ld_scan()} that computes LD-weighted statistics,
+#' permutation-based null expectations, quantile correction, and adjusted
+#' p- and q-values.
+#'
+#' @param F_vals Matrix-like object of F statistics.
+#' @param ld_w Numeric vector of local LD support values.
+#' @param n_rep Number of circular-shift permutations.
+#' @param n_inds Number of individuals.
+#' @param enforce_null_floor Logical; enforce corrected quantiles to remain at
+#'   or above the theoretical null.
+#' @param full Logical; whether to return quantile diagnostic data.
+#'
+#' @return A named list of method-specific results.
+#' @export
 compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, enforce_null_floor = TRUE,full) {
 
   F_mat <- as.matrix(F_vals)
@@ -161,16 +209,27 @@ compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, enforce_null_floor = TRU
 }
 
 
-#' #' Plot LD-scan results
+#' Plot LD-scan diagnostics
 #'
-#' Produces a two-panel figure:
-#' 1) Quantile decomposition (LD distortion + selection excess)
-#' 2) Comparison of original, LD-weighted, and LD-scaled statistics
+#' Produces a two-panel diagnostic plot for an \code{ld_scan} result:
+#' \enumerate{
+#'   \item quantile decomposition of LD-induced distortion and
+#'   selection-consistent excess,
+#'   \item comparison of the original \eqn{F} statistic and the LD-scaled
+#'   statistic \eqn{F'}.
+#' }
 #'
-#' @param x An object of class "ld_scan".
-#' @param ... Unused.
+#' @param x An object of class \code{"ld_scan"}.
+#' @param method Character string naming the method to plot.
 #'
-#' @return A patchwork ggplot object.
+#' @return A patchwork/ggplot object.
+#'
+#' @details
+#' This method requires that the \code{ld_scan} object was created with
+#' \code{full = TRUE}, since the plot relies on stored quantile diagnostic data.
+#'
+#' Lower quantiles are thinned before plotting to reduce overplotting.
+#'
 #' @export
 plot.ld_scan <- function(x, method) {
 
@@ -395,8 +454,18 @@ plot.ld_scan <- function(x, method) {
 }
 
 
+#' Print method for \code{ld_scan} objects
+#'
+#' Displays a concise summary of an LD-scaled genome scan, including the
+#' minimum q-value and genomic inflation before and after LD scaling for
+#' each method.
+#'
+#' @param x An object of class \code{"ld_scan"}.
+#'
+#' @return The input object, invisibly.
+#'
 #' @export
-print.ld_scan <- function(x, ...) {
+print.ld_scan <- function(x) {
 
   cat("\nLD-scaled scan result\n")
   cat("----------------------\n")

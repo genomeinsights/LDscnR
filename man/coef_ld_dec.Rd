@@ -2,22 +2,37 @@
 % Please edit documentation in R/compute_ld_structure.R
 \name{coef_ld_dec}
 \alias{coef_ld_dec}
-\title{Fit LD Decay Model}
+\title{Fit LD Decay Model to Stratified LD Data}
 \usage{
 coef_ld_dec(dt_strata, q = 0.95, b)
 }
 \arguments{
-\item{dt_strata}{LD edge data table with strata.}
+\item{dt_strata}{Data table of SNP pairs with distance strata.}
 
-\item{q}{Quantile for LD binning.}
+\item{q}{Quantile used to summarize LD within strata.}
 
 \item{b}{Background LD.}
 }
 \value{
-Named vector with parameters \code{c}, \code{a}, \code{d0}.
+A \code{data.table} containing:
+\describe{
+\item{a}{Decay rate.}
+\item{c}{Short-range LD.}
+\item{b}{Background LD.}
+\item{agg}{Binned data used for fitting.}
+\item{raw}{Original stratified data.}
+}
 }
 \description{
-Fits the nonlinear decay model
-\deqn{r^2(d) = b + \frac{c - b}{1 + a(d - d_0)}}
-to binned LD quantiles.
+Fits a nonlinear LD-decay model to binned LD values derived from
+distance-stratified SNP pairs.
+}
+\details{
+The model is:
+\deqn{r^2(d) = b + \frac{c - b}{1 + a d}}
+
+The model is fitted using weighted nonlinear least squares,
+where weights correspond to the number of SNP pairs per stratum.
+
+Returns \code{NULL} if fitting fails or insufficient data are available.
 }

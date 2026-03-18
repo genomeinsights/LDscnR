@@ -1,16 +1,17 @@
-#' Compute Chromosome-wise LD Structure
+#' Compute Chromosome-wise LD Structure and Decay
 #'
-#' Estimates linkage disequilibrium (LD) structure and LD-decay
-#' parameters for each chromosome and (i)ntegrated LD (D)ecay (P)ersistence (I)ndex (iDPI) and optionally compresses and saved per-SNP LD
-#' data for downstream LD-based summary statistics.
+#' Estimates linkage disequilibrium (LD) structure and LD-decay parameters
+#' across chromosomes from genotype data stored in a GDS file. The function
+#' combines background LD estimation, chromosome-wise decay fitting, and
+#' genome-wide summarization into a unified workflow.
 #'
-#' The workflow consists of:
+#' The procedure consists of:
 #' \enumerate{
-#'   \item Estimation of background LD from inter-chromosomal pairs.
+#'   \item Estimation of background LD from inter-chromosomal SNP pairs.
 #'   \item Sliding-window estimation of LD-decay parameters per chromosome.
-#'   \item Robust summarization of decay parameters.
-#'   \item Estimation of (i)ntegrated LD (D)ecay (P)ersistence (I)ndex (iDPI)
-#'   \item Optional saving of LD-data to files and histogram compression for downstream estimation of ld_w
+#'   \item Robust aggregation of decay parameters across windows.
+#'   \item Prediction of decay parameters based on chromosome size.
+#'   \item Derivation of recommended LD window sizes for user-defined LD thresholds (\eqn{\rho}).
 #' }
 #'
 #' LD decay is modeled as:
@@ -18,44 +19,51 @@
 #'
 #' where:
 #' \itemize{
-#'   \item \eqn{a} is the decay rate,
-#'   \item \eqn{b} is background LD,
-#'   \item \eqn{c} is short-distance LD,
+#'   \item \eqn{a} controls the rate of decay,
+#'   \item \eqn{b} is background LD (long-distance baseline),
+#'   \item \eqn{c} is short-range LD,
 #'   \item \eqn{d} is physical distance (bp).
 #' }
 #'
-#' @param gds GDS file handle containing genotype data.
-#' @param el_data_folder Optional path to folder where edge-list of LD values are saved. If `"NULL"`, data not saved.
-#' @param q Quantile used for LD-decay fitting.
-#' @param n_sub_bg Number of SNPs used for background LD estimation.
-#' @param n_win_decay Number of sliding windows per chromosome for decay fitting.
-#' @param overlap Proportion of overlap between consecutive decay windows.
-#' @param prob_robust Central proportion of windows retained for robust decay estimation.
-#' @param keep_rho_hist Whether to save histograms for estimating ld_w values.
-#' @param keep_el Whether to save edge-lists directly. Useful for benchmarking smaller simulated data.
-#' @param target_dist_bins_for_decay Number of distance bins for decay fitting.
-#' @param k_max Slide window for LD-estimation.
-#' @param n_rho_bins_hist Number of distance bins for saved LD histograms.
-#' @param rho Maximum distance for pair-wise LD-values relative to decay rate.
-#' @param r2_unit Bin width for r² values in histograms.
-#' @param cores Number of CPU cores used for parallel computations.
+#' @param gds A GDS file handle containing genotype data.
+#' @param el_data_folder Optional path to store LD edge lists (currently not used internally).
+#' @param q Quantile of \eqn{r^2} used for decay fitting (default = 0.95).
+#' @param n_sub_bg Number of SNPs used to estimate background LD.
+#' @param n_win_decay Number of sliding windows per chromosome.
+#' @param overlap Proportion of overlap between consecutive windows (0–1).
+#' @param max_SNPs_decay Maximum number of SNPs sampled per chromosome for decay estimation.
+#' @param prob_robust Central proportion of windows retained for robust summarization.
+#' @param max_pairs Maximum number of SNP pairs per window used in decay fitting.
+#' @param n_strata Number of distance strata used when subsampling SNP pairs.
+#' @param keep_el Logical; whether to store full LD edge lists per chromosome.
+#' @param slide Sliding window size in number of SNPs used for LD estimation.
+#' @param rho_targets Numeric vector of target LD thresholds used to derive recommended window sizes.
+#' @param cores Number of CPU cores for parallel computation.
 #'
-#' @return An object of class `"ld_structure"` containing:
+#' @return An object of class \code{"ld_decay"} containing:
 #' \describe{
-#'   \item{by_chr}{Per-chromosome LD structure, including histograms and decay parameters.}
-#'   \item{decay_sum}{Genome-wide table of robust decay parameters.}
-#'   \item{params}{List of parameters used for computation.}
+#'   \item{by_chr}{List of per-chromosome results including decay fits and optional LD edge lists.}
+#'   \item{decay_sum}{Data table of chromosome-wise decay parameters and derived quantities.}
+#'   \item{decay_model}{Robust regression model linking decay rate \eqn{a} to chromosome size.}
+#'   \item{recommendation}{Suggested LD window sizes for specified \eqn{\rho} thresholds.}
+#'   \item{params}{List of parameters used in the computation.}
 #' }
+#'
+#' @details
+#' The function estimates LD decay independently per chromosome and then
+#' fits a genome-wide model relating decay rate (\eqn{a}) to chromosome size.
+#' This allows extrapolation of LD behavior and derivation of consistent
+#' window sizes across heterogeneous genomic architectures.
+#'
+#' Recommended window sizes are provided in SNP units to match downstream
+#' functions that operate on marker indices rather than physical distance.
 #'
 #' @export
 compute_LD_decay <- function(
     gds,
     el_data_folder = NULL,
-    ## for LD-decay and bg
     q = 0.95,
-    ## for bg
     n_sub_bg = 5000,
-    ## for decay
     n_win_decay = 20,
     overlap = 0.5,
     max_SNPs_decay = Inf,
@@ -63,8 +71,7 @@ compute_LD_decay <- function(
     max_pairs = 5000,
     n_strata = 20,
     keep_el = FALSE,
-    ## for ld_int / LD support
-    slide = 1000,                  # in SNPs
+    slide = 1000,
     rho_targets = c(0.90, 0.95, 0.99),
     cores = 1
 ) {
@@ -281,22 +288,30 @@ compute_LD_decay <- function(
 }
 
 
-#' Summarize LD Decay Parameters
+#' Summarize LD Decay Parameters Across Windows
 #'
-#' Computes robust summary estimates of LD-decay parameters across
-#' sliding windows within a chromosome.
+#' Computes robust summary statistics of LD-decay parameters estimated
+#' across sliding windows within a chromosome.
 #'
-#' Windows with extreme decay rates are excluded based on symmetric
-#' quantile trimming of parameter \eqn{a}.
+#' Extreme windows are removed using symmetric quantile trimming of the
+#' decay parameter \eqn{a}, and median values are returned.
 #'
-#' @param decay_dt Data table containing window-wise decay parameters.
-#' @param prob_robust Central proportion of windows retained
-#'   (e.g. 0.95 keeps the central 95% of \eqn{a} values).
+#' @param decay_dt Data table containing window-wise decay parameters
+#'   (columns \code{a}, \code{b}, \code{c}).
+#' @param prob_robust Central proportion of windows retained (default = 0.95).
 #'
-#' @return A \code{data.table} with robust median estimates of
-#'   \code{a}, \code{b}, and \code{c}.
+#' @return A \code{data.table} with median estimates of:
+#' \describe{
+#'   \item{a}{Decay rate.}
+#'   \item{b}{Background LD.}
+#'   \item{c}{Short-range LD.}
+#' }
 #'
-#' @export
+#' @details
+#' Trimming is based on the distribution of \eqn{a}, which is typically
+#' the most variable parameter across genomic windows.
+#'
+#' Returns \code{NULL} if insufficient valid windows are available.
 summarize_decay <- function(decay_dt, prob_robust = 0.95) {
 
   decay_valid <- decay_dt[!is.na(a) & a > 0 & !is.na(c)]
@@ -348,27 +363,32 @@ subsample_pairs_for_decay <- function(sub,
   return(sub_sampled)
 }
 
-#' Estimate LD Decay for a Chromosome
+#' Estimate LD Decay Within a Chromosome
 #'
-#' Fits LD-decay curves in sliding genomic windows for a single chromosome.
+#' Fits LD-decay models in sliding genomic windows for a single chromosome
+#' using pairwise LD data (edge list format).
 #'
-#' SNP density is adaptively reduced to maintain approximately constant
-#' SNP counts per window before decay fitting.
+#' For each window:
+#' \enumerate{
+#'   \item SNP pairs are restricted to the window.
+#'   \item Pairs are subsampled across distance strata.
+#'   \item LD decay is fitted using nonlinear regression.
+#' }
 #'
-#' @param gds GDS file handle.
-#' @param chr_idx SNP indices for the chromosome.
-#' @param snp_pos Physical SNP positions (bp).
+#' @param el Data table of SNP pairs with LD values and positions.
 #' @param b Background LD.
-#' @param window_size Physical window size (bp).
-#' @param step_size Step size (bp) between windows.
-#' @param q Quantile of r² used for decay fitting.
-#' @param target_dist_bins_for_decay Number of distance bins used in fitting.
+#' @param window_size Window size in base pairs.
+#' @param step_size Step size between windows in base pairs.
+#' @param q Quantile of \eqn{r^2} used for fitting.
+#' @param max_pairs Maximum number of SNP pairs per window.
+#' @param n_strata Number of distance strata for subsampling.
 #' @param cores Number of CPU cores.
-#' @param n_snps_for_decay Target SNP count per window after thinning.
 #'
-#' @return A \code{data.table} with window-specific decay parameters.
+#' @return A \code{data.table} with window coordinates and decay parameters.
 #'
-#' @export
+#' @details
+#' Windows with insufficient data or failed fits return partial rows with
+#' missing parameter estimates.
 estimate_decay_chr <- function(el,
                                b,
                                window_size,
@@ -414,7 +434,24 @@ estimate_decay_chr <- function(el,
   return(decay)
 }
 
-
+#' Estimate Background LD from Inter-chromosomal SNP Pairs
+#'
+#' Computes background LD as a high quantile of \eqn{r^2} between SNPs
+#' located on different chromosomes.
+#'
+#' @param gds GDS file handle.
+#' @param idx Optional vector of SNP indices.
+#' @param n_sub Number of SNPs sampled for estimation.
+#' @param q Quantile used to define background LD.
+#'
+#' @return Numeric scalar representing background LD (\eqn{b}).
+#'
+#' @details
+#' Inter-chromosomal LD provides an empirical estimate of baseline
+#' correlation unrelated to physical linkage. This value anchors the
+#' LD-decay model and stabilizes parameter estimation.
+#'
+#' Sampling is performed proportionally across chromosomes.
 estimate_background_ld <- function(gds,
                                    idx=NULL,
                                    n_sub = 5000,
@@ -479,19 +516,32 @@ estimate_background_ld <- function(gds,
 
 
 
-#' Fit LD Decay Model
+#' Fit LD Decay Model to Stratified LD Data
 #'
-#' Fits the nonlinear decay model
-#' \deqn{r^2(d) = b + \frac{c - b}{1 + a(d - d_0)}}
-#' to binned LD quantiles.
+#' Fits a nonlinear LD-decay model to binned LD values derived from
+#' distance-stratified SNP pairs.
 #'
-#' @param dt_strata LD edge data table with strata.
-#' @param q Quantile for LD binning.
+#' The model is:
+#' \deqn{r^2(d) = b + \frac{c - b}{1 + a d}}
+#'
+#' @param dt_strata Data table of SNP pairs with distance strata.
+#' @param q Quantile used to summarize LD within strata.
 #' @param b Background LD.
 #'
-#' @return Named vector with parameters \code{c}, \code{a}, \code{d0}.
+#' @return A \code{data.table} containing:
+#' \describe{
+#'   \item{a}{Decay rate.}
+#'   \item{c}{Short-range LD.}
+#'   \item{b}{Background LD.}
+#'   \item{agg}{Binned data used for fitting.}
+#'   \item{raw}{Original stratified data.}
+#' }
 #'
-#' @export
+#' @details
+#' The model is fitted using weighted nonlinear least squares,
+#' where weights correspond to the number of SNP pairs per stratum.
+#'
+#' Returns \code{NULL} if fitting fails or insufficient data are available.
 coef_ld_dec <- function(dt_strata,
                         q = 0.95,
                         b) {
@@ -536,14 +586,12 @@ coef_ld_dec <- function(dt_strata,
 
 
 
-#' Convert Relative LD Threshold to Distance
+#' Convert Relative LD Threshold to Physical Distance
 #'
-#' Computes the physical distance corresponding to a relative LD
-#' threshold \eqn{\rho}.
+#' Computes the physical distance corresponding to a relative LD threshold \eqn{\rho}.
 #'
 #' @param a Decay rate.
-#' @param rho Relative LD threshold.
-#' @param d0 Offset parameter.
+#' @param rho Relative LD threshold (0 < rho < 1).
 #'
 #' @return Distance in base pairs.
 #'
@@ -552,10 +600,20 @@ d_from_rho <- function(a, rho){
   rho / (a * (1 - rho))
 }
 
+#' Convert Relative LD Threshold to Expected LD Value
+#'
+#' Computes the expected \eqn{r^2} corresponding to a relative LD threshold \eqn{\rho}.
+#'
+#' @param b Background LD.
+#' @param c Short-range LD (default = 1).
+#' @param rho Relative LD threshold.
+#'
+#' @return Expected \eqn{r^2}.
+#'
+#' @export
 ld_from_rho <- function(b, c = 1, rho){
   b + (c - b) * (1 - rho)
 }
-
 
 parallel_apply <- function(X, FUN, cores = 1) {
 
@@ -566,14 +624,27 @@ parallel_apply <- function(X, FUN, cores = 1) {
   }
 }
 
-
-
-#' Print Method for ld_structure Objects
+#' Compute Local LD Support (ld_w)
 #'
-#' Displays a concise summary of the LD structure object.
+#' Computes per-SNP local LD support within a distance defined by a
+#' relative LD threshold \eqn{\rho}.
 #'
-#' @param x An object of class `"ld_structure"`.
-#' @param ... Additional arguments (unused).
+#' For each SNP, LD support is defined as the median \eqn{r^2} with
+#' neighboring SNPs within the corresponding distance window.
+#'
+#' @param ld_decay Object of class \code{"ld_decay"}.
+#' @param rho Relative LD threshold used to define the window.
+#' @param cores Number of CPU cores.
+#'
+#' @return Numeric vector of LD support values (one per SNP).
+#'
+#' @details
+#' The physical window is derived using:
+#' \deqn{d = \frac{\rho}{a(1 - \rho)}}
+#'
+#' where \eqn{a} is the chromosome-specific decay rate.
+#'
+#' Requires \code{keep_el = TRUE} when calling \code{compute_LD_decay()}.
 #'
 #' @export
 print.ld_decay <- function(x, digits = 3, ...) {
@@ -713,16 +784,27 @@ summary.ld_decay <- function(object, ...) {
   object$recommendation$suggested_slide_summary
 }
 
-
-#' Plot Method for ld_structure Objects
+#' Compute Local LD Support (ld_w)
 #'
-#' Visualizes LD-decay curves or decay-rate distributions.
+#' Computes per-SNP local LD support within a distance defined by a
+#' relative LD threshold \eqn{\rho}.
 #'
-#' @param x An object of class `"ld_structure"`.
-#' @param type Plot type: `"decay"` or `"a_dist"`.
-#' @param use Decay summary to display: `"robust"` or `"median"`.
-#' @param alpha Transparency for window-specific curves.
-#' @param ... Additional graphical parameters.
+#' For each SNP, LD support is defined as the median \eqn{r^2} with
+#' neighboring SNPs within the corresponding distance window.
+#'
+#' @param ld_decay Object of class \code{"ld_decay"}.
+#' @param rho Relative LD threshold used to define the window.
+#' @param cores Number of CPU cores.
+#'
+#' @return Numeric vector of LD support values (one per SNP).
+#'
+#' @details
+#' The physical window is derived using:
+#' \deqn{d = \frac{\rho}{a(1 - \rho)}}
+#'
+#' where \eqn{a} is the chromosome-specific decay rate.
+#'
+#' Requires \code{keep_el = TRUE} when calling \code{compute_LD_decay()}.
 #'
 #' @export
 compute_ld_w <- function(
@@ -749,504 +831,3 @@ compute_ld_w <- function(
   return(ld_w)
 }
 
-# compute_ld_int_fill <- function(
-#     el,
-#     snp_ids,
-#     a,
-#     n_bins = 20,
-#     rho_max = 0.90,
-#     edge_mode = c("none", "trim", "fill")
-# ) {
-#
-#   edge_mode <- match.arg(edge_mode)
-#
-#   if (nrow(el) == 0L) {
-#     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-#   }
-#
-#   if (!is.finite(a) || a <= 0) {
-#     stop("`a` must be a positive finite number.")
-#   }
-#
-#   if (!is.numeric(rho_max) || length(rho_max) != 1L || rho_max <= 0 || rho_max >= 1) {
-#     stop("`rho_max` must be a single number in (0, 1).")
-#   }
-#
-#   n_bins <- as.integer(n_bins)
-#   if (!is.finite(n_bins) || n_bins < 1L) {
-#     stop("`n_bins` must be a positive integer.")
-#   }
-#
-#   if (!all(c("SNP", "d", "r2", "pos1", "pos2") %in% names(el))) {
-#     stop("`el` must contain columns: SNP, d, r2, pos1, pos2")
-#   }
-#
-#   # truncate to rho support
-#   d_cap <- rho_max / (a * (1 - rho_max))
-#   el_use <- el[d <= d_cap, .(SNP, d, r2, pos1, pos2)]
-#
-#   if (nrow(el_use) == 0L) {
-#     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-#   }
-#
-#   # left/right leg
-#   el_use[, side := data.table::fifelse(pos2 > pos1, "R", "L")]
-#
-#   # optional symmetric trimming to common support
-#   if (edge_mode == "trim") {
-#     support_dt <- el_use[, .(
-#       maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
-#       maxR = if (any(side == "R")) max(d[side == "R"]) else 0
-#     ), by = SNP]
-#
-#     support_dt[, S := pmin(maxL, maxR)]
-#
-#     el_use <- support_dt[el_use, on = "SNP"]
-#     el_use <- el_use[d <= S, .(SNP, d, r2, pos1, pos2, side)]
-#   }
-#
-#   if (nrow(el_use) == 0L) {
-#     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-#   }
-#
-#   # equal-rho bins via direct mapping
-#   rho <- (a * el_use$d) / (1 + a * el_use$d)
-#   dist_idx <- as.integer(floor(n_bins * rho / rho_max) + 1L)
-#   dist_idx[dist_idx < 1L] <- 1L
-#   dist_idx[dist_idx > n_bins] <- n_bins
-#   el_use[, dist_idx := dist_idx]
-#
-#   # side-specific bin medians
-#   shell_side <- el_use[, .(
-#     n_pairs = .N,
-#     med_r2 = median(r2,na.rm = TRUE)
-#   ), by = .(SNP, side, dist_idx)]
-#
-#   shell_side <- shell_side[is.finite(med_r2)]
-#
-#   if (nrow(shell_side) == 0L) {
-#     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-#   }
-#
-#   # wide table: one row per SNP x bin, columns for left and right medians
-#   shell_wide <- data.table::dcast(
-#     shell_side,
-#     SNP + dist_idx ~ side,
-#     value.var = "med_r2"
-#   )
-#
-#   # bin-level summary depending on edge handling
-#   if (edge_mode == "none" || edge_mode == "trim") {
-#     # use whatever is observed in that bin
-#     shell_wide[, bin_val := data.table::fifelse(
-#       !is.na(L) & !is.na(R), (L + R) / 2,
-#       data.table::fifelse(!is.na(L), L, R)
-#     )]
-#   }
-#
-#   if (edge_mode == "fill") {
-#     # if one side is missing, fill it from the other side
-#     shell_wide[, bin_val := data.table::fifelse(
-#       !is.na(L) & !is.na(R), (L + R) / 2,
-#       data.table::fifelse(!is.na(L), L, R)
-#     )]
-#     # algebraically same bin value, but conceptually this is a symmetric fill
-#     # because missing leg bins are completed by the observed leg before combining
-#   }
-#
-#   shell_wide <- shell_wide[is.finite(bin_val)]
-#
-#   if (nrow(shell_wide) == 0L) {
-#     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-#   }
-#
-#   # final DPI: median across occupied rho-bins
-#   LD_dt <- shell_wide[, .(
-#     LD_int = median(bin_val)
-#   ), by = SNP]
-#
-#   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-#   result[LD_dt$SNP] <- LD_dt$LD_int
-#
-#   result
-# }
-
-
-compute_dpi <- function(
-    el,
-    snp_ids,
-    a,
-    n_bins = 20,
-    rho_max = 0.90
-) {
-
-  if (nrow(el) == 0L) {
-    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-  }
-
-  if (!is.finite(a) || a <= 0) {
-    stop("`a` must be a positive finite number.")
-  }
-
-  if (!is.numeric(rho_max) || length(rho_max) != 1L || rho_max <= 0 || rho_max >= 1) {
-    stop("`rho_max` must be a single number in (0, 1).")
-  }
-
-  n_bins <- as.integer(n_bins)
-  if (!is.finite(n_bins) || n_bins < 1L) {
-    stop("`n_bins` must be a positive integer.")
-  }
-
-  if (!all(c("SNP", "d", "r2", "pos1", "pos2") %in% names(el))) {
-    stop("`el` must contain columns: SNP, d, r2, pos1, pos2")
-  }
-
-  # truncate to rho support
-  d_cap <- rho_max / (a * (1 - rho_max))
-  el_use <- el[d <= d_cap, .(SNP, d, r2, pos1, pos2)]
-
-  if (nrow(el_use) == 0L) {
-    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-  }
-
-  # equal-rho bins via direct mapping
-  rho <- (a * el_use$d) / (1 + a * el_use$d)
-  dist_idx <- as.integer(floor(n_bins * rho / rho_max) + 1L)
-  dist_idx[dist_idx < 1L] <- 1L
-  dist_idx[dist_idx > n_bins] <- n_bins
-  el_use[, dist_idx := dist_idx]
-
-  # side-specific bin medians
-  shell_side <- el_use[, .(
-    n_pairs = .N,
-    med_r2 = median(r2,na.rm = TRUE)
-  ), by = .(SNP, dist_idx)]
-
-  shell_side <- shell_side[is.finite(med_r2)]
-
-  if (nrow(shell_side) == 0L) {
-    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-  }
-
-  # final DPI: median across occupied rho-bins
-  LD_dt <- shell_side[, .(
-    LD_int = median(med_r2)
-  ), by = SNP]
-
-  result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-  result[LD_dt$SNP] <- LD_dt$LD_int
-
-  result
-}
-
-compute_dpi_fixed_window <- function(
-    el,
-    snp_ids,
-    a,
-    bin_scale = 0.1,
-    rho_max = 0.90
-) {
-
-  if (nrow(el) == 0L) {
-    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-  }
-
-  if (!is.finite(a) || a <= 0) {
-    stop("`a` must be a positive finite number.")
-  }
-
-  if (!is.numeric(rho_max) || length(rho_max) != 1L || rho_max <= 0 || rho_max >= 1) {
-    stop("`rho_max` must be a single number in (0, 1).")
-  }
-
-  if (!is.numeric(bin_scale) || length(bin_scale) != 1L || !is.finite(bin_scale) || bin_scale <= 0) {
-    stop("`bin_scale` must be a single positive finite number.")
-  }
-
-  if (!all(c("SNP", "d", "r2", "pos1", "pos2") %in% names(el))) {
-    stop("`el` must contain columns: SNP, d, r2, pos1, pos2")
-  }
-
-  # truncate to rho support
-  d_cap <- rho_max / (a * (1 - rho_max))
-  el_use <- el[d <= d_cap, .(SNP, d, r2, pos1, pos2)]
-
-  if (nrow(el_use) == 0L) {
-    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-  }
-
-  # fixed distance-bin width, relative to LD decay scale 1/a
-  d_bin <- bin_scale / a
-
-  # number of bins implied by rho_max
-  n_bins <- ceiling(d_cap / d_bin)
-
-  # assign bins by distance
-  # last bin may be smaller than d_bin, which is acceptable
-  dist_idx <- as.integer(floor(el_use$d / d_bin) + 1L)
-  dist_idx[dist_idx < 1L] <- 1L
-  dist_idx[dist_idx > n_bins] <- n_bins
-  el_use[, dist_idx := dist_idx]
-
-  # side-specific bin medians
-  shell_side <- el_use[, .(
-    n_pairs = .N,
-    med_r2 = median(r2, na.rm = TRUE)
-  ), by = .(SNP, dist_idx)]
-
-  shell_side <- shell_side[is.finite(med_r2)]
-
-  if (nrow(shell_side) == 0L) {
-    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-  }
-
-  # final DPI: median across occupied bins
-  LD_dt <- shell_side[, .(
-    LD_int = median(med_r2)
-  ), by = SNP]
-
-  result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-  result[LD_dt$SNP] <- LD_dt$LD_int
-
-  result
-}
-#
-# compute_ld_int <- function(
-#     el,
-#     snp_ids,
-#     a,
-#     b = NULL,
-#     c = NULL,
-#     n_bins = 20,
-#     rho_max = 0.90,
-#     min_pairs = 3,
-#     edge_mode = c("none", "trim", "fill"),
-#     scale = c("raw", "excess", "contrast"),
-#     clip_contrast = TRUE,
-#     return_support = FALSE
-# ) {
-#
-#   edge_mode <- match.arg(edge_mode)
-#   scale <- match.arg(scale)
-#
-#   if (nrow(el) == 0L) {
-#     result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-#     if (return_support) {
-#       return(list(
-#         LD_int = result,
-#         support = data.table::data.table()
-#       ))
-#     }
-#     return(result)
-#   }
-#
-#   if (!is.finite(a) || a <= 0) {
-#     stop("`a` must be a positive finite number.")
-#   }
-#
-#   if (scale %in% c("excess", "contrast") && !is.finite(b)) {
-#     stop("For `scale = 'excess'` or `scale = 'contrast'`, `b` must be provided.")
-#   }
-#
-#   if (scale == "contrast") {
-#     if (!is.finite(c)) stop("For `scale = 'contrast'`, `c` must be provided.")
-#     if ((c - b) <= 0) stop("For `scale = 'contrast'`, `c - b` must be > 0.")
-#   }
-#
-#   if (!is.numeric(rho_max) || length(rho_max) != 1L || rho_max <= 0 || rho_max >= 1) {
-#     stop("`rho_max` must be a single number in (0, 1).")
-#   }
-#
-#   n_bins <- as.integer(n_bins)
-#   if (!is.finite(n_bins) || n_bins < 1L) {
-#     stop("`n_bins` must be a positive integer.")
-#   }
-#
-#   req_cols <- c("SNP", "d", "r2", "pos1", "pos2")
-#   if (!all(req_cols %in% names(el))) {
-#     stop("`el` must contain columns: ", paste(req_cols, collapse = ", "))
-#   }
-#
-#   ## ---- truncate to rho support
-#   d_cap <- rho_max / (a * (1 - rho_max))
-#   el_use <- el[d <= d_cap, .(SNP, d, r2, pos1, pos2)]
-#
-#   if (nrow(el_use) == 0L) {
-#     result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-#     if (return_support) {
-#       return(list(
-#         LD_int = result,
-#         support = data.table::data.table()
-#       ))
-#     }
-#     return(result)
-#   }
-#
-#   ## ---- left/right leg
-#   el_use[, side := data.table::fifelse(pos2 > pos1, "R", "L")]
-#
-#   ## ---- optional symmetric trimming
-#   if (edge_mode == "trim") {
-#     support_trim <- el_use[, .(
-#       maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
-#       maxR = if (any(side == "R")) max(d[side == "R"]) else 0
-#     ), by = SNP]
-#
-#     support_trim[, S := pmin(maxL, maxR)]
-#
-#     el_use <- support_trim[el_use, on = "SNP"]
-#     el_use <- el_use[d <= S, .(SNP, d, r2, pos1, pos2, side)]
-#   }
-#
-#   if (nrow(el_use) == 0L) {
-#     result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-#     if (return_support) {
-#       return(list(
-#         LD_int = result,
-#         support = data.table::data.table()
-#       ))
-#     }
-#     return(result)
-#   }
-#
-#   ## ---- equal-rho bins via direct mapping
-#   rho <- (a * el_use$d) / (1 + a * el_use$d)
-#   dist_idx <- as.integer(floor(n_bins * rho / rho_max) + 1L)
-#   dist_idx[dist_idx < 1L] <- 1L
-#   dist_idx[dist_idx > n_bins] <- n_bins
-#   el_use[, dist_idx := dist_idx]
-#
-#   ## ---- side-specific bin medians
-#   shell_side <- el_use[, .(
-#     n_pairs = .N,
-#     med_r2 = median(r2)
-#   ), by = .(SNP, side, dist_idx)]
-#
-#   shell_side <- shell_side[is.finite(med_r2)]
-#
-#   if (nrow(shell_side) == 0L) {
-#     result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-#     if (return_support) {
-#       return(list(
-#         LD_int = result,
-#         support = data.table::data.table()
-#       ))
-#     }
-#     return(result)
-#   }
-#
-#   ## ---- wide table: one row per SNP x bin, columns L and R
-#   shell_wide <- data.table::dcast(
-#     shell_side,
-#     SNP + dist_idx ~ side,
-#     value.var = "med_r2"
-#   )
-#
-#   ## make sure missing side columns exist
-#   if (!"L" %in% names(shell_wide)) shell_wide[, L := NA_real_]
-#   if (!"R" %in% names(shell_wide)) shell_wide[, R := NA_real_]
-#
-#   ## ---- combine sides within bins
-#   shell_wide[, bin_val := data.table::fifelse(
-#     !is.na(L) & !is.na(R), (L + R) / 2,
-#     data.table::fifelse(!is.na(L), L, R)
-#   )]
-#
-#   shell_wide <- shell_wide[is.finite(bin_val)]
-#
-#   if (nrow(shell_wide) == 0L) {
-#     result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-#     if (return_support) {
-#       return(list(
-#         LD_int = result,
-#         support = data.table::data.table()
-#       ))
-#     }
-#     return(result)
-#   }
-#
-#   ## ---- transform bin values if requested
-#   if (scale == "raw") {
-#     shell_wide[, bin_val_scaled := bin_val]
-#   }
-#
-#   if (scale == "excess") {
-#     shell_wide[, bin_val_scaled := pmax(0, bin_val - b)]
-#   }
-#
-#   if (scale == "contrast") {
-#     shell_wide[, bin_val_scaled := (bin_val - b) / (c - b)]
-#     if (clip_contrast) {
-#       shell_wide[, bin_val_scaled := pmin(1, pmax(0, bin_val_scaled))]
-#     }
-#   }
-#
-#   ## ---- fill mode: duplicate missing leg at the bin-summary level
-#   if (edge_mode == "fill") {
-#     shell_long <- shell_wide[, .(
-#       SNP,
-#       dist_idx,
-#       val1 = data.table::fifelse(!is.na(L), bin_val_scaled, bin_val_scaled),
-#       val2 = data.table::fifelse(!is.na(R), bin_val_scaled, bin_val_scaled),
-#       L_present = !is.na(L),
-#       R_present = !is.na(R)
-#     )]
-#
-#     ## if both sides present, keep two equal representatives
-#     ## if only one side present, fill the missing side with the observed bin value
-#     shell_long <- data.table::melt(
-#       shell_long,
-#       id.vars = c("SNP", "dist_idx", "L_present", "R_present"),
-#       measure.vars = c("val1", "val2"),
-#       value.name = "bin_val_scaled"
-#     )
-#
-#     LD_dt <- shell_long[, .(
-#       LD_int = median(bin_val_scaled, na.rm = TRUE)
-#     ), by = SNP]
-#
-#   } else {
-#     LD_dt <- shell_wide[, .(
-#       LD_int = median(bin_val_scaled, na.rm = TRUE)
-#     ), by = SNP]
-#   }
-#
-#   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-#   result[LD_dt$SNP] <- LD_dt$LD_int
-#
-#   if (!return_support) {
-#     return(result)
-#   }
-#
-#   support_dt <- shell_wide[, .(
-#     n_bins_obs   = .N,
-#     n_bins_both  = sum(!is.na(L) & !is.na(R)),
-#     n_bins_Lonly = sum(!is.na(L) &  is.na(R)),
-#     n_bins_Ronly = sum( is.na(L) & !is.na(R))
-#   ), by = SNP]
-#
-#   list(
-#     LD_int = result,
-#     support = support_dt
-#   )
-# }
-#
-
-
-#' @export
-compute_DPI <- function(ld_decay,bins=10,rho_max=0.5,edge_mode="fill",scale=c("raw", "excess", "contrast"),cores=1){
-  #chr_obj <- ld_decay$by_chr$Chr1
-  #scale = "raw"
-  # rho_max=0.9
-  # bins = 1000
-  dpi <- unlist(parallel_apply(ld_decay$by_chr, function(chr_obj) {
-
-    a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
-
-    compute_dpi(chr_obj$el, snp_ids=chr_obj$snp_ids, a,n_bins = bins,rho_max = rho_max)
-
-  }, cores = cores))
-
-
-  return(dpi)
-}

@@ -1,11 +1,178 @@
-col_vector <- c("#B2DF8A", "#FFD92F", "firebrick", "#33A02C", "#7FC97F", "#CAB2D6",
-                "#FB8072", "grey30", "#E6AB02", "#FDC086", "steelblue", "#1F78B4",
-                "#FB9A99", "#1B9E77", "#BC80BD", "#E31A1C", "#7570B3", "#A6761D",
-                "#A6CEE3", "salmon", "#FFFF33", "forestgreen", "#FDCDAC", "#BF5B17",
-                "#A6761D", "#FBB4AE", "#4DAF4A", "#B3E2CD", "#FDDAEC", "#BEBADA",
-                "#FFF2AE", "#1F78B4", "#66C2A5", "#F0027F", "#E6AB02", "#E78AC3",
-                "#FF7F00", "#8DA0CB", "#6A3D9A", "#B15928", "#E41A1C")
+#' Plot Manhattan-style scan summaries
+#'
+#' Produces one or more Manhattan-style plots from a SNP map, optionally
+#' augmenting the map with consistency scores and detected outlier regions (ORs).
+#'
+#' The function:
+#' \enumerate{
+#'   \item computes SNP-level consistency scores from repeated OR draws,
+#'   \item adds the selected consistency statistic to the SNP map,
+#'   \item detects outlier regions for the selected statistic,
+#'   \item prepares chromosome-wise cumulative genomic coordinates,
+#'   \item generates one or more Manhattan-style panels.
+#' }
+#'
+#' @param map SNP annotation table containing at least the columns
+#'   \code{marker}, \code{Chr}, and \code{Pos}.
+#' @param gds Open GDS object containing genotype data.
+#' @param ld_decay Object of class \code{"ld_decay"}.
+#' @param draws Object containing OR draws; typically an \code{ld_rho_draws}
+#'   result with a \code{$draws} component.
+#' @param rho_d Relative distance threshold used for OR detection.
+#' @param rho_ld Relative LD threshold used for OR detection.
+#' @param sign_th Significance threshold used for OR detection.
+#' @param mode OR detection mode passed to \code{detect_or()}.
+#' @param sign_if Direction of significance; typically \code{"greater"} for
+#'   consistency scores and \code{"less"} for q-like statistics.
+#' @param l_min Minimum number of SNPs required for an outlier region.
+#' @param y_vars Character vector of column names in the augmented map to plot
+#'   on the y-axis.
+#' @param y_labels Character vector of y-axis labels corresponding to
+#'   \code{y_vars}.
+#' @param titles Optional panel titles.
+#' @param thresholds Optional horizontal threshold values, one per panel.
+#' @param col_var Optional column used for point colour, typically an OR label
+#'   such as \code{"OR_id"}.
+#' @param shape_var Optional column used to highlight special SNP classes
+#'   (for example QTNs).
+#' @param col_vector Optional vector of colours used for OR categories.
+#'
+#' @return A ggplot/patchwork object.
+#'
+#' @details
+#' This function is primarily intended for plotting consistency-based summaries
+#' such as \code{Joint_C}, but any numeric column in the augmented map can be
+#' used via \code{y_vars}.
+#'
+#' SNPs not assigned to any detected outlier region are labelled \code{"ns"}
+#' and plotted in grey when \code{col_var} is used.
+plot_manhattan <- function(map,
+                           gds,
+                           ld_decay,
+                           draws,
+                           rho_d=0.99,
+                           rho_ld=0.99,
+                           sign_th=0.05,
+                           mode="joint",
+                           sign_if ="greater",
+                           l_min = 1,
+                           y_vars = c("Joint_C"),
+                           y_labels = c("C (Joint analyses)"),
+                           titles = NULL,
+                           thresholds = c(0.05),
+                           col_var = "OR_id",
+                           shape_var = NULL,
+                           col_vector=NULL){
 
+  map_manh <- add_consistency_to_map(map, consistency_obj = consistency_score(draws$draws))
+
+  map_manh <- add_ORs(gds, ld_decay, map_manh, stat=y_vars[1], sign_th=sign_th,sign_if=sign_if,mode=mode,rho_d=rho_d, rho_ld=rho_ld,l_min=l_min)
+
+  vars <- c(y_vars,col_var,shape_var)
+  map_manh[,..vars]
+
+  layout <- prep_manhattan(
+    cbind(map_manh[, .(
+      bp = Pos,
+      Chr,
+      marker
+    )], map_manh[,..vars])
+  )
+
+  return(plot_manhattan_gg(
+    layout,
+    y_vars = y_vars,
+    y_labels = y_labels,
+    thresholds = thresholds,
+    col_var = col_var,
+    shape_var = shape_var,
+    titles = titles,
+    ncol=1,
+    col_vector
+  ))
+
+}
+#' Add outlier-region labels to a SNP map
+#'
+#' Detects outlier regions from a selected SNP-level statistic and merges the
+#' resulting region labels into a SNP map.
+#'
+#' @param gds Open GDS object.
+#' @param ld_decay Object of class \code{"ld_decay"}.
+#' @param map SNP annotation table containing at least \code{marker},
+#'   \code{Chr}, and the selected statistic column.
+#' @param stat Name of the statistic column in \code{map} used for OR detection.
+#' @param sign_th Significance threshold used to classify outlier SNPs.
+#' @param sign_if Direction of significance; either \code{"greater"} or
+#'   \code{"less"}.
+#' @param mode OR detection mode passed to \code{detect_or()}.
+#' @param rho_d Relative distance threshold used for OR detection.
+#' @param rho_ld Relative LD threshold used for OR detection.
+#' @param l_min Minimum number of SNPs required for an outlier region.
+#'
+#' @return An updated \code{data.table} with an added \code{OR_id} column.
+#'
+#' @details
+#' SNPs not assigned to any outlier region are labelled \code{"ns"}.
+#'
+#' The function first restricts LD estimation to SNPs exceeding the supplied
+#' threshold, computes the corresponding LD edge list, detects outlier regions,
+#' and then merges the resulting region assignments back into the full map.
+#'
+#' @export
+add_ORs <- function(gds, ld_decay, map, stat="Joint_C", sign_th,sign_if="greater" ,mode,  rho_d, rho_ld,l_min=1){
+  idx <- which(map[,..stat]>sign_th)
+
+  el  <- get_el(gds, idx, slide_win_ld = -1,by_chr = TRUE)
+
+  ORs_tbl <- detect_or(el,
+                       vals = map[,..stat],
+                       ld_decay = ld_decay,
+                       SNP_ids  = map[,marker],
+                       SNP_chr  = map[,Chr],
+                       sign_th  = sign_th,
+                       sign_if  = sign_if,
+                       rho_d    = rho_d,
+                       rho_ld   = rho_ld,
+                       mode     = mode,
+                       l_min    = l_min,
+                       ret_table = TRUE)
+
+  if(!is.null(map$OR_id)) map[,OR_id:=NULL]
+
+  map <- merge(map,
+               ORs_tbl,
+               by.x  = "marker",
+               by.y  = "SNP",
+               all.x = TRUE)
+
+  map <- map[order(as.numeric(gsub("Chr", "", Chr)), Pos)]
+  map[is.na(OR_id),OR_id:="ns"]
+  return(map)
+}
+
+#' Prepare cumulative coordinates for Manhattan plotting
+#'
+#' Constructs cumulative genomic coordinates and background annotation needed
+#' for Manhattan-style plotting across chromosomes.
+#'
+#' @param data_manh Data frame or \code{data.table} containing at least the
+#'   columns \code{Chr} and \code{bp}.
+#' @param spacer Non-negative spacing added between chromosomes on the cumulative
+#'   x-axis.
+#' @param chr_cols Alternating background colours used for chromosome bands.
+#'
+#' @return An object of class \code{"manhattan_layout"} containing:
+#' \describe{
+#'   \item{data}{Input data with cumulative genomic coordinates \code{BPcum}.}
+#'   \item{axis}{Chromosome axis label positions.}
+#'   \item{rect}{Chromosome background rectangles.}
+#' }
+#'
+#' @details
+#' Chromosomes are ordered by the numeric suffix extracted from labels such as
+#' \code{"Chr1"}, \code{"Chr2"}, etc.
+#'
 #' @export
 prep_manhattan <- function(data_manh,
                            spacer = 0,
@@ -55,131 +222,52 @@ prep_manhattan <- function(data_manh,
   )
 }
 
-#' Plot Manhattan-style visualization for an LDscn object
+#' Render Manhattan-style panels
 #'
-#' High-level Manhattan plotting wrapper for objects returned by
-#' `LDscn_pipeline()`. This function:
+#' Generates one or more Manhattan-style panels from a
+#' \code{manhattan_layout} object.
 #'
-#' 1. Adds consistency scores to the map.
-#' 2. Optionally computes LD-weights (`ld_w`).
-#' 3. Optionally detects outlier regions (ORs).
-#' 4. Generates one or multiple Manhattan panels.
+#' @param layout Object returned by \code{prep_manhattan()}.
+#' @param y_vars Character vector of numeric variables to plot.
+#' @param y_labels Character vector of y-axis labels corresponding to
+#'   \code{y_vars}.
+#' @param thresholds Optional numeric vector of horizontal threshold values,
+#'   one per panel.
+#' @param col_var Optional column name used for point colour.
+#' @param shape_var Optional column name used to highlight special SNP classes.
+#' @param titles Optional panel titles.
+#' @param point_size Point size.
+#' @param ncol Optional number of columns in the multi-panel layout.
+#' @param col_vector Optional vector of colours for categorical point colouring.
 #'
-#' @param x An object returned by `LDscn_pipeline()`.
-#' @param SNP_res An object returned by `LDscn_pipeline()`.
-#' @param y_vars Character vector of variables to plot.
-#' @param y_labels Optional labels for each panel.
-#' @param thresholds Optional numeric vector of horizontal thresholds.
-#' @param compute_ld_w Logical. Should LD-weights be computed?
-#' @param rho_w Numeric. Quantile parameter for LD-weight computation.
-#' @param detect_OR Logical. Should outlier regions be detected?
-#' @param sign_th Significance threshold for OR detection.
-#' @param sign_if Direction of significance ("less" or "greater").
-#' @param rho_d LD-distance quantile for OR detection.
-#' @param rho_ld LD-strength quantile for OR detection.
-#' @param l_min Minimum OR size.
-#' @param ncol Number of columns in patchwork layout.
+#' @return A ggplot/patchwork object.
 #'
-#' @return A `patchwork` object.
-#' @export
-plot_ldscn_manhattan <- function(
-    x,
-    SNP_res,
-    y_vars = c("C_mean"),
-    y_labels = NULL,
-    thresholds = NULL,
-    compute_ld_w = FALSE,
-    rho_w = 0.9,
-    detect_OR = TRUE,
-    sign_th = 0.05,
-    sign_if = "greater",
-    rho_d = 0.95,
-    rho_ld = 0.95,
-    l_min = 1,
-    ncol = 1
-) {
-
-  if (!inherits(x, "LDscn"))
-    stop("x must be an LDscn_pipeline object.")
-
-  SNP_res <- add_consistency_to_map(x$SNP_res, consistency_obj = x$consistency)
-
-  ## Optional LD-weight computation
-  if (compute_ld_w) {
-    if (is.null(x$ld_str) || is.null(x$decay))
-      stop("LD structure and decay must be stored to compute ld_w.")
-    SNP_res[, ld_w := compute_ld_w(x$ld_str, x$decay, rho_w)]
-  }
-
-  ## Optional OR detection
-  if (detect_OR) {
-
-    q_vals <- SNP_res[, .(C_mean)]
-
-    ORs_tbl <- detect_or(
-      q_vals   = q_vals,
-      ld_struct = x$ld_str,
-      decay_obj = x$decay,
-      sign_th  = sign_th,
-      sign_if  = sign_if,
-      rho_d    = rho_d,
-      rho_ld   = rho_ld,
-      l_min    = l_min,
-      ret_table = TRUE
-    )
-
-    SNP_res <- merge(
-      SNP_res,
-      ORs_tbl,
-      by.x = "marker",
-      by.y = "SNP",
-      all.x = TRUE
-    )
-
-    SNP_res[is.na(OR_id), OR_id := "ns"]
-
-    unique_ORs <- unique(na.omit(SNP_res$OR_id))
-    SNP_res[, OR_factor := factor(OR_id, levels = unique_ORs)]
-  } else {
-    SNP_res[, OR_factor := "ns"]
-  }
-
-  ## Layout preparation
-  layout <- prep_manhattan(
-    SNP_res[, .(
-      bp = Pos,
-      Chr,
-      marker,
-      C_mean,
-      ld_w,
-      OR_factor,
-      type,
-      !!!rlang::syms(y_vars)
-    )]
-  )
-
-  ## Plot
-  plot_manhattan_gg(
-    layout,
-    y_vars = y_vars,
-    y_labels = y_labels,
-    thresholds = thresholds,
-    or_var = "OR_factor",
-    type_var = "type",
-    ncol = ncol
-  )
-
-}
-
+#' @details
+#' Chromosome backgrounds are shown as alternating shaded rectangles. SNPs with
+#' \code{col_var == "ns"} are plotted in grey when a colour variable is used.
+#'
+#' If \code{shape_var} is supplied, entries equal to \code{"QTN"} are highlighted
+#' with larger cross-shaped markers.
+#'
 #' @export
 plot_manhattan_gg <- function(layout,
-                            y_vars,
-                            y_labels,
-                            thresholds = NULL,
-                            or_var = NULL,
-                            type_var = NULL,
-                            point_size = 1,
-                            ncol = NULL) {
+                              y_vars,
+                              y_labels,
+                              thresholds = NULL,
+                              col_var = NULL,
+                              shape_var = NULL,
+                              titles = NULL,
+                              point_size = 1,
+                              ncol = NULL,
+                              col_vector=NULL) {
+
+  if(is.null(col_vector)) col_vector <- c("#B2DF8A", "#FFD92F", "firebrick", "#33A02C", "#7FC97F", "#CAB2D6",
+                                          "#FB8072", "grey30", "#E6AB02", "#FDC086", "steelblue", "#1F78B4",
+                                          "#FB9A99", "#1B9E77", "#BC80BD", "#E31A1C", "#7570B3", "#A6761D",
+                                          "#A6CEE3", "salmon", "#FFFF33", "forestgreen", "#FDCDAC", "#BF5B17",
+                                          "#A6761D", "#FBB4AE", "#4DAF4A", "#B3E2CD", "#FDDAEC", "#BEBADA",
+                                          "#FFF2AE", "#1F78B4", "#66C2A5", "#F0027F", "#E6AB02", "#E78AC3",
+                                          "#FF7F00", "#8DA0CB", "#6A3D9A", "#B15928", "#E41A1C")
 
   if (!inherits(layout, "manhattan_layout"))
     stop("layout must be from prep_manhattan().")
@@ -193,6 +281,12 @@ plot_manhattan_gg <- function(layout,
   if (!is.null(thresholds) && length(thresholds) != n_panels)
     stop("thresholds must match length of y_vars")
 
+  ## make sure we have enough colors
+  tmp <- unique(unlist(don[,..col_var]))
+  tmp <- tmp[tmp!="ns"]
+  col_vector <- rep(col_vector,ceiling(length(tmp)/length(col_vector)))
+
+  #i  <- 1
   plots <- lapply(seq_len(n_panels), function(i) {
 
     don[, yval := get(y_vars[i])]
@@ -210,10 +304,10 @@ plot_manhattan_gg <- function(layout,
       )
 
     # --- Non-OR points ---
-    if (!is.null(or_var)) {
+    if (!is.null(col_var)) {
       p <- p +
         ggplot2::geom_point(
-          data = don[get(or_var) == "ns"],
+          data = don[get(col_var) == "ns"],
           ggplot2::aes(BPcum, yval),
           size = point_size,
           colour = "grey50"
@@ -221,11 +315,11 @@ plot_manhattan_gg <- function(layout,
     }
 
     # --- OR coloured points ---
-    if (!is.null(or_var)) {
+    if (!is.null(col_var)) {
       p <- p +
         ggplot2::geom_point(
-          data = don[get(or_var) != "ns"],
-          ggplot2::aes(BPcum, yval, colour = get(or_var)),
+          data = don[get(col_var) != "ns"],
+          ggplot2::aes(BPcum, yval, colour = get(col_var)),
           size = point_size
         )
     } else {
@@ -239,16 +333,16 @@ plot_manhattan_gg <- function(layout,
     }
 
     # --- QTN markers ---
-    if (!is.null(type_var)) {
+    if (!is.null(shape_var)) {
       p <- p +
         ggplot2::geom_point(
-          data = don[get(type_var) == "QTN" & get(or_var) != "ns"],
-          ggplot2::aes(BPcum, yval,colour = get(or_var)),
+          data = don[get(shape_var) == "QTN" & get(col_var) != "ns"],
+          ggplot2::aes(BPcum, yval,colour = get(col_var)),
           shape = 3,
           size = point_size * 3
         ) +
         ggplot2::geom_point(
-          data = don[get(type_var) == "QTN" & get(or_var) == "ns"],
+          data = don[get(shape_var) == "QTN" & get(col_var) == "ns"],
           ggplot2::aes(BPcum, yval),
           shape = 3,
           size = point_size * 3,
@@ -283,7 +377,9 @@ plot_manhattan_gg <- function(layout,
         axis.text.x = ggplot2::element_text(angle = 90),
         legend.position = "none",
         aspect.ratio = 0.25
-      )
+      ) +
+      scale_color_manual(values=col_vector)+
+      ggtitle(titles[i])
   })
 
   if(is.null(ncol)){

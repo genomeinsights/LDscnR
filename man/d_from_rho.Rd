@@ -2,21 +2,18 @@
 % Please edit documentation in R/compute_ld_structure.R
 \name{d_from_rho}
 \alias{d_from_rho}
-\title{Convert Relative LD Threshold to Distance}
+\title{Convert Relative LD Threshold to Physical Distance}
 \usage{
 d_from_rho(a, rho)
 }
 \arguments{
 \item{a}{Decay rate.}
 
-\item{rho}{Relative LD threshold.}
-
-\item{d0}{Offset parameter.}
+\item{rho}{Relative LD threshold (0 < rho < 1).}
 }
 \value{
 Distance in base pairs.
 }
 \description{
-Computes the physical distance corresponding to a relative LD
-threshold \eqn{\rho}.
+Computes the physical distance corresponding to a relative LD threshold \eqn{\rho}.
 }

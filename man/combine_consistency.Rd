@@ -2,18 +2,36 @@
 % Please edit documentation in R/consistency_score.R
 \name{combine_consistency}
 \alias{combine_consistency}
-\title{Add consistency scores to SNP map}
+\title{Combine consistency scores across methods}
 \usage{
 combine_consistency(consistency_obj)
 }
 \arguments{
-\item{consistency_obj}{Object of class "ld_consistency"}
-
-\item{map}{Data.table with column \code{marker}}
+\item{consistency_obj}{Object of class \code{"ld_consistency"}.}
 }
 \value{
-Updated data.table
+The input \code{ld_consistency} object with an added
+\code{combined} component containing:
+\describe{
+\item{SNP}{SNP identifier.}
+\item{\if{html}{\out{<method>}}_C}{Method-specific consistency scores in wide format.}
+\item{C_mean}{Mean consistency across methods.}
+\item{C_min}{Minimum consistency across methods.}
+\item{C_max}{Maximum consistency across methods.}
+}
 }
 \description{
-Add consistency scores to SNP map
+Computes cross-method summary statistics from an object of class
+\code{"ld_consistency"}.
+}
+\details{
+Method-specific consistency scores are reshaped to wide format and combined
+into summary measures across methods.
+
+Missing method-specific values are retained as \code{NA}. Summary statistics
+are computed across the available method-specific consistency scores for each
+SNP.
+
+This function is useful when consistency should be interpreted jointly across
+multiple methods rather than method by method.
 }

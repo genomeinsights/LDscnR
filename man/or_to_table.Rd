@@ -2,10 +2,28 @@
 % Please edit documentation in R/outlier_regions.R
 \name{or_to_table}
 \alias{or_to_table}
-\title{Convert ld_or object to long table}
+\title{Convert outlier regions to long format}
 \usage{
 or_to_table(or_obj)
 }
+\arguments{
+\item{or_obj}{Object of class \code{"ld_or"}.}
+}
+\value{
+A \code{data.table} with columns:
+\describe{
+\item{SNP}{SNP identifier.}
+\item{method}{Method or analysis mode under which the region was detected.}
+\item{OR_id}{Outlier-region identifier.}
+}
+}
 \description{
-Convert ld_or object to long table
+Converts an object of class \code{"ld_or"} into a long-format table with one
+row per SNP assigned to an outlier region.
+}
+\details{
+Region identifiers are constructed as \code{<Chr>_OR<i>}, where the
+chromosome is inferred from the first SNP in each region.
+
+If no outlier regions are present, an empty \code{data.table} is returned.
 }

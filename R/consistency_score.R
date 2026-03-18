@@ -1,11 +1,40 @@
-#' Compute consistency score across rho_w and OR draws
+#' Compute SNP-level consistency across OR draws
 #'
-#' Calculates SNP-level consistency across all rho_w and OR draws,
-#' separately for each method.
+#' Calculates SNP-level consistency scores from repeated outlier-region (OR)
+#' detection draws.
 #'
-#' @param rho_draws_obj Object of class "ld_rho_draws".
+#' For each method, the consistency score of a SNP is defined as the proportion
+#' of retained draws in which that SNP appears in at least one detected outlier
+#' region.
 #'
-#' @return Object of class "ld_consistency".
+#' Extremely large OR solutions are excluded before scoring using an
+#' upper-tail outlier filter based on:
+#' \deqn{Q3 + 1.5 \times IQR}
+#' applied to \code{OR_size} across draws with at least one detected region.
+#'
+#' @param draws A \code{data.table} of OR draws, typically returned by
+#'   \code{ld_rho_draws()} or \code{or_draws()}, containing at least the columns
+#'   \code{method}, \code{OR}, and \code{OR_size}.
+#' @param combine Logical; currently unused.
+#'
+#' @return An object of class \code{"ld_consistency"} containing:
+#' \describe{
+#'   \item{consistency}{A long-format \code{data.table} with columns
+#'   \code{SNP}, \code{method}, \code{N}, and \code{C}, where \code{C} is the
+#'   SNP-level consistency score.}
+#'   \item{total_draws}{Number of draws per method used to compute consistency.}
+#' }
+#'
+#' @details
+#' The score is computed separately for each method as:
+#' \deqn{C = N / n_{draws}}
+#' where \eqn{N} is the number of retained draws in which the SNP occurs in an
+#' outlier region and \eqn{n_{draws}} is the total number of draws for that
+#' method.
+#'
+#' This measure is intended to highlight SNPs that recur consistently across
+#' parameter settings, rather than SNPs appearing only in isolated OR solutions.
+#'
 #' @export
 consistency_score <- function(draws,combine=TRUE) {
 
@@ -35,7 +64,25 @@ consistency_score <- function(draws,combine=TRUE) {
   return(C_obj)
 }
 
-# consistency_obj <- consistency
+#' Add per-method consistency scores to a SNP map
+#'
+#' Merges SNP-level consistency scores into a SNP annotation table.
+#'
+#' Each method-specific consistency score is added as a new column with suffix
+#' \code{"_C"}.
+#'
+#' @param map A data.frame or \code{data.table} containing a column named
+#'   \code{marker}.
+#' @param consistency_obj Object of class \code{"ld_consistency"}.
+#'
+#' @return A \code{data.table} containing the original map columns plus one
+#' additional column per method-specific consistency score.
+#'
+#' @details
+#' Consistency scores are reshaped to wide format before merging. The merge is
+#' performed as a left join on \code{marker}, preserving all rows from
+#' \code{map}.
+#'
 #' @export
 add_consistency_to_map <- function(map, consistency_obj) {
 
@@ -72,47 +119,40 @@ add_consistency_to_map <- function(map, consistency_obj) {
   out
 }
 
-#consistency_obj <- C_obj
 
-#' @export
-print.ld_consistency <- function(x, ...) {
-
-  cat("\nLD Consistency Score\n")
-  cat("--------------------\n")
-  cat("Total draws:", x$total_draws, "\n")
-  cat("rho_w draws:", x$n_rho, "\n")
-  cat("OR draws per rho_w:", x$n_or, "\n\n")
-  if (!is.null(x$combined)) {
-    cat("Combined C-score available\n")
-  }
-  for (m in x$consistency[,unique(method)]) {
-
-    dt <- x$consistency[method==m]
-
-    cat(m, "\n")
-    cat("  SNPs with C > 0:", sum(dt$C > 0), "\n")
-    cat("  Max C:", round(max(dt$C), 3), "\n\n")
-
-  }
-
-  invisible(x)
-}
-
-
-#' Add consistency scores to SNP map
+#' Combine consistency scores across methods
 #'
-#' @param map Data.table with column `marker`
-#' @param consistency_obj Object of class "ld_consistency"
+#' Computes cross-method summary statistics from an object of class
+#' \code{"ld_consistency"}.
 #'
-#' @return Updated data.table
-#' @export
+#' Method-specific consistency scores are reshaped to wide format and combined
+#' into summary measures across methods.
+#'
+#' @param consistency_obj Object of class \code{"ld_consistency"}.
+#'
+#' @return The input \code{ld_consistency} object with an added
+#' \code{combined} component containing:
+#' \describe{
+#'   \item{SNP}{SNP identifier.}
+#'   \item{<method>_C}{Method-specific consistency scores in wide format.}
+#'   \item{C_mean}{Mean consistency across methods.}
+#'   \item{C_min}{Minimum consistency across methods.}
+#'   \item{C_max}{Maximum consistency across methods.}
+#' }
+#'
+#' @details
+#' Missing method-specific values are retained as \code{NA}. Summary statistics
+#' are computed across the available method-specific consistency scores for each
+#' SNP.
+#'
+#' This function is useful when consistency should be interpreted jointly across
+#' multiple methods rather than method by method.
+#'
 #' @export
 combine_consistency <- function(consistency_obj) {
 
   if (!inherits(consistency_obj, "ld_consistency"))
     stop("Input must be of class 'ld_consistency'.")
-
-  library(data.table)
 
   dt <- as.data.table(consistency_obj$consistency)
 
@@ -148,32 +188,3 @@ combine_consistency <- function(consistency_obj) {
 
 
 }
-
-# combine_consistency <- function(consistency_obj) {
-#
-#   if (!inherits(consistency_obj, "ld_consistency"))
-#     stop("Input must be of class 'ld_consistency'.")
-#
-#   dt <- consistency_obj$consistency
-#
-#   renamed <- Map(function(dt, nm) {
-#     dt2 <- data.table::copy(dt)
-#     data.table::setnames(dt2, "consistency", nm)
-#     dt2
-#   }, per_method, names(per_method))
-#
-#   merged <- Reduce(function(x, y)
-#     merge(x, y, by = "SNP", all = TRUE),
-#     renamed
-#   )
-#
-#   X <- as.matrix(merged[, -1, with = FALSE])
-#
-#   merged[, C_mean := rowMeans(X, na.rm = TRUE)]
-#   merged[, C_min  := do.call(pmin, c(as.data.frame(X), na.rm = TRUE))]
-#   merged[, C_max  := do.call(pmax, c(as.data.frame(X), na.rm = TRUE))]
-#
-#   consistency_obj$combined <- merged
-#
-#   consistency_obj
-# }

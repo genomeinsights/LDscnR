@@ -2,7 +2,7 @@
 % Please edit documentation in R/compute_ld_structure.R
 \name{compute_LD_decay}
 \alias{compute_LD_decay}
-\title{Compute Chromosome-wise LD Structure}
+\title{Compute Chromosome-wise LD Structure and Decay}
 \usage{
 compute_LD_decay(
   gds,
@@ -22,57 +22,58 @@ compute_LD_decay(
 )
 }
 \arguments{
-\item{gds}{GDS file handle containing genotype data.}
+\item{gds}{A GDS file handle containing genotype data.}
 
-\item{el_data_folder}{Optional path to folder where edge-list of LD values are saved. If \code{"NULL"}, data not saved.}
+\item{el_data_folder}{Optional path to store LD edge lists (currently not used internally).}
 
-\item{q}{Quantile used for LD-decay fitting.}
+\item{q}{Quantile of \eqn{r^2} used for decay fitting (default = 0.95).}
 
-\item{n_sub_bg}{Number of SNPs used for background LD estimation.}
+\item{n_sub_bg}{Number of SNPs used to estimate background LD.}
 
-\item{n_win_decay}{Number of sliding windows per chromosome for decay fitting.}
+\item{n_win_decay}{Number of sliding windows per chromosome.}
 
-\item{overlap}{Proportion of overlap between consecutive decay windows.}
+\item{overlap}{Proportion of overlap between consecutive windows (0–1).}
 
-\item{prob_robust}{Central proportion of windows retained for robust decay estimation.}
+\item{max_SNPs_decay}{Maximum number of SNPs sampled per chromosome for decay estimation.}
 
-\item{keep_el}{Whether to save edge-lists directly. Useful for benchmarking smaller simulated data.}
+\item{prob_robust}{Central proportion of windows retained for robust summarization.}
 
-\item{cores}{Number of CPU cores used for parallel computations.}
+\item{max_pairs}{Maximum number of SNP pairs per window used in decay fitting.}
 
-\item{keep_rho_hist}{Whether to save histograms for estimating ld_w values.}
+\item{n_strata}{Number of distance strata used when subsampling SNP pairs.}
 
-\item{target_dist_bins_for_decay}{Number of distance bins for decay fitting.}
+\item{keep_el}{Logical; whether to store full LD edge lists per chromosome.}
 
-\item{k_max}{Slide window for LD-estimation.}
+\item{slide}{Sliding window size in number of SNPs used for LD estimation.}
 
-\item{n_rho_bins_hist}{Number of distance bins for saved LD histograms.}
+\item{rho_targets}{Numeric vector of target LD thresholds used to derive recommended window sizes.}
 
-\item{rho}{Maximum distance for pair-wise LD-values relative to decay rate.}
-
-\item{r2_unit}{Bin width for r² values in histograms.}
+\item{cores}{Number of CPU cores for parallel computation.}
 }
 \value{
-An object of class \code{"ld_structure"} containing:
+An object of class \code{"ld_decay"} containing:
 \describe{
-\item{by_chr}{Per-chromosome LD structure, including histograms and decay parameters.}
-\item{decay_sum}{Genome-wide table of robust decay parameters.}
-\item{params}{List of parameters used for computation.}
+\item{by_chr}{List of per-chromosome results including decay fits and optional LD edge lists.}
+\item{decay_sum}{Data table of chromosome-wise decay parameters and derived quantities.}
+\item{decay_model}{Robust regression model linking decay rate \eqn{a} to chromosome size.}
+\item{recommendation}{Suggested LD window sizes for specified \eqn{\rho} thresholds.}
+\item{params}{List of parameters used in the computation.}
 }
 }
 \description{
-Estimates linkage disequilibrium (LD) structure and LD-decay
-parameters for each chromosome and (i)ntegrated LD (D)ecay (P)ersistence (I)ndex (iDPI) and optionally compresses and saved per-SNP LD
-data for downstream LD-based summary statistics.
+Estimates linkage disequilibrium (LD) structure and LD-decay parameters
+across chromosomes from genotype data stored in a GDS file. The function
+combines background LD estimation, chromosome-wise decay fitting, and
+genome-wide summarization into a unified workflow.
 }
 \details{
-The workflow consists of:
+The procedure consists of:
 \enumerate{
-\item Estimation of background LD from inter-chromosomal pairs.
+\item Estimation of background LD from inter-chromosomal SNP pairs.
 \item Sliding-window estimation of LD-decay parameters per chromosome.
-\item Robust summarization of decay parameters.
-\item Estimation of (i)ntegrated LD (D)ecay (P)ersistence (I)ndex (iDPI)
-\item Optional saving of LD-data to files and histogram compression for downstream estimation of ld_w
+\item Robust aggregation of decay parameters across windows.
+\item Prediction of decay parameters based on chromosome size.
+\item Derivation of recommended LD window sizes for user-defined LD thresholds (\eqn{\rho}).
 }
 
 LD decay is modeled as:
@@ -80,9 +81,17 @@ LD decay is modeled as:
 
 where:
 \itemize{
-\item \eqn{a} is the decay rate,
-\item \eqn{b} is background LD,
-\item \eqn{c} is short-distance LD,
+\item \eqn{a} controls the rate of decay,
+\item \eqn{b} is background LD (long-distance baseline),
+\item \eqn{c} is short-range LD,
 \item \eqn{d} is physical distance (bp).
 }
+
+The function estimates LD decay independently per chromosome and then
+fits a genome-wide model relating decay rate (\eqn{a}) to chromosome size.
+This allows extrapolation of LD behavior and derivation of consistent
+window sizes across heterogeneous genomic architectures.
+
+Recommended window sizes are provided in SNP units to match downstream
+functions that operate on marker indices rather than physical distance.
 }

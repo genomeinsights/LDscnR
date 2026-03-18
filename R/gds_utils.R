@@ -1,3 +1,25 @@
+#' Create a GDS file from a genotype matrix
+#'
+#' Converts a genotype matrix and accompanying SNP map into a GDS file
+#' compatible with \pkg{SNPRelate}, and returns an open GDS handle.
+#'
+#' The genotype matrix is expected in \strong{individuals x SNPs} format.
+#' SNP metadata are taken from \code{map}.
+#'
+#' @param geno Numeric genotype matrix of allele counts (0,1,2) with individuals in rows and SNPs in columns. NA's are allowed.
+#' @param map Data frame or \code{data.table} with one row per SNP. Must contain
+#'   the columns \code{marker}, \code{Chr}, and \code{Pos}.
+#' @param gds_path File path where the GDS file will be written.
+#'
+#' @return An open GDS object.
+#'
+#' @details
+#' Internally, the genotype matrix is transposed because
+#' \code{SNPRelate::snpgdsCreateGeno()} expects SNPs in rows when
+#' \code{snpfirstdim = TRUE}.
+#'
+#' Sample IDs are generated automatically as \code{ind_1}, \code{ind_2}, etc.
+#'
 #' @export
 create_gds_from_geno <- function(geno, map, gds_path) {
   stopifnot(ncol(geno) == nrow(map))
@@ -21,21 +43,65 @@ create_gds_from_geno <- function(geno, map, gds_path) {
     snp_pos = gdsfmt::read.gdsn(gdsfmt::index.gdsn(gds, "snp.position"))
   )
 }
-
-#' Build an LD edge list for a subset of SNPs (unidirectional)
+#' Build an LD edge list from a subset of SNPs
 #'
-#' Computes pairwise LD (\eqn{r^2}) for a specified subset of SNPs in a GDS file
-#' and returns an edge list with genomic coordinates and distances. Each SNP pair
-#' appears once (unidirectional), which is sufficient for undirected clustering.
+#' Computes pairwise linkage disequilibrium (LD; \eqn{r^2}) for a selected
+#' subset of SNPs in a GDS file and returns the result as an edge list with
+#' genomic coordinates and physical distances.
+#'
+#' Depending on the chosen options, the function can return:
+#' \itemize{
+#'   \item a standard pairwise edge list, with each SNP pair represented once,
+#'   \item a SNP-centered symmetric representation, where each edge contributes
+#'   one record to each SNP,
+#'   \item an optionally symmetry-adjusted SNP-centered edge list for local
+#'   neighborhood summaries.
+#' }
 #'
 #' @param gds An open GDS object.
-#' @param idx Integer vector of SNP indices (1-based, referring to the GDS SNP index).
-#' @param slide_win_ld Integer. If > 0, LD is estimated using a sliding window of
-#'   this size; if \code{<= 0}, all pairwise LD values are computed.
-#' @param n_cores Integer. Number of threads to use in LD computation.
+#' @param idx Optional integer vector of SNP indices (1-based, referring to the
+#'   SNP order in the GDS file). If \code{NULL}, all SNPs are used.
+#' @param slide_win_ld Integer SNP window size passed to
+#'   \code{SNPRelate::snpgdsLDMat()}. If \code{> 0}, LD is computed within a
+#'   sliding window of this size. If \code{<= 0}, all pairwise LD values are
+#'   computed.
+#' @param cores Number of CPU threads used in LD computation.
+#' @param by_chr Logical; if \code{TRUE}, LD is computed separately within each
+#'   chromosome. If \code{FALSE}, LD is computed across the full SNP subset.
+#' @param symmetric Logical; if \code{TRUE}, returns a SNP-centered edge list in
+#'   which each pair contributes one row for each of the two SNPs.
+#' @param edge_symmetry Logical; if \code{TRUE}, applies an additional balancing
+#'   step to the SNP-centered representation to reduce asymmetry in left/right
+#'   genomic neighborhoods in chromosome edges (removes edge effects).
 #'
-#' @return A \code{data.table} with columns \code{Var1}, \code{Var2}, \code{r2},
-#'   \code{Chr1}, \code{Chr2}, \code{pos1}, \code{pos2}, \code{SNP1}, \code{SNP2}, \code{d}.
+#' @return
+#' If \code{symmetric = FALSE} and \code{edge_symmetry = FALSE}, a
+#' \code{data.table} with columns:
+#' \describe{
+#'   \item{Var1, Var2}{Indices of the paired SNPs within the analyzed subset.}
+#'   \item{r2}{Pairwise LD (\eqn{r^2}).}
+#'   \item{Chr1, Chr2}{Chromosomes of the two SNPs.}
+#'   \item{pos1, pos2}{Physical positions of the two SNPs.}
+#'   \item{SNP1, SNP2}{SNP identifiers.}
+#'   \item{d}{Absolute physical distance between the SNPs.}
+#' }
+#'
+#' If \code{symmetric = TRUE} or \code{edge_symmetry = TRUE}, a SNP-centered
+#' \code{data.table} with columns:
+#' \describe{
+#'   \item{SNP}{Reference SNP.}
+#'   \item{pos1}{Position of the reference SNP.}
+#'   \item{pos2}{Position of the paired SNP.}
+#'   \item{r2}{Pairwise LD (\eqn{r^2}).}
+#'   \item{d}{Absolute physical distance between the SNPs.}
+#' }
+#'
+#' @details
+#' When \code{by_chr = TRUE}, SNPs are split by chromosome and LD is computed
+#' independently within each chromosome subset before results are combined.
+#'
+#' The SNP-centered representation is useful for downstream summaries that
+#' require all LD partners of each focal SNP.
 #'
 #' @export
 get_el <- function(gds,
@@ -130,22 +196,22 @@ get_el <- function(gds,
         el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
       ))
 
-      if(edge_symmetry){
-
-        el[, side := data.table::fifelse(pos_other > pos, "R", "L")]
-
-        maxL <- if (any(el$side == "L")) max(el$d[el$side == "L"]) else 0
-        maxR <- if (any(el$side == "R")) max(el$d[el$side == "R"]) else 0
-        S <- min(maxL, maxR)
-
-        if (S > 0 && maxL != maxR) {
-          long_side <- if (maxL > maxR) "L" else "R"
-          tail_el <- el[side == long_side & d > S]
-          if (nrow(tail_el) > 0)
-            el <- data.table::rbindlist(list(el, tail_el))
-        }
-
-      }
+      # if(edge_symmetry){
+      #
+      #   el[, side := data.table::fifelse(pos_other > pos, "R", "L")]
+      #
+      #   maxL <- if (any(el$side == "L")) max(el$d[el$side == "L"]) else 0
+      #   maxR <- if (any(el$side == "R")) max(el$d[el$side == "R"]) else 0
+      #   S <- min(maxL, maxR)
+      #
+      #   if (S > 0 && maxL != maxR) {
+      #     long_side <- if (maxL > maxR) "L" else "R"
+      #     tail_el <- el[side == long_side & d > S]
+      #     if (nrow(tail_el) > 0)
+      #       el <- data.table::rbindlist(list(el, tail_el))
+      #   }
+      #
+      # }
 
      el <- el[,.(SNP,pos1=pos,pos2=pos_other,r2,d)]
 

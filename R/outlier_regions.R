@@ -1,4 +1,66 @@
-#' Detect outlier regions from LD-scaled scan
+#' Detect outlier regions from SNP-level statistics
+#'
+#' Identifies outlier regions (ORs) by clustering outlier SNPs that are both
+#' physically close and in sufficiently strong linkage disequilibrium (LD).
+#'
+#' SNPs are first classified as outliers according to a user-supplied threshold.
+#' Outlier SNPs are then grouped into connected components within each chromosome
+#' using pairwise LD edges that satisfy both a distance threshold and an
+#' LD threshold. These thresholds are derived from chromosome-specific LD-decay
+#' parameters.
+#'
+#' Two detection modes are supported:
+#' \enumerate{
+#'   \item \code{per_method}: detect outlier regions separately for each column
+#'   of \code{vals},
+#'   \item \code{joint}: take the union of outlier SNPs across methods before
+#'   clustering, and return a single joint set of outlier regions.
+#' }
+#'
+#' @param el LD edge list containing pairwise SNP LD values and genomic distances.
+#' @param vals Matrix or data.frame of SNP-level statistics, with SNPs in rows and
+#'   methods in columns.
+#' @param ld_decay Object of class \code{"ld_decay"} containing chromosome-specific
+#'   LD-decay summaries.
+#' @param SNP_ids Vector of SNP identifiers in the same order as \code{vals}.
+#' @param SNP_chr Vector of chromosome identifiers in the same order as \code{vals}.
+#' @param sign_th Significance threshold used to classify SNPs as outliers.
+#' @param sign_if Character string indicating the outlier rule:
+#'   \code{"less"} for lower-tail statistics (e.g. q-values),
+#'   \code{"greater"} for upper-tail statistics (e.g. consistency scores).
+#' @param rho_d Relative distance threshold used to derive the maximum allowed
+#'   physical distance between SNPs in the same outlier region.
+#' @param rho_ld Relative LD threshold used to derive the minimum required
+#'   pairwise LD for SNPs in the same outlier region.
+#' @param l_min Minimum number of SNPs required for an outlier region.
+#' @param mode One of \code{"per_method"} or \code{"joint"}.
+#' @param ret_table Logical; if \code{TRUE}, return a long-format table instead
+#'   of an \code{ld_or} object.
+#'
+#' @return
+#' If \code{ret_table = FALSE}, an object of class \code{"ld_or"} containing:
+#' \describe{
+#'   \item{ORs}{Named list of detected outlier regions. Each region is a character
+#'   vector of SNP identifiers.}
+#'   \item{params}{List of parameters used for detection.}
+#' }
+#'
+#' If \code{ret_table = TRUE}, a long \code{data.table} with one row per SNP-region
+#' assignment.
+#'
+#' @details
+#' For each chromosome, the function retrieves chromosome-specific LD-decay
+#' parameters from \code{ld_decay$decay_sum}. The relative thresholds
+#' \code{rho_d} and \code{rho_ld} are converted to an absolute distance threshold
+#' and an absolute LD threshold using \code{d_from_rho()} and \code{ld_from_rho()}.
+#'
+#' Outlier regions are defined as connected components in an undirected graph,
+#' where nodes are outlier SNPs and edges connect SNP pairs satisfying both
+#' thresholds.
+#'
+#' The expected direction of significance depends on the statistic type:
+#' q-like measures typically use \code{sign_if = "less"}, whereas
+#' C-like measures typically use \code{sign_if = "greater"}.
 #'
 #' @export
 detect_or <- function(el,
@@ -16,13 +78,13 @@ detect_or <- function(el,
 
 
   if (is.null(colnames(vals)))
-    stop("q_vals must have column names.")
+    stop("`vals` must have column names.")
 
   methods <- colnames(vals)
 
   mode <- match.arg(mode)
 
-  stat_type <- infer_stat_type(methods)
+  #stat_type <- infer_stat_type(methods)
 
   outlier_fun <- switch(
     sign_if,
@@ -38,7 +100,7 @@ detect_or <- function(el,
     less    = function(x) x < sign_th,
     greater = function(x) x > sign_th
   )
-  #sign_if = "greater"
+
 
   # ------------------------------------------------------------
   # Helper: build ORs from SNP set
@@ -51,7 +113,7 @@ detect_or <- function(el,
     idx <- which(SNP_ids %in% outliers)
 
     or_list <- list()
-    #ch = "Chr1"
+
     for (ch in chrs) {
     #cat(ch," -- ")
 
@@ -147,7 +209,67 @@ detect_or <- function(el,
 
 
 
-#' Draw ORs across parameter space (flat output)
+#' Sample outlier regions across detection parameters
+#'
+#' Repeatedly draws outlier-region detection parameters from user-specified
+#' ranges and applies \code{detect_or()} to generate a flat table of outlier
+#' region (OR) results across parameter combinations.
+#'
+#' This function is intended for sensitivity analyses and robustness assessment
+#' of OR detection. Each draw samples clustering thresholds and significance
+#' parameters, detects outlier regions, and stores the resulting ORs together
+#' with the sampled parameter values.
+#'
+#' @param el LD edge list containing pairwise SNP LD values and genomic distances.
+#' @param vals Matrix or data.frame of SNP-level statistics, with SNPs in rows and
+#'   methods in columns.
+#' @param SNP_ids Vector of SNP identifiers in the same order as \code{vals}.
+#' @param SNP_chr Vector of chromosome identifiers in the same order as \code{vals}.
+#' @param ld_decay Object of class \code{"ld_decay"} containing chromosome-specific
+#'   LD-decay summaries.
+#' @param n_draws Number of parameter draws.
+#' @param stat_type Type of statistic used for OR detection; one of \code{"q"}
+#'   or \code{"C"}.
+#' @param mode Detection mode passed to \code{detect_or()}, either
+#'   \code{"per_method"} or \code{"joint"}. Multiple modes may be supplied.
+#' @param rho_d_lim Named list with elements \code{min} and \code{max} defining
+#'   the sampling range for the relative distance threshold \code{rho_d}.
+#' @param rho_ld_lim Named list with elements \code{min} and \code{max} defining
+#'   the sampling range for the relative LD threshold \code{rho_ld}.
+#' @param alpha_lim Named list with elements \code{min} and \code{max} defining
+#'   the sampling range for the significance exponent when
+#'   \code{stat_type = "q"}.
+#' @param C_lim Named list with elements \code{min} and \code{max} defining
+#'   the sampling range for the consistency threshold when
+#'   \code{stat_type = "C"}.
+#' @param lmin_lim Named list with elements \code{min} and \code{max} defining
+#'   the sampling range for the minimum region size \code{l_min}.
+#' @param cores Number of CPU cores.
+#'
+#' @return A \code{data.table} with one row per draw and method, containing:
+#' \describe{
+#'   \item{draw_id}{Identifier of the parameter draw.}
+#'   \item{method}{Method name or joint-analysis label.}
+#'   \item{rho_d}{Sampled relative distance threshold.}
+#'   \item{rho_ld}{Sampled relative LD threshold.}
+#'   \item{alpha}{Sampled significance threshold parameter. For q-based input,
+#'   this is the actual q-value threshold derived from the sampled exponent.}
+#'   \item{l_min}{Sampled minimum outlier-region size.}
+#'   \item{OR}{List-column containing detected outlier regions.}
+#'   \item{OR_size}{Number of detected outlier regions.}
+#' }
+#'
+#' @details
+#' For q-based statistics, the significance threshold is sampled on a
+#' log-scale by drawing an exponent and converting it to
+#' \eqn{1 / 10^{\alpha}}. For C-based statistics, thresholds are sampled
+#' directly from \code{C_lim}.
+#'
+#' If no LD edges are available, the function returns empty OR results for all
+#' draws.
+#'
+#' This is an internal workflow helper but may also be useful for advanced users
+#' exploring OR parameter sensitivity.
 or_draws <- function(el,
                      vals,
                      SNP_ids,
@@ -173,9 +295,9 @@ or_draws <- function(el,
   out <- rbindlist(lapply(mode,function(mod){
 
     methods <- colnames(vals)
-    cat("replicate:")
+    if(cores==1) cat("replicate:")
     out <- rbindlist(parallel_apply(seq_len(n_draws),function(i) {
-      cat(i, "- ")
+      if(cores==1) cat(i, "- ")
 
       rho_d  <- runif(1, rho_d_lim$min, rho_d_lim$max)
       rho_ld <- runif(1, rho_ld_lim$min, rho_ld_lim$max)
@@ -256,7 +378,7 @@ or_draws <- function(el,
       }
 
     },cores=cores))
-    cat("\n")
+    if(cores==1) cat("\n")
     return(out)
   }))
 
@@ -264,7 +386,25 @@ or_draws <- function(el,
 }
 
 
-#' Convert ld_or object to long table
+#' Convert outlier regions to long format
+#'
+#' Converts an object of class \code{"ld_or"} into a long-format table with one
+#' row per SNP assigned to an outlier region.
+#'
+#' @param or_obj Object of class \code{"ld_or"}.
+#'
+#' @return A \code{data.table} with columns:
+#' \describe{
+#'   \item{SNP}{SNP identifier.}
+#'   \item{method}{Method or analysis mode under which the region was detected.}
+#'   \item{OR_id}{Outlier-region identifier.}
+#' }
+#'
+#' @details
+#' Region identifiers are constructed as \code{<Chr>_OR<i>}, where the
+#' chromosome is inferred from the first SNP in each region.
+#'
+#' If no outlier regions are present, an empty \code{data.table} is returned.
 #'
 #' @export
 or_to_table <- function(or_obj) {
@@ -303,6 +443,20 @@ or_to_table <- function(or_obj) {
 }
 
 
+#' Infer statistic type from method names
+#'
+#' Internal helper that determines whether a set of method names corresponds
+#' to q-based statistics or C-based statistics.
+#'
+#' @param method_names Character vector of method names.
+#'
+#' @return Character scalar: \code{"q"} or \code{"C"}.
+#'
+#' @details
+#' Method names beginning with \code{"C"} or containing \code{"_C"} are treated
+#' as C-based. All others are treated as q-based. Mixed inputs are rejected.
+#'
+#' @keywords internal
 infer_stat_type <- function(method_names) {
 
   has_C  <- grepl("^C", method_names) | grepl("_C", method_names)

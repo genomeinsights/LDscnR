@@ -2,25 +2,34 @@
 % Please edit documentation in R/compute_ld_structure.R
 \name{summarize_decay}
 \alias{summarize_decay}
-\title{Summarize LD Decay Parameters}
+\title{Summarize LD Decay Parameters Across Windows}
 \usage{
 summarize_decay(decay_dt, prob_robust = 0.95)
 }
 \arguments{
-\item{decay_dt}{Data table containing window-wise decay parameters.}
+\item{decay_dt}{Data table containing window-wise decay parameters
+(columns \code{a}, \code{b}, \code{c}).}
 
-\item{prob_robust}{Central proportion of windows retained
-(e.g. 0.95 keeps the central 95\% of \eqn{a} values).}
+\item{prob_robust}{Central proportion of windows retained (default = 0.95).}
 }
 \value{
-A \code{data.table} with robust median estimates of
-\code{a}, \code{b}, and \code{c}.
+A \code{data.table} with median estimates of:
+\describe{
+\item{a}{Decay rate.}
+\item{b}{Background LD.}
+\item{c}{Short-range LD.}
+}
 }
 \description{
-Computes robust summary estimates of LD-decay parameters across
-sliding windows within a chromosome.
+Computes robust summary statistics of LD-decay parameters estimated
+across sliding windows within a chromosome.
 }
 \details{
-Windows with extreme decay rates are excluded based on symmetric
-quantile trimming of parameter \eqn{a}.
+Extreme windows are removed using symmetric quantile trimming of the
+decay parameter \eqn{a}, and median values are returned.
+
+Trimming is based on the distribution of \eqn{a}, which is typically
+the most variable parameter across genomic windows.
+
+Returns \code{NULL} if insufficient valid windows are available.
 }

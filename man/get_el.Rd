@@ -2,7 +2,7 @@
 % Please edit documentation in R/gds_utils.R
 \name{get_el}
 \alias{get_el}
-\title{Build an LD edge list for a subset of SNPs (unidirectional)}
+\title{Build an LD edge list from a subset of SNPs}
 \usage{
 get_el(
   gds,
@@ -17,19 +17,66 @@ get_el(
 \arguments{
 \item{gds}{An open GDS object.}
 
-\item{idx}{Integer vector of SNP indices (1-based, referring to the GDS SNP index).}
+\item{idx}{Optional integer vector of SNP indices (1-based, referring to the
+SNP order in the GDS file). If \code{NULL}, all SNPs are used.}
 
-\item{slide_win_ld}{Integer. If > 0, LD is estimated using a sliding window of
-this size; if \code{<= 0}, all pairwise LD values are computed.}
+\item{slide_win_ld}{Integer SNP window size passed to
+\code{SNPRelate::snpgdsLDMat()}. If \code{> 0}, LD is computed within a
+sliding window of this size. If \code{<= 0}, all pairwise LD values are
+computed.}
 
-\item{n_cores}{Integer. Number of threads to use in LD computation.}
+\item{cores}{Number of CPU threads used in LD computation.}
+
+\item{by_chr}{Logical; if \code{TRUE}, LD is computed separately within each
+chromosome. If \code{FALSE}, LD is computed across the full SNP subset.}
+
+\item{symmetric}{Logical; if \code{TRUE}, returns a SNP-centered edge list in
+which each pair contributes one row for each of the two SNPs.}
+
+\item{edge_symmetry}{Logical; if \code{TRUE}, applies an additional balancing
+step to the SNP-centered representation to reduce asymmetry in left/right
+genomic neighborhoods in chromosome edges (removes edge effects).}
 }
 \value{
-A \code{data.table} with columns \code{Var1}, \code{Var2}, \code{r2},
-\code{Chr1}, \code{Chr2}, \code{pos1}, \code{pos2}, \code{SNP1}, \code{SNP2}, \code{d}.
+If \code{symmetric = FALSE} and \code{edge_symmetry = FALSE}, a
+\code{data.table} with columns:
+\describe{
+\item{Var1, Var2}{Indices of the paired SNPs within the analyzed subset.}
+\item{r2}{Pairwise LD (\eqn{r^2}).}
+\item{Chr1, Chr2}{Chromosomes of the two SNPs.}
+\item{pos1, pos2}{Physical positions of the two SNPs.}
+\item{SNP1, SNP2}{SNP identifiers.}
+\item{d}{Absolute physical distance between the SNPs.}
+}
+
+If \code{symmetric = TRUE} or \code{edge_symmetry = TRUE}, a SNP-centered
+\code{data.table} with columns:
+\describe{
+\item{SNP}{Reference SNP.}
+\item{pos1}{Position of the reference SNP.}
+\item{pos2}{Position of the paired SNP.}
+\item{r2}{Pairwise LD (\eqn{r^2}).}
+\item{d}{Absolute physical distance between the SNPs.}
+}
 }
 \description{
-Computes pairwise LD (\eqn{r^2}) for a specified subset of SNPs in a GDS file
-and returns an edge list with genomic coordinates and distances. Each SNP pair
-appears once (unidirectional), which is sufficient for undirected clustering.
+Computes pairwise linkage disequilibrium (LD; \eqn{r^2}) for a selected
+subset of SNPs in a GDS file and returns the result as an edge list with
+genomic coordinates and physical distances.
+}
+\details{
+Depending on the chosen options, the function can return:
+\itemize{
+\item a standard pairwise edge list, with each SNP pair represented once,
+\item a SNP-centered symmetric representation, where each edge contributes
+one record to each SNP,
+\item an optionally symmetry-adjusted SNP-centered edge list for local
+neighborhood summaries.
+}
+
+When \code{by_chr = TRUE}, SNPs are split by chromosome and LD is computed
+independently within each chromosome subset before results are combined.
+
+The SNP-centered representation is useful for downstream summaries that
+require all LD partners of each focal SNP.
 }

@@ -2,22 +2,30 @@
 % Please edit documentation in R/ld_scan.R
 \name{plot.ld_scan}
 \alias{plot.ld_scan}
-\title{#' Plot LD-scan results}
+\title{Plot LD-scan diagnostics}
 \usage{
 \method{plot}{ld_scan}(x, method)
 }
 \arguments{
-\item{x}{An object of class "ld_scan".}
+\item{x}{An object of class \code{"ld_scan"}.}
 
-\item{...}{Unused.}
+\item{method}{Character string naming the method to plot.}
 }
 \value{
-A patchwork ggplot object.
+A patchwork/ggplot object.
 }
 \description{
-Produces a two-panel figure:
+Produces a two-panel diagnostic plot for an \code{ld_scan} result:
 \enumerate{
-\item Quantile decomposition (LD distortion + selection excess)
-\item Comparison of original, LD-weighted, and LD-scaled statistics
+\item quantile decomposition of LD-induced distortion and
+selection-consistent excess,
+\item comparison of the original \eqn{F} statistic and the LD-scaled
+statistic \eqn{F'}.
 }
+}
+\details{
+This method requires that the \code{ld_scan} object was created with
+\code{full = TRUE}, since the plot relies on stored quantile diagnostic data.
+
+Lower quantiles are thinned before plotting to reduce overplotting.
 }

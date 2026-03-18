@@ -2,7 +2,7 @@
 % Please edit documentation in R/ld_scan.R
 \name{ld_scan}
 \alias{ld_scan}
-\title{LD-scaled genome scan}
+\title{LD-scaled genome scan statistics}
 \usage{
 ld_scan(
   ld_w,
@@ -15,30 +15,61 @@ ld_scan(
 )
 }
 \arguments{
-\item{F_vals}{Numeric vector or matrix of F-statistics (n_snp x n_method).}
+\item{ld_w}{Numeric vector of local LD support values, one per SNP.}
 
-\item{n_inds}{Number of individuals (for F null df2 = n_inds - 2).}
+\item{F_vals}{Numeric vector, matrix, or data.frame of test statistics on the
+\eqn{F} scale, with SNPs in rows and methods in columns.}
 
-\item{n_rep}{Number of circular-shift permutations.}
+\item{SNP_ids}{Vector of SNP identifiers in the same order as \code{F_vals}
+and \code{ld_w}.}
 
-\item{full}{Logical; if TRUE return QQ diagnostics.}
+\item{n_inds}{Number of individuals, used to define the theoretical null
+distribution with denominator degrees of freedom \code{n_inds - 2}.}
 
-\item{rho_w}{Numeric in (0,1). LD-decay quantile defining window size.}
+\item{n_rep}{Number of circular-shift permutations used to estimate the
+LD-induced null distribution.}
+
+\item{full}{Logical; if \code{TRUE}, stores quantile-level diagnostic data
+for plotting and inspection.}
+
+\item{enforce_null_floor}{Logical; if \code{TRUE}, constrains the corrected
+quantile curve to remain at or above the theoretical null.}
 }
 \value{
-An object of class \code{"ld_scan"}.
+An object of class \code{"ld_scan"} containing:
+\describe{
+\item{F_vals}{Original input statistics.}
+\item{n_inds}{Number of individuals.}
+\item{SNP_ids}{SNP identifiers.}
+\item{ld_w}{Local LD support values used in the scan.}
+\item{result}{A named list of method-specific results, each containing
+\code{F_prime}, \code{p_prime}, \code{q_prime}, and optionally
+\code{qq_data}.}
+\item{call}{Matched function call.}
+}
 }
 \description{
-Performs LD-weighted and LD-scaled genome scan statistics
-by combining association statistics with pre-computed
-LD summary values.
+Computes LD-weighted and LD-scaled genome scan statistics by combining
+per-SNP test statistics with precomputed local LD support values.
 }
 \details{
-The procedure:
+The procedure consists of:
 \enumerate{
-\item Computes raw LD-weighted statistic F × LD
-\item Estimates LD-induced distortion via circular permutation
-\item Performs quantile correction relative to theoretical null
-\item Returns LD-scaled statistic F′ on the original F scale
+\item computing a raw LD-weighted statistic by multiplying \eqn{F} by \code{ld_w},
+\item estimating LD-induced distortion using circular permutation of \code{ld_w},
+\item correcting the observed quantiles relative to the theoretical null,
+\item returning the LD-scaled statistic \eqn{F'} on the original \eqn{F} scale.
 }
+
+The LD-weighted statistic is normalized to preserve the mean scale of the
+original \eqn{F} statistic. LD-induced distortion is then estimated by
+repeatedly circularly shifting \code{ld_w} relative to \code{F_vals},
+which preserves the marginal structure of both vectors while breaking their
+positional alignment.
+
+The corrected statistic \eqn{F'} is obtained by quantile correction against
+the permutation-derived null and mapped back to the original SNP order.
+
+If \code{full = TRUE}, the returned object contains quantile-level
+decomposition data that can be visualized with \code{plot()}.
 }

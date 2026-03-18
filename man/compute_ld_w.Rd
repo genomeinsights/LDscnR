@@ -2,21 +2,32 @@
 % Please edit documentation in R/compute_ld_structure.R
 \name{compute_ld_w}
 \alias{compute_ld_w}
-\title{Plot Method for ld_structure Objects}
+\title{Compute Local LD Support (ld_w)}
 \usage{
-compute_ld_w(ld_structure, rho = 0.95, cores = 1)
+compute_ld_w(ld_decay, rho = 0.95, cores = 1)
 }
 \arguments{
-\item{x}{An object of class \code{"ld_structure"}.}
+\item{ld_decay}{Object of class \code{"ld_decay"}.}
 
-\item{type}{Plot type: \code{"decay"} or \code{"a_dist"}.}
+\item{rho}{Relative LD threshold used to define the window.}
 
-\item{use}{Decay summary to display: \code{"robust"} or \code{"median"}.}
-
-\item{alpha}{Transparency for window-specific curves.}
-
-\item{...}{Additional graphical parameters.}
+\item{cores}{Number of CPU cores.}
+}
+\value{
+Numeric vector of LD support values (one per SNP).
 }
 \description{
-Visualizes LD-decay curves or decay-rate distributions.
+Computes per-SNP local LD support within a distance defined by a
+relative LD threshold \eqn{\rho}.
+}
+\details{
+For each SNP, LD support is defined as the median \eqn{r^2} with
+neighboring SNPs within the corresponding distance window.
+
+The physical window is derived using:
+\deqn{d = \frac{\rho}{a(1 - \rho)}}
+
+where \eqn{a} is the chromosome-specific decay rate.
+
+Requires \code{keep_el = TRUE} when calling \code{compute_LD_decay()}.
 }

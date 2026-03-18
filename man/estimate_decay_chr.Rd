@@ -2,7 +2,7 @@
 % Please edit documentation in R/compute_ld_structure.R
 \name{estimate_decay_chr}
 \alias{estimate_decay_chr}
-\title{Estimate LD Decay for a Chromosome}
+\title{Estimate LD Decay Within a Chromosome}
 \usage{
 estimate_decay_chr(
   el,
@@ -16,33 +16,37 @@ estimate_decay_chr(
 )
 }
 \arguments{
+\item{el}{Data table of SNP pairs with LD values and positions.}
+
 \item{b}{Background LD.}
 
-\item{window_size}{Physical window size (bp).}
+\item{window_size}{Window size in base pairs.}
 
-\item{step_size}{Step size (bp) between windows.}
+\item{step_size}{Step size between windows in base pairs.}
 
-\item{q}{Quantile of r² used for decay fitting.}
+\item{q}{Quantile of \eqn{r^2} used for fitting.}
+
+\item{max_pairs}{Maximum number of SNP pairs per window.}
+
+\item{n_strata}{Number of distance strata for subsampling.}
 
 \item{cores}{Number of CPU cores.}
-
-\item{gds}{GDS file handle.}
-
-\item{chr_idx}{SNP indices for the chromosome.}
-
-\item{snp_pos}{Physical SNP positions (bp).}
-
-\item{target_dist_bins_for_decay}{Number of distance bins used in fitting.}
-
-\item{n_snps_for_decay}{Target SNP count per window after thinning.}
 }
 \value{
-A \code{data.table} with window-specific decay parameters.
+A \code{data.table} with window coordinates and decay parameters.
 }
 \description{
-Fits LD-decay curves in sliding genomic windows for a single chromosome.
+Fits LD-decay models in sliding genomic windows for a single chromosome
+using pairwise LD data (edge list format).
 }
 \details{
-SNP density is adaptively reduced to maintain approximately constant
-SNP counts per window before decay fitting.
+For each window:
+\enumerate{
+\item SNP pairs are restricted to the window.
+\item Pairs are subsampled across distance strata.
+\item LD decay is fitted using nonlinear regression.
+}
+
+Windows with insufficient data or failed fits return partial rows with
+missing parameter estimates.
 }

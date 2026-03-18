@@ -2,21 +2,18 @@
 % Please edit documentation in R/ld_rho_draws.R
 \name{ld_rho_draws}
 \alias{ld_rho_draws}
-\title{Perform multiple LD-window (rho_w) draws with OR detection}
+\title{Draw OR-detection parameters across LD-support thresholds}
 \usage{
 ld_rho_draws(
   gds,
   ld_decay,
-  n_inds,
   F_vals = NULL,
   q_vals = NULL,
   C_scores = NULL,
   stat_type = c("q", "C"),
   mode = c("joint", "per_method"),
-  n_rho_w = 25,
-  ld_w_int = NULL,
   n_draws = 100,
-  rho_w_lim = list(min = 0.8, max = 0.99),
+  rho = seq(0.75, 0.95, by = 0.025),
   rho_d_lim = list(min = 0.5, max = 0.999),
   rho_ld_lim = list(min = 0.9, max = 0.999),
   alpha_lim = list(min = 1.31, max = 4),
@@ -26,34 +23,99 @@ ld_rho_draws(
 )
 }
 \arguments{
-\item{n_inds}{Number of individuals.}
+\item{gds}{GDS file handle containing genotype data.}
 
-\item{F_vals}{Matrix or data.frame of F statistics.}
+\item{ld_decay}{Object of class \code{"ld_decay"} returned by
+\code{compute_LD_decay()}.}
 
-\item{q_vals}{Matrix or data.frame of q values (optional).}
+\item{F_vals}{Matrix or data.frame of test statistics on the F scale,
+typically one column per method. Required when \code{stat_type = "q"}.}
 
-\item{n_rho_w}{Number of LD-window draws.}
+\item{q_vals}{Optional matrix or data.frame of q-values corresponding to
+\code{F_vals}. If provided, these are combined with derived
+\code{q_prime} values before OR detection.}
 
-\item{n_draws}{Number of OR parameter draws per rho_w.}
+\item{C_scores}{Matrix or data.frame of consistency scores. Required when
+\code{stat_type = "C"}.}
 
-\item{rho_w_lim}{List(min,max) for rho_w.}
+\item{stat_type}{Character string specifying which input statistics are
+used. One of \code{"q"} or \code{"C"}.}
 
-\item{rho_d_lim}{List(min,max) for rho_d.}
+\item{mode}{Character string controlling how OR draws are performed.
+Passed to \code{or_draws()}. Typically one of \code{"joint"} or
+\code{"per_method"}.}
 
-\item{rho_ld_lim}{List(min,max) for rho_ld.}
+\item{n_draws}{Number of OR parameter draws per \code{rho} value.}
 
-\item{alpha_lim}{List(min,max) for alpha exponent.}
+\item{rho}{Numeric vector of LD-support thresholds (\eqn{\rho_w}) used to
+recompute \code{ld_w}. Only used when \code{stat_type = "q"}.}
 
-\item{lmin_lim}{List(min,max) for minimum OR size.}
+\item{rho_d_lim}{Named list with elements \code{min} and \code{max}
+defining the sampling range for the distance threshold parameter
+\code{rho_d}.}
 
-\item{SNP_ids}{Vector of SNP IDs in correct order.}
+\item{rho_ld_lim}{Named list with elements \code{min} and \code{max}
+defining the sampling range for the LD-threshold parameter
+\code{rho_ld}.}
 
-\item{seed}{Optional random seed.}
+\item{alpha_lim}{Named list with elements \code{min} and \code{max}
+defining the sampling range for the significance exponent
+\code{alpha}. Only used when \code{stat_type = "q"}.}
+
+\item{lmin_lim}{Named list with elements \code{min} and \code{max}
+defining the sampling range for the minimum outlier-region size
+\code{l_min}. Only used when \code{stat_type = "q"}.}
+
+\item{C_lim}{Named list with elements \code{min} and \code{max}
+defining the sampling range for the minimum consistency threshold.
+Only used when \code{stat_type = "C"}.}
+
+\item{cores}{Number of CPU cores used for parallel steps.}
 }
 \value{
-Object of class "ld_rho_draws".
+A list containing a data table of OR-detection draws. Each row
+represents one parameter draw and includes:
+\describe{
+\item{method}{Method or method combination used for OR detection.}
+\item{rho_w}{LD-support threshold used to compute \code{ld_w}.}
+\item{rho_d}{Distance-based clustering threshold.}
+\item{rho_ld}{LD-based clustering threshold.}
+\item{alpha}{Significance exponent used for q-value thresholding.}
+\item{l_min}{Minimum outlier-region size.}
+\item{OR}{Detected outlier regions.}
+\item{OR_size}{Number or size of detected outlier regions.}
+}
 }
 \description{
-Repeats LD-scaling across multiple LD-decay quantiles (rho_w),
-and for each run performs multiple OR parameter draws.
+Generates repeated draws of outlier-region (OR) detection parameters,
+optionally across multiple LD-support thresholds (\eqn{\rho_w}).
+}
+\details{
+For each value of \eqn{\rho_w}, local LD support (\code{ld_w}) is
+recomputed from the fitted LD-decay object, genome scan statistics are
+optionally transformed, and \code{or_draws()} is used to sample OR
+detection parameters and identify candidate outlier regions.
+
+Two modes of operation are supported:
+\enumerate{
+\item \code{stat_type = "q"}: repeated draws are performed for each
+value of \code{rho}, after recomputing \code{ld_w} and deriving
+\code{q_prime} statistics from \code{F_vals}.
+\item \code{stat_type = "C"}: repeated draws are performed directly on
+precomputed consistency scores, without looping over \code{rho}.
+}
+
+When \code{stat_type = "q"}, the function first computes \code{ld_w} for
+each requested \code{rho} value using \code{compute_ld_w()}, then runs
+\code{ld_scan()} to derive \code{q_prime} statistics from \code{F_vals}.
+These are combined with the supplied \code{q_vals}, and SNPs passing a
+liberal prefilter are used to construct an LD edge list for repeated OR
+detection.
+
+When \code{stat_type = "C"}, repeated OR detection is applied directly to
+positive consistency scores. In this mode, \code{rho} is ignored and
+\code{rho_w} is returned as \code{NA}.
+
+This function is primarily intended for sensitivity analyses over LD
+window definitions and OR-detection parameters.
 }

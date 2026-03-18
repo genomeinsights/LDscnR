@@ -2,7 +2,7 @@
 % Please edit documentation in R/outlier_regions.R
 \name{detect_or}
 \alias{detect_or}
-\title{Detect outlier regions from LD-scaled scan}
+\title{Detect outlier regions from SNP-level statistics}
 \usage{
 detect_or(
   el,
@@ -19,6 +19,78 @@ detect_or(
   ret_table = FALSE
 )
 }
+\arguments{
+\item{el}{LD edge list containing pairwise SNP LD values and genomic distances.}
+
+\item{vals}{Matrix or data.frame of SNP-level statistics, with SNPs in rows and
+methods in columns.}
+
+\item{ld_decay}{Object of class \code{"ld_decay"} containing chromosome-specific
+LD-decay summaries.}
+
+\item{SNP_ids}{Vector of SNP identifiers in the same order as \code{vals}.}
+
+\item{SNP_chr}{Vector of chromosome identifiers in the same order as \code{vals}.}
+
+\item{sign_th}{Significance threshold used to classify SNPs as outliers.}
+
+\item{sign_if}{Character string indicating the outlier rule:
+\code{"less"} for lower-tail statistics (e.g. q-values),
+\code{"greater"} for upper-tail statistics (e.g. consistency scores).}
+
+\item{rho_d}{Relative distance threshold used to derive the maximum allowed
+physical distance between SNPs in the same outlier region.}
+
+\item{rho_ld}{Relative LD threshold used to derive the minimum required
+pairwise LD for SNPs in the same outlier region.}
+
+\item{l_min}{Minimum number of SNPs required for an outlier region.}
+
+\item{mode}{One of \code{"per_method"} or \code{"joint"}.}
+
+\item{ret_table}{Logical; if \code{TRUE}, return a long-format table instead
+of an \code{ld_or} object.}
+}
+\value{
+If \code{ret_table = FALSE}, an object of class \code{"ld_or"} containing:
+\describe{
+\item{ORs}{Named list of detected outlier regions. Each region is a character
+vector of SNP identifiers.}
+\item{params}{List of parameters used for detection.}
+}
+
+If \code{ret_table = TRUE}, a long \code{data.table} with one row per SNP-region
+assignment.
+}
 \description{
-Detect outlier regions from LD-scaled scan
+Identifies outlier regions (ORs) by clustering outlier SNPs that are both
+physically close and in sufficiently strong linkage disequilibrium (LD).
+}
+\details{
+SNPs are first classified as outliers according to a user-supplied threshold.
+Outlier SNPs are then grouped into connected components within each chromosome
+using pairwise LD edges that satisfy both a distance threshold and an
+LD threshold. These thresholds are derived from chromosome-specific LD-decay
+parameters.
+
+Two detection modes are supported:
+\enumerate{
+\item \code{per_method}: detect outlier regions separately for each column
+of \code{vals},
+\item \code{joint}: take the union of outlier SNPs across methods before
+clustering, and return a single joint set of outlier regions.
+}
+
+For each chromosome, the function retrieves chromosome-specific LD-decay
+parameters from \code{ld_decay$decay_sum}. The relative thresholds
+\code{rho_d} and \code{rho_ld} are converted to an absolute distance threshold
+and an absolute LD threshold using \code{d_from_rho()} and \code{ld_from_rho()}.
+
+Outlier regions are defined as connected components in an undirected graph,
+where nodes are outlier SNPs and edges connect SNP pairs satisfying both
+thresholds.
+
+The expected direction of significance depends on the statistic type:
+q-like measures typically use \code{sign_if = "less"}, whereas
+C-like measures typically use \code{sign_if = "greater"}.
 }

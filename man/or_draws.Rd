@@ -2,7 +2,7 @@
 % Please edit documentation in R/outlier_regions.R
 \name{or_draws}
 \alias{or_draws}
-\title{Draw ORs across parameter space (flat output)}
+\title{Sample outlier regions across detection parameters}
 \usage{
 or_draws(
   el,
@@ -21,6 +21,79 @@ or_draws(
   cores = 1
 )
 }
+\arguments{
+\item{el}{LD edge list containing pairwise SNP LD values and genomic distances.}
+
+\item{vals}{Matrix or data.frame of SNP-level statistics, with SNPs in rows and
+methods in columns.}
+
+\item{SNP_ids}{Vector of SNP identifiers in the same order as \code{vals}.}
+
+\item{SNP_chr}{Vector of chromosome identifiers in the same order as \code{vals}.}
+
+\item{ld_decay}{Object of class \code{"ld_decay"} containing chromosome-specific
+LD-decay summaries.}
+
+\item{n_draws}{Number of parameter draws.}
+
+\item{stat_type}{Type of statistic used for OR detection; one of \code{"q"}
+or \code{"C"}.}
+
+\item{mode}{Detection mode passed to \code{detect_or()}, either
+\code{"per_method"} or \code{"joint"}. Multiple modes may be supplied.}
+
+\item{rho_d_lim}{Named list with elements \code{min} and \code{max} defining
+the sampling range for the relative distance threshold \code{rho_d}.}
+
+\item{rho_ld_lim}{Named list with elements \code{min} and \code{max} defining
+the sampling range for the relative LD threshold \code{rho_ld}.}
+
+\item{alpha_lim}{Named list with elements \code{min} and \code{max} defining
+the sampling range for the significance exponent when
+\code{stat_type = "q"}.}
+
+\item{C_lim}{Named list with elements \code{min} and \code{max} defining
+the sampling range for the consistency threshold when
+\code{stat_type = "C"}.}
+
+\item{lmin_lim}{Named list with elements \code{min} and \code{max} defining
+the sampling range for the minimum region size \code{l_min}.}
+
+\item{cores}{Number of CPU cores.}
+}
+\value{
+A \code{data.table} with one row per draw and method, containing:
+\describe{
+\item{draw_id}{Identifier of the parameter draw.}
+\item{method}{Method name or joint-analysis label.}
+\item{rho_d}{Sampled relative distance threshold.}
+\item{rho_ld}{Sampled relative LD threshold.}
+\item{alpha}{Sampled significance threshold parameter. For q-based input,
+this is the actual q-value threshold derived from the sampled exponent.}
+\item{l_min}{Sampled minimum outlier-region size.}
+\item{OR}{List-column containing detected outlier regions.}
+\item{OR_size}{Number of detected outlier regions.}
+}
+}
 \description{
-Draw ORs across parameter space (flat output)
+Repeatedly draws outlier-region detection parameters from user-specified
+ranges and applies \code{detect_or()} to generate a flat table of outlier
+region (OR) results across parameter combinations.
+}
+\details{
+This function is intended for sensitivity analyses and robustness assessment
+of OR detection. Each draw samples clustering thresholds and significance
+parameters, detects outlier regions, and stores the resulting ORs together
+with the sampled parameter values.
+
+For q-based statistics, the significance threshold is sampled on a
+log-scale by drawing an exponent and converting it to
+\eqn{1 / 10^{\alpha}}. For C-based statistics, thresholds are sampled
+directly from \code{C_lim}.
+
+If no LD edges are available, the function returns empty OR results for all
+draws.
+
+This is an internal workflow helper but may also be useful for advanced users
+exploring OR parameter sensitivity.
 }

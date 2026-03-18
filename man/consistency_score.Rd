@@ -2,17 +2,46 @@
 % Please edit documentation in R/consistency_score.R
 \name{consistency_score}
 \alias{consistency_score}
-\title{Compute consistency score across rho_w and OR draws}
+\title{Compute SNP-level consistency across OR draws}
 \usage{
 consistency_score(draws, combine = TRUE)
 }
 \arguments{
-\item{rho_draws_obj}{Object of class "ld_rho_draws".}
+\item{draws}{A \code{data.table} of OR draws, typically returned by
+\code{ld_rho_draws()} or \code{or_draws()}, containing at least the columns
+\code{method}, \code{OR}, and \code{OR_size}.}
+
+\item{combine}{Logical; currently unused.}
 }
 \value{
-Object of class "ld_consistency".
+An object of class \code{"ld_consistency"} containing:
+\describe{
+\item{consistency}{A long-format \code{data.table} with columns
+\code{SNP}, \code{method}, \code{N}, and \code{C}, where \code{C} is the
+SNP-level consistency score.}
+\item{total_draws}{Number of draws per method used to compute consistency.}
+}
 }
 \description{
-Calculates SNP-level consistency across all rho_w and OR draws,
-separately for each method.
+Calculates SNP-level consistency scores from repeated outlier-region (OR)
+detection draws.
+}
+\details{
+For each method, the consistency score of a SNP is defined as the proportion
+of retained draws in which that SNP appears in at least one detected outlier
+region.
+
+Extremely large OR solutions are excluded before scoring using an
+upper-tail outlier filter based on:
+\deqn{Q3 + 1.5 \times IQR}
+applied to \code{OR_size} across draws with at least one detected region.
+
+The score is computed separately for each method as:
+\deqn{C = N / n_{draws}}
+where \eqn{N} is the number of retained draws in which the SNP occurs in an
+outlier region and \eqn{n_{draws}} is the total number of draws for that
+method.
+
+This measure is intended to highlight SNPs that recur consistently across
+parameter settings, rather than SNPs appearing only in isolated OR solutions.
 }
