@@ -274,7 +274,6 @@ plot_manhattan_gg <- function(layout,
     stop("layout must be from prep_manhattan().")
 
 
-
   don     <- data.table::copy(layout$data)
   axisdf  <- layout$axis
   rect_dt <- layout$rect
