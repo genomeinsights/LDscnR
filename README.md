@@ -162,18 +162,16 @@ vignette("LDscnR_quick_introduction")
 
 ## 📜 License
 
-MIT (or specify your license)
+MIT
 
 ------------------------------------------------------------------------
 
 ## 👨‍🔬 Author
 
-Your Name
+Petri Kemppainen - petri\@genomeinsights.fi
 
 ------------------------------------------------------------------------
 
 ## 💡 Citation
 
-If you use `LDscnR`, please cite:
-
-> (Add manuscript or preprint here)
+If you use `LDscnR`, please cite: <https://www.biorxiv.org/content/10.64898/2026.01.19.700334v1>
