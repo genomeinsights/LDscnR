@@ -6,8 +6,6 @@
 
 ------------------------------------------------------------------------
 
-TEST LINE
-
 ## 🚀 Key features
 
 -   📉 **LD decay estimation** (chromosome-specific)
