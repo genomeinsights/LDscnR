@@ -49,21 +49,7 @@ ld_scan <- function(ld_w,
   class(out) <- "ld_scan"
   out
 }
-enforce_parallel_below_null <- function(y, x) {
-  stopifnot(length(y) == length(x))
 
-  d <- y - x
-  bad <- which(d < cummax(d))
-
-  if (length(bad) == 0L) return(y)
-
-  i0 <- bad[1]
-  offset <- cummax(d)[i0 - 1L]
-
-  out <- y
-  out[i0:length(y)] <- x[i0:length(y)] + offset
-  out
-}
 
 compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, enforce_null_floor = TRUE,full) {
 
@@ -81,7 +67,8 @@ compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, enforce_null_floor = TRU
     pos <- round(seq(1, m, length.out = n_out))
     sorted_x[pos]
   }
-  #j = 1
+
+
   res <- lapply(seq_len(ncol(F_mat)), function(j) {
 
     Fval <- F_mat[, j]
@@ -103,7 +90,7 @@ compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, enforce_null_floor = TRU
     #k=1
     for (k in seq_len(n_rep)) {
       start <- sample.int(n, 1)
-      shifted <- c(ld_w[start:n], ld_w[1:(start - 1)])
+      shifted <- c(ld_w[start:n], ld_w[seq_len(start - 1)])
 
       null_k <- Fval * shifted
       denom_k <- mean(null_k, na.rm = TRUE)
@@ -116,6 +103,7 @@ compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, enforce_null_floor = TRU
 
       null_all[((k - 1) * n + 1):(k * n)] <- null_k
     }
+
 
     null_all <- null_all[is.finite(null_all)]
     null_perm_sorted <- sort(null_all)

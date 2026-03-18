@@ -279,133 +279,6 @@ compute_LD_decay <- function(
 
   out
 }
-#
-# compute_LD_decay <- function(
-#     gds,
-#     el_data_folder=NULL,
-#     ## for LD-decay and bg
-#     q = 0.95,
-#     ## for bg
-#     n_sub_bg = 5000,
-#     ## for decay
-#     n_win_decay = 20,
-#     overlap = 0.5,
-#     max_SNPs_decay = Inf,
-#     prob_robust = 0.95,
-#     max_pairs = 5000,
-#     n_strata = 20,
-#     keep_el = FALSE,
-#     ## for ld_int
-#     slide=1000,
-#     cores = 1
-# ) {
-#
-#
-#   if(!is.null(el_data_folder)) if(!dir.exists(el_data_folder)) dir.create(el_data_folder)
-#
-#
-#   ids  <- .read_gds_ids(gds)
-#   chrs <- unique(ids$snp_chr)
-#
-#   b <- estimate_background_ld(gds, n_sub = n_sub_bg, q = q)
-#
-#   out_by_chr <- vector("list", length(chrs))
-#   names(out_by_chr) <- chrs
-#
-#   message("Estimating LD-decay")
-#   for (ch in chrs) {
-#
-#     chr_idx  <- which(ids$snp_chr == ch)
-#     pos_chr  <- ids$snp_pos[chr_idx]
-#     snps_chr <- ids$snp_id[chr_idx]
-#
-#     cat(ch, " - ")
-#
-#
-#     sample_idx <- sort(sample(chr_idx, size = min(max_SNPs_decay, length(chr_idx)),replace = FALSE))
-#
-#     el <- get_el(
-#       gds = gds,
-#       idx = sample_idx,
-#       slide_win_ld = slide,
-#       cores = cores,
-#       by_chr = TRUE,
-#       symmetric = TRUE,
-#       edge_symmetry = FALSE
-#     )
-#
-#     data.table::setkey(el, SNP)
-#
-#     window_size <- (max(pos_chr) - min(pos_chr)) / n_win_decay
-#     step_size   <- window_size * overlap
-#
-#     # ---- LD-decay
-#     decay <- suppressWarnings(
-#       estimate_decay_chr(
-#         el = el[d<window_size],
-#         b  = b,
-#         window_size = window_size,
-#         step_size   = step_size,
-#         max_pairs   = max_pairs,
-#         n_strata    = n_strata,
-#         q = q,
-#         cores = cores
-#       )
-#     )
-#
-#     #decay_dt <- decay
-#     decay[,contrast:=c - b]
-#
-#     decay[, regime := ifelse(
-#       contrast < 0.05,
-#       "weak",
-#       "structured"
-#     )]
-#
-#     decay_sum <- summarize_decay(decay[regime=="structured",])
-#
-#     decay_sum[,chr_size := max(pos_chr)]
-#
-#     if (is.null(decay_sum)) next
-#
-#     decay_sum[,n_w_used := sum(na.omit(decay$regime == "structured"))]
-#     decay_sum[, Chr := ch]
-#
-#     out_by_chr[[ch]] <- list(
-#       snp_ids     = snps_chr,
-#       el          = if(keep_el) el else NULL,
-#       decay       = decay,
-#       decay_sum   = decay_sum
-#     )
-#   }
-#
-#   message("Predicting a from chromosome size")
-#   decay_sum <- rbindlist(lapply(out_by_chr,function(x) x$decay_sum))
-#
-#   d_mod <- MASS::rlm(log(a) ~ log(chr_size), data = decay_sum)
-#
-#   decay_sum[,a_pred := exp(predict(d_mod,decay_sum))]
-#   decay_sum[,c_pred := median(c)]
-#
-#   out <- list(
-#     by_chr    = out_by_chr,
-#     decay_sum = decay_sum,
-#     params    = list( q = q,
-#                       n_sub_bg = n_sub_bg,
-#                       n_win_decay = n_win_decay,
-#                       overlap = overlap,
-#                       el_data_folder=el_data_folder,
-#                       n_strata = n_strata,
-#                       max_pairs = max_pairs,
-#                       keep_el   = keep_el,
-#                       prob_robust = prob_robust,
-#                       cores = cores)
-#   )
-#
-#   class(out) <- "ld_decay"
-#
-#   out
-# }
 
 
 #' Summarize LD Decay Parameters
@@ -694,36 +567,6 @@ parallel_apply <- function(X, FUN, cores = 1) {
 }
 
 
-thin_to_k_target <- function(pos, d_star, k_target = 1000) {
-
-  pos <- sort(pos)
-
-  # current effective density
-  lambda_current <- 1 / median(diff(pos))
-
-  # target density
-  lambda_target <- k_target / d_star
-
-  # if already acceptable
-  if (lambda_current <= lambda_target) {
-    return(seq_along(pos))
-  }
-
-  # target spacing
-  target_spacing <- 1 / lambda_target
-
-  keep <- integer()
-  last_kept <- -Inf
-
-  for (i in seq_along(pos)) {
-    if (pos[i] - last_kept >= target_spacing) {
-      keep <- c(keep, i)
-      last_kept <- pos[i]
-    }
-  }
-
-  keep
-}
 
 #' Print Method for ld_structure Objects
 #'
@@ -908,16 +751,6 @@ compute_ld_w <- function(
   return(ld_w)
 }
 
-
-weighted_median <- function(x, w) {
-  ord <- order(x)
-  x <- x[ord]
-  w <- w[ord]
-  w <- w / sum(w)
-  cs <- cumsum(w)
-  x[which(cs >= 0.5)[1]]
-}
-
 compute_ld_int_fill <- function(
     el,
     snp_ids,
@@ -1040,3 +873,237 @@ compute_ld_int_fill <- function(
   result
 }
 
+compute_ld_int <- function(
+    el,
+    snp_ids,
+    a,
+    b = NULL,
+    c = NULL,
+    n_bins = 20,
+    rho_max = 0.90,
+    min_pairs = 3,
+    edge_mode = c("none", "trim", "fill"),
+    scale = c("raw", "excess", "contrast"),
+    clip_contrast = TRUE,
+    return_support = FALSE
+) {
+
+  edge_mode <- match.arg(edge_mode)
+  scale <- match.arg(scale)
+
+  if (nrow(el) == 0L) {
+    result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+    if (return_support) {
+      return(list(
+        LD_int = result,
+        support = data.table::data.table()
+      ))
+    }
+    return(result)
+  }
+
+  if (!is.finite(a) || a <= 0) {
+    stop("`a` must be a positive finite number.")
+  }
+
+  if (scale %in% c("excess", "contrast") && !is.finite(b)) {
+    stop("For `scale = 'excess'` or `scale = 'contrast'`, `b` must be provided.")
+  }
+
+  if (scale == "contrast") {
+    if (!is.finite(c)) stop("For `scale = 'contrast'`, `c` must be provided.")
+    if ((c - b) <= 0) stop("For `scale = 'contrast'`, `c - b` must be > 0.")
+  }
+
+  if (!is.numeric(rho_max) || length(rho_max) != 1L || rho_max <= 0 || rho_max >= 1) {
+    stop("`rho_max` must be a single number in (0, 1).")
+  }
+
+  n_bins <- as.integer(n_bins)
+  if (!is.finite(n_bins) || n_bins < 1L) {
+    stop("`n_bins` must be a positive integer.")
+  }
+
+  req_cols <- c("SNP", "d", "r2", "pos1", "pos2")
+  if (!all(req_cols %in% names(el))) {
+    stop("`el` must contain columns: ", paste(req_cols, collapse = ", "))
+  }
+
+  ## ---- truncate to rho support
+  d_cap <- rho_max / (a * (1 - rho_max))
+  el_use <- el[d <= d_cap, .(SNP, d, r2, pos1, pos2)]
+
+  if (nrow(el_use) == 0L) {
+    result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+    if (return_support) {
+      return(list(
+        LD_int = result,
+        support = data.table::data.table()
+      ))
+    }
+    return(result)
+  }
+
+  ## ---- left/right leg
+  el_use[, side := data.table::fifelse(pos2 > pos1, "R", "L")]
+
+  ## ---- optional symmetric trimming
+  if (edge_mode == "trim") {
+    support_trim <- el_use[, .(
+      maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
+      maxR = if (any(side == "R")) max(d[side == "R"]) else 0
+    ), by = SNP]
+
+    support_trim[, S := pmin(maxL, maxR)]
+
+    el_use <- support_trim[el_use, on = "SNP"]
+    el_use <- el_use[d <= S, .(SNP, d, r2, pos1, pos2, side)]
+  }
+
+  if (nrow(el_use) == 0L) {
+    result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+    if (return_support) {
+      return(list(
+        LD_int = result,
+        support = data.table::data.table()
+      ))
+    }
+    return(result)
+  }
+
+  ## ---- equal-rho bins via direct mapping
+  rho <- (a * el_use$d) / (1 + a * el_use$d)
+  dist_idx <- as.integer(floor(n_bins * rho / rho_max) + 1L)
+  dist_idx[dist_idx < 1L] <- 1L
+  dist_idx[dist_idx > n_bins] <- n_bins
+  el_use[, dist_idx := dist_idx]
+
+  ## ---- side-specific bin medians
+  shell_side <- el_use[, .(
+    n_pairs = .N,
+    med_r2 = if (.N >= min_pairs) median(r2) else NA_real_
+  ), by = .(SNP, side, dist_idx)]
+
+  shell_side <- shell_side[is.finite(med_r2)]
+
+  if (nrow(shell_side) == 0L) {
+    result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+    if (return_support) {
+      return(list(
+        LD_int = result,
+        support = data.table::data.table()
+      ))
+    }
+    return(result)
+  }
+
+  ## ---- wide table: one row per SNP x bin, columns L and R
+  shell_wide <- data.table::dcast(
+    shell_side,
+    SNP + dist_idx ~ side,
+    value.var = "med_r2"
+  )
+
+  ## make sure missing side columns exist
+  if (!"L" %in% names(shell_wide)) shell_wide[, L := NA_real_]
+  if (!"R" %in% names(shell_wide)) shell_wide[, R := NA_real_]
+
+  ## ---- combine sides within bins
+  shell_wide[, bin_val := data.table::fifelse(
+    !is.na(L) & !is.na(R), (L + R) / 2,
+    data.table::fifelse(!is.na(L), L, R)
+  )]
+
+  shell_wide <- shell_wide[is.finite(bin_val)]
+
+  if (nrow(shell_wide) == 0L) {
+    result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+    if (return_support) {
+      return(list(
+        LD_int = result,
+        support = data.table::data.table()
+      ))
+    }
+    return(result)
+  }
+
+  ## ---- transform bin values if requested
+  if (scale == "raw") {
+    shell_wide[, bin_val_scaled := bin_val]
+  }
+
+  if (scale == "excess") {
+    shell_wide[, bin_val_scaled := pmax(0, bin_val - b)]
+  }
+
+  if (scale == "contrast") {
+    shell_wide[, bin_val_scaled := (bin_val - b) / (c - b)]
+    if (clip_contrast) {
+      shell_wide[, bin_val_scaled := pmin(1, pmax(0, bin_val_scaled))]
+    }
+  }
+
+  ## ---- fill mode: duplicate missing leg at the bin-summary level
+  if (edge_mode == "fill") {
+    shell_long <- shell_wide[, .(
+      SNP,
+      dist_idx,
+      val1 = data.table::fifelse(!is.na(L), bin_val_scaled, bin_val_scaled),
+      val2 = data.table::fifelse(!is.na(R), bin_val_scaled, bin_val_scaled),
+      L_present = !is.na(L),
+      R_present = !is.na(R)
+    )]
+
+    ## if both sides present, keep two equal representatives
+    ## if only one side present, fill the missing side with the observed bin value
+    shell_long <- data.table::melt(
+      shell_long,
+      id.vars = c("SNP", "dist_idx", "L_present", "R_present"),
+      measure.vars = c("val1", "val2"),
+      value.name = "bin_val_scaled"
+    )
+
+    LD_dt <- shell_long[, .(
+      LD_int = median(bin_val_scaled, na.rm = TRUE)
+    ), by = SNP]
+
+  } else {
+    LD_dt <- shell_wide[, .(
+      LD_int = median(bin_val_scaled, na.rm = TRUE)
+    ), by = SNP]
+  }
+
+  result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+  result[LD_dt$SNP] <- LD_dt$LD_int
+
+  if (!return_support) {
+    return(result)
+  }
+
+  support_dt <- shell_wide[, .(
+    n_bins_obs   = .N,
+    n_bins_both  = sum(!is.na(L) & !is.na(R)),
+    n_bins_Lonly = sum(!is.na(L) &  is.na(R)),
+    n_bins_Ronly = sum( is.na(L) & !is.na(R))
+  ), by = SNP]
+
+  list(
+    LD_int = result,
+    support = support_dt
+  )
+}
+
+
+#' @export
+compute_DPI <- function(ld_decay,bins=1000,rho_max=0.99,edge_mode="fill",scale=c("raw", "excess", "contrast"),cores=1){
+
+  dpi <- unlist(parallel_apply(ld_decay$by_chr, function(chr_obj) {
+
+    a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a]
+
+    compute_ld_int(chr_obj$el, snp_ids=chr_obj$snp_ids, a,n_bins = bins,rho_max = rho_max,edge_mode = edge_mode)
+
+  }, cores = cores))
+
+  return(dpi)
+}

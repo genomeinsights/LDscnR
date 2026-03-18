@@ -7,13 +7,12 @@
 ###
 
 
-
-get_PR <- function(draw_ORs,
-                   map_filt,cores=1) {
+#PR_C <- get_PR(draw_ORs=draws_ld_int_C$draws$OR,map_filt,cores=cores)
+get_PR <- function(draw_ORs,map_filt,p_Va_th=0.05,cores=1) {
 
 
   true <- unique(map_filt[p_Va > p_Va_th, focal_QTN])
-
+  #ORs <- draw_ORs[[1]]
   rbindlist(parallel_apply(draw_ORs,function(ORs){
 
     if (length(ORs) > 0) {
