@@ -4,7 +4,7 @@
 \alias{print.ld_decay}
 \title{Compute Local LD Support (ld_w)}
 \usage{
-\method{print}{ld_decay}(x, digits = 3, ...)
+\method{print}{ld_decay}(x, digits = 3)
 }
 \arguments{
 \item{ld_decay}{Object of class \code{"ld_decay"}.}

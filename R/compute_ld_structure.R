@@ -647,7 +647,7 @@ parallel_apply <- function(X, FUN, cores = 1) {
 #' Requires \code{keep_el = TRUE} when calling \code{compute_LD_decay()}.
 #'
 #' @export
-print.ld_decay <- function(x, digits = 3, ...) {
+print.ld_decay <- function(x, digits = 3) {
 
   cat("<ld_decay>\n")
 
@@ -780,7 +780,8 @@ print.ld_decay <- function(x, digits = 3, ...) {
   invisible(x)
 }
 
-summary.ld_decay <- function(object, ...) {
+#' @export
+summary.ld_decay <- function(object) {
   object$recommendation$suggested_slide_summary
 }
 
