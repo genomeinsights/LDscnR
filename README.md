@@ -28,7 +28,7 @@
 
 ```         
 # install from GitHub
-devtools::install_github("yourusername/LDscnR")
+devtools::install_github("genomeinsights/LDscnR")
 ```
 
 ------------------------------------------------------------------------
