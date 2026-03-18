@@ -7,8 +7,6 @@
 #' @param n_inds Number of individuals.
 #' @param F_vals Matrix or data.frame of F statistics.
 #' @param q_vals Matrix or data.frame of q values (optional).
-#' @param n_rho_w Number of LD-window draws.
-#' @param rho_w_lim List(min,max) for rho_w.
 #' @param n_draws Number of OR parameter draws per rho_w.
 #' @param rho_d_lim List(min,max) for rho_d.
 #' @param rho_ld_lim List(min,max) for rho_ld.
@@ -26,10 +24,8 @@ ld_rho_draws <- function(gds,
                          C_scores   = NULL,
                          stat_type  = c("q","C"),
                          mode       = c("joint","per_method"),
-                         n_rho_w    = 25,
-                         ld_w_int   = NULL,
                          n_draws    = 100,
-                         rho_w_lim  = list(min=0.8,max=0.99),
+                         rho        = seq(0.75,0.95,by=0.025),
                          rho_d_lim  = list(min=0.5,max=0.999),
                          rho_ld_lim = list(min=0.9,max=0.999),
                          alpha_lim  = list(min=1.31,max=4),
@@ -44,53 +40,37 @@ ld_rho_draws <- function(gds,
 
   ids <- .read_gds_ids(gds)
 
-  if(!is.null(ld_w_int)){
-    scan_int <- ld_scan(
-      SNP_ids   = ids$snp_id,
-      F_vals    = F_vals,
-      ld_w      = ld_w_int,
-      n_inds    = n_inds,
-      full      = TRUE
-    )
-
-    q_primes_int <- do.call(cbind,lapply(scan_int$result,function(x) x$q_prime))
-    colnames(q_primes_int) <- paste0(colnames(q_primes_int),"_prime_int")
-
-  }else{
-    q_primes_int = NULL
-  }
-
 
   if(stat_type[1]=="q"){
-    draws <- rbindlist(lapply(seq_len(n_rho_w),function(dr){
-      #message("draw ",dr)
-
-      if(!is.null(rho_w_lim)){
-        rho_w <- runif(1, rho_w_lim$min,rho_w_lim$max)
-
-        ld_w <- compute_ld_w(ld_decay,
-                             rho = rho_w,
-                             cores = cores)
-
-        scan <- ld_scan(
-          SNP_ids   = ids$snp_id,
-          F_vals    = F_vals,
-          ld_w      = ld_w,
-          n_inds    = n_inds,
-          full      = TRUE
-        )
+    cat("Working on rho: ")
+    #rh = 0.95
+    draws <- rbindlist(lapply(rho,function(rh){
+      cat(rh," \n")
 
 
-        q_primes <- do.call(cbind,lapply(scan$result,function(x) x$q_prime))
-        colnames(q_primes) <- paste0(colnames(q_primes),"_prime")
-        qvals <- cbind(q_vals, q_primes,q_primes_int)
+      ld_w <- compute_ld_w(ld_decay,
+                           rho = rh,
+                           cores = cores)
 
-      }else{
-        rho_w = NA
-        qvals <- cbind(q_vals, q_primes_int)
-      }
+      scan <- ld_scan(
+        SNP_ids   = ids$snp_id,
+        F_vals    = F_vals,
+        ld_w      = ld_w,
+        n_inds    = n_inds,
+        full      = TRUE
+      )
 
-      q_min <- apply(qvals,1,min)
+      q_primes <- do.call(cbind,lapply(scan$result,function(x) x$q_prime))
+      colnames(q_primes) <- paste0(colnames(q_primes),"_prime")
+      qvals <- cbind(q_vals, q_primes)
+
+
+      # plot(-log10(q_primes[,1]))
+      # abline(h=0.1)
+      # hist(-log10(q_primes[,2]),breaks = 1000,xlim=c(0,2),ylim=c(0,5000))
+      # abline(v=0.5)
+      # q_min <- apply(qvals,1,min)
+      #hist(-log10(q_min),breaks = 1000,xlim=c(0,2),ylim=c(0,5000))
 
       ## pre-estimate all pairwise LD values for outliers
       idx <- which(q_min<1/10^alpha_lim$min)
@@ -106,7 +86,7 @@ ld_rho_draws <- function(gds,
         vals       = qvals,
         SNP_ids    = ids$snp_id,
         SNP_chr    = ids$snp_chr,
-        ld_decay  = ld_decay,
+        ld_decay   = ld_decay,
         n_draws    = n_draws,
         rho_d_lim  = rho_d_lim,
         rho_ld_lim = rho_ld_lim,
@@ -118,7 +98,7 @@ ld_rho_draws <- function(gds,
         cores      = cores
       )
 
-      draws[,rho_w:=rho_w]
+      draws[,rho_w:=rh]
       return(draws)
     }))
   }
@@ -153,7 +133,7 @@ ld_rho_draws <- function(gds,
       draws[,rho_w:=NA]
     }
 
-  list(draws=draws[,.(draw_id, method, rho_w, rho_d, rho_ld, alpha, l_min, OR, OR_size)],class = "ld_rho_draws")
+  list(draws=draws[,.(method, rho_w, rho_d, rho_ld, alpha, l_min, OR, OR_size)],class = "ld_rho_draws")
 }
 
 

@@ -9,7 +9,10 @@
 #' @export
 consistency_score <- function(draws,combine=TRUE) {
 
-  long_dt <- draws[
+
+  size_th <- draws[OR_size>0,quantile(OR_size,0.75)+1.5*IQR(OR_size)]
+
+  long_dt <- draws[OR_size<size_th
     , .(SNP = unlist(OR)),
     by = .(method)
   ]

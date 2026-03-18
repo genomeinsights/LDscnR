@@ -53,7 +53,7 @@ detect_or <- function(el,
     or_list <- list()
     #ch = "Chr1"
     for (ch in chrs) {
-
+    #cat(ch," -- ")
 
       out_chr <- SNP_ids[idx][SNP_chr[idx] == ch]
 
@@ -61,9 +61,9 @@ detect_or <- function(el,
         next
 
       # thresholds
-      a_chr  <- ld_decay$decay_sum[Chr == ch, a]
+      a_chr  <- ld_decay$decay_sum[Chr == ch, a_pred]
       b_chr  <- ld_decay$decay_sum[Chr == ch, b]
-      c_chr  <- ld_decay$decay_sum[Chr == ch, c]
+      c_chr  <- ld_decay$decay_sum[Chr == ch, c_pred]
 
 
       d_th  <- d_from_rho(a_chr, rho = rho_d)
@@ -115,11 +115,11 @@ detect_or <- function(el,
     # union of outliers across methods
     qs <- apply(vals, 1, min)
 
-    outlers <- SNP_ids[!is.na(qs) & outlier_fun(qs)]
+    outliers <- SNP_ids[!is.na(qs) & outlier_fun(qs)]
 
     #union_outliers <- unique(unlist(outlier_matrix))
 
-    joint_or <- build_or_from_snps(outlers)
+    joint_or <- build_or_from_snps(outliers)
 
     # return as single named element
     out <- list(Joint = joint_or)
@@ -173,8 +173,9 @@ or_draws <- function(el,
   out <- rbindlist(lapply(mode,function(mod){
 
     methods <- colnames(vals)
-
+    cat("replicate:")
     out <- rbindlist(parallel_apply(seq_len(n_draws),function(i) {
+      cat(i, "- ")
 
       rho_d  <- runif(1, rho_d_lim$min, rho_d_lim$max)
       rho_ld <- runif(1, rho_ld_lim$min, rho_ld_lim$max)
@@ -195,13 +196,13 @@ or_draws <- function(el,
           OR      = replicate(length(methods), list(list()), simplify = FALSE),
           OR_size = 0L
         ))
-
+      #mod = "joint"
       or_obj <- detect_or(
         el        = el,
         vals      = vals,
         SNP_ids   = SNP_ids,
         SNP_chr   = SNP_chr,
-        ld_decay = ld_decay,
+        ld_decay  = ld_decay,
         sign_th   = alpha,
         sign_if   = sign_if,
         rho_d     = rho_d,
@@ -255,7 +256,8 @@ or_draws <- function(el,
       }
 
     },cores=cores))
-
+    cat("\n")
+    return(out)
   }))
 
 

@@ -725,18 +725,16 @@ summary.ld_decay <- function(object, ...) {
 #' @param ... Additional graphical parameters.
 #'
 #' @export
-
-
 compute_ld_w <- function(
-    ld_structure,
+    ld_decay,
     rho = 0.95,
     cores = 1
 ) {
 
-  ld_w <- unlist(parallel_apply(ld_structure$by_chr, function(chr_obj) {
+  ld_w <- unlist(parallel_apply(ld_decay$by_chr, function(chr_obj) {
 
-    a <- chr_obj$decay_sum$a
-    b <- chr_obj$decay_sum$b
+    a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
+    b <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,b]
 
     d_window <- d_from_rho(a, rho)
 
@@ -751,16 +749,136 @@ compute_ld_w <- function(
   return(ld_w)
 }
 
-compute_ld_int_fill <- function(
+# compute_ld_int_fill <- function(
+#     el,
+#     snp_ids,
+#     a,
+#     n_bins = 20,
+#     rho_max = 0.90,
+#     edge_mode = c("none", "trim", "fill")
+# ) {
+#
+#   edge_mode <- match.arg(edge_mode)
+#
+#   if (nrow(el) == 0L) {
+#     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+#   }
+#
+#   if (!is.finite(a) || a <= 0) {
+#     stop("`a` must be a positive finite number.")
+#   }
+#
+#   if (!is.numeric(rho_max) || length(rho_max) != 1L || rho_max <= 0 || rho_max >= 1) {
+#     stop("`rho_max` must be a single number in (0, 1).")
+#   }
+#
+#   n_bins <- as.integer(n_bins)
+#   if (!is.finite(n_bins) || n_bins < 1L) {
+#     stop("`n_bins` must be a positive integer.")
+#   }
+#
+#   if (!all(c("SNP", "d", "r2", "pos1", "pos2") %in% names(el))) {
+#     stop("`el` must contain columns: SNP, d, r2, pos1, pos2")
+#   }
+#
+#   # truncate to rho support
+#   d_cap <- rho_max / (a * (1 - rho_max))
+#   el_use <- el[d <= d_cap, .(SNP, d, r2, pos1, pos2)]
+#
+#   if (nrow(el_use) == 0L) {
+#     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+#   }
+#
+#   # left/right leg
+#   el_use[, side := data.table::fifelse(pos2 > pos1, "R", "L")]
+#
+#   # optional symmetric trimming to common support
+#   if (edge_mode == "trim") {
+#     support_dt <- el_use[, .(
+#       maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
+#       maxR = if (any(side == "R")) max(d[side == "R"]) else 0
+#     ), by = SNP]
+#
+#     support_dt[, S := pmin(maxL, maxR)]
+#
+#     el_use <- support_dt[el_use, on = "SNP"]
+#     el_use <- el_use[d <= S, .(SNP, d, r2, pos1, pos2, side)]
+#   }
+#
+#   if (nrow(el_use) == 0L) {
+#     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+#   }
+#
+#   # equal-rho bins via direct mapping
+#   rho <- (a * el_use$d) / (1 + a * el_use$d)
+#   dist_idx <- as.integer(floor(n_bins * rho / rho_max) + 1L)
+#   dist_idx[dist_idx < 1L] <- 1L
+#   dist_idx[dist_idx > n_bins] <- n_bins
+#   el_use[, dist_idx := dist_idx]
+#
+#   # side-specific bin medians
+#   shell_side <- el_use[, .(
+#     n_pairs = .N,
+#     med_r2 = median(r2,na.rm = TRUE)
+#   ), by = .(SNP, side, dist_idx)]
+#
+#   shell_side <- shell_side[is.finite(med_r2)]
+#
+#   if (nrow(shell_side) == 0L) {
+#     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+#   }
+#
+#   # wide table: one row per SNP x bin, columns for left and right medians
+#   shell_wide <- data.table::dcast(
+#     shell_side,
+#     SNP + dist_idx ~ side,
+#     value.var = "med_r2"
+#   )
+#
+#   # bin-level summary depending on edge handling
+#   if (edge_mode == "none" || edge_mode == "trim") {
+#     # use whatever is observed in that bin
+#     shell_wide[, bin_val := data.table::fifelse(
+#       !is.na(L) & !is.na(R), (L + R) / 2,
+#       data.table::fifelse(!is.na(L), L, R)
+#     )]
+#   }
+#
+#   if (edge_mode == "fill") {
+#     # if one side is missing, fill it from the other side
+#     shell_wide[, bin_val := data.table::fifelse(
+#       !is.na(L) & !is.na(R), (L + R) / 2,
+#       data.table::fifelse(!is.na(L), L, R)
+#     )]
+#     # algebraically same bin value, but conceptually this is a symmetric fill
+#     # because missing leg bins are completed by the observed leg before combining
+#   }
+#
+#   shell_wide <- shell_wide[is.finite(bin_val)]
+#
+#   if (nrow(shell_wide) == 0L) {
+#     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
+#   }
+#
+#   # final DPI: median across occupied rho-bins
+#   LD_dt <- shell_wide[, .(
+#     LD_int = median(bin_val)
+#   ), by = SNP]
+#
+#   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+#   result[LD_dt$SNP] <- LD_dt$LD_int
+#
+#   result
+# }
+
+
+compute_dpi <- function(
     el,
     snp_ids,
     a,
     n_bins = 20,
-    rho_max = 0.90,
-    edge_mode = c("none", "trim", "fill")
+    rho_max = 0.90
 ) {
-
-  edge_mode <- match.arg(edge_mode)
 
   if (nrow(el) == 0L) {
     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
@@ -791,26 +909,6 @@ compute_ld_int_fill <- function(
     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
   }
 
-  # left/right leg
-  el_use[, side := data.table::fifelse(pos2 > pos1, "R", "L")]
-
-  # optional symmetric trimming to common support
-  if (edge_mode == "trim") {
-    support_dt <- el_use[, .(
-      maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
-      maxR = if (any(side == "R")) max(d[side == "R"]) else 0
-    ), by = SNP]
-
-    support_dt[, S := pmin(maxL, maxR)]
-
-    el_use <- support_dt[el_use, on = "SNP"]
-    el_use <- el_use[d <= S, .(SNP, d, r2, pos1, pos2, side)]
-  }
-
-  if (nrow(el_use) == 0L) {
-    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-  }
-
   # equal-rho bins via direct mapping
   rho <- (a * el_use$d) / (1 + a * el_use$d)
   dist_idx <- as.integer(floor(n_bins * rho / rho_max) + 1L)
@@ -822,7 +920,7 @@ compute_ld_int_fill <- function(
   shell_side <- el_use[, .(
     n_pairs = .N,
     med_r2 = median(r2,na.rm = TRUE)
-  ), by = .(SNP, side, dist_idx)]
+  ), by = .(SNP, dist_idx)]
 
   shell_side <- shell_side[is.finite(med_r2)]
 
@@ -830,41 +928,9 @@ compute_ld_int_fill <- function(
     return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
   }
 
-  # wide table: one row per SNP x bin, columns for left and right medians
-  shell_wide <- data.table::dcast(
-    shell_side,
-    SNP + dist_idx ~ side,
-    value.var = "med_r2"
-  )
-
-  # bin-level summary depending on edge handling
-  if (edge_mode == "none" || edge_mode == "trim") {
-    # use whatever is observed in that bin
-    shell_wide[, bin_val := data.table::fifelse(
-      !is.na(L) & !is.na(R), (L + R) / 2,
-      data.table::fifelse(!is.na(L), L, R)
-    )]
-  }
-
-  if (edge_mode == "fill") {
-    # if one side is missing, fill it from the other side
-    shell_wide[, bin_val := data.table::fifelse(
-      !is.na(L) & !is.na(R), (L + R) / 2,
-      data.table::fifelse(!is.na(L), L, R)
-    )]
-    # algebraically same bin value, but conceptually this is a symmetric fill
-    # because missing leg bins are completed by the observed leg before combining
-  }
-
-  shell_wide <- shell_wide[is.finite(bin_val)]
-
-  if (nrow(shell_wide) == 0L) {
-    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
-  }
-
   # final DPI: median across occupied rho-bins
-  LD_dt <- shell_wide[, .(
-    LD_int = median(bin_val)
+  LD_dt <- shell_side[, .(
+    LD_int = median(med_r2)
   ), by = SNP]
 
   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
@@ -873,237 +939,314 @@ compute_ld_int_fill <- function(
   result
 }
 
-compute_ld_int <- function(
+compute_dpi_fixed_window <- function(
     el,
     snp_ids,
     a,
-    b = NULL,
-    c = NULL,
-    n_bins = 20,
-    rho_max = 0.90,
-    min_pairs = 3,
-    edge_mode = c("none", "trim", "fill"),
-    scale = c("raw", "excess", "contrast"),
-    clip_contrast = TRUE,
-    return_support = FALSE
+    bin_scale = 0.1,
+    rho_max = 0.90
 ) {
 
-  edge_mode <- match.arg(edge_mode)
-  scale <- match.arg(scale)
-
   if (nrow(el) == 0L) {
-    result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-    if (return_support) {
-      return(list(
-        LD_int = result,
-        support = data.table::data.table()
-      ))
-    }
-    return(result)
+    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
   }
 
   if (!is.finite(a) || a <= 0) {
     stop("`a` must be a positive finite number.")
   }
 
-  if (scale %in% c("excess", "contrast") && !is.finite(b)) {
-    stop("For `scale = 'excess'` or `scale = 'contrast'`, `b` must be provided.")
-  }
-
-  if (scale == "contrast") {
-    if (!is.finite(c)) stop("For `scale = 'contrast'`, `c` must be provided.")
-    if ((c - b) <= 0) stop("For `scale = 'contrast'`, `c - b` must be > 0.")
-  }
-
   if (!is.numeric(rho_max) || length(rho_max) != 1L || rho_max <= 0 || rho_max >= 1) {
     stop("`rho_max` must be a single number in (0, 1).")
   }
 
-  n_bins <- as.integer(n_bins)
-  if (!is.finite(n_bins) || n_bins < 1L) {
-    stop("`n_bins` must be a positive integer.")
+  if (!is.numeric(bin_scale) || length(bin_scale) != 1L || !is.finite(bin_scale) || bin_scale <= 0) {
+    stop("`bin_scale` must be a single positive finite number.")
   }
 
-  req_cols <- c("SNP", "d", "r2", "pos1", "pos2")
-  if (!all(req_cols %in% names(el))) {
-    stop("`el` must contain columns: ", paste(req_cols, collapse = ", "))
+  if (!all(c("SNP", "d", "r2", "pos1", "pos2") %in% names(el))) {
+    stop("`el` must contain columns: SNP, d, r2, pos1, pos2")
   }
 
-  ## ---- truncate to rho support
+  # truncate to rho support
   d_cap <- rho_max / (a * (1 - rho_max))
   el_use <- el[d <= d_cap, .(SNP, d, r2, pos1, pos2)]
 
   if (nrow(el_use) == 0L) {
-    result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-    if (return_support) {
-      return(list(
-        LD_int = result,
-        support = data.table::data.table()
-      ))
-    }
-    return(result)
+    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
   }
 
-  ## ---- left/right leg
-  el_use[, side := data.table::fifelse(pos2 > pos1, "R", "L")]
+  # fixed distance-bin width, relative to LD decay scale 1/a
+  d_bin <- bin_scale / a
 
-  ## ---- optional symmetric trimming
-  if (edge_mode == "trim") {
-    support_trim <- el_use[, .(
-      maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
-      maxR = if (any(side == "R")) max(d[side == "R"]) else 0
-    ), by = SNP]
+  # number of bins implied by rho_max
+  n_bins <- ceiling(d_cap / d_bin)
 
-    support_trim[, S := pmin(maxL, maxR)]
-
-    el_use <- support_trim[el_use, on = "SNP"]
-    el_use <- el_use[d <= S, .(SNP, d, r2, pos1, pos2, side)]
-  }
-
-  if (nrow(el_use) == 0L) {
-    result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-    if (return_support) {
-      return(list(
-        LD_int = result,
-        support = data.table::data.table()
-      ))
-    }
-    return(result)
-  }
-
-  ## ---- equal-rho bins via direct mapping
-  rho <- (a * el_use$d) / (1 + a * el_use$d)
-  dist_idx <- as.integer(floor(n_bins * rho / rho_max) + 1L)
+  # assign bins by distance
+  # last bin may be smaller than d_bin, which is acceptable
+  dist_idx <- as.integer(floor(el_use$d / d_bin) + 1L)
   dist_idx[dist_idx < 1L] <- 1L
   dist_idx[dist_idx > n_bins] <- n_bins
   el_use[, dist_idx := dist_idx]
 
-  ## ---- side-specific bin medians
+  # side-specific bin medians
   shell_side <- el_use[, .(
     n_pairs = .N,
-    med_r2 = if (.N >= min_pairs) median(r2) else NA_real_
-  ), by = .(SNP, side, dist_idx)]
+    med_r2 = median(r2, na.rm = TRUE)
+  ), by = .(SNP, dist_idx)]
 
   shell_side <- shell_side[is.finite(med_r2)]
 
   if (nrow(shell_side) == 0L) {
-    result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-    if (return_support) {
-      return(list(
-        LD_int = result,
-        support = data.table::data.table()
-      ))
-    }
-    return(result)
+    return(setNames(rep(NA_real_, length(snp_ids)), snp_ids))
   }
 
-  ## ---- wide table: one row per SNP x bin, columns L and R
-  shell_wide <- data.table::dcast(
-    shell_side,
-    SNP + dist_idx ~ side,
-    value.var = "med_r2"
-  )
-
-  ## make sure missing side columns exist
-  if (!"L" %in% names(shell_wide)) shell_wide[, L := NA_real_]
-  if (!"R" %in% names(shell_wide)) shell_wide[, R := NA_real_]
-
-  ## ---- combine sides within bins
-  shell_wide[, bin_val := data.table::fifelse(
-    !is.na(L) & !is.na(R), (L + R) / 2,
-    data.table::fifelse(!is.na(L), L, R)
-  )]
-
-  shell_wide <- shell_wide[is.finite(bin_val)]
-
-  if (nrow(shell_wide) == 0L) {
-    result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
-    if (return_support) {
-      return(list(
-        LD_int = result,
-        support = data.table::data.table()
-      ))
-    }
-    return(result)
-  }
-
-  ## ---- transform bin values if requested
-  if (scale == "raw") {
-    shell_wide[, bin_val_scaled := bin_val]
-  }
-
-  if (scale == "excess") {
-    shell_wide[, bin_val_scaled := pmax(0, bin_val - b)]
-  }
-
-  if (scale == "contrast") {
-    shell_wide[, bin_val_scaled := (bin_val - b) / (c - b)]
-    if (clip_contrast) {
-      shell_wide[, bin_val_scaled := pmin(1, pmax(0, bin_val_scaled))]
-    }
-  }
-
-  ## ---- fill mode: duplicate missing leg at the bin-summary level
-  if (edge_mode == "fill") {
-    shell_long <- shell_wide[, .(
-      SNP,
-      dist_idx,
-      val1 = data.table::fifelse(!is.na(L), bin_val_scaled, bin_val_scaled),
-      val2 = data.table::fifelse(!is.na(R), bin_val_scaled, bin_val_scaled),
-      L_present = !is.na(L),
-      R_present = !is.na(R)
-    )]
-
-    ## if both sides present, keep two equal representatives
-    ## if only one side present, fill the missing side with the observed bin value
-    shell_long <- data.table::melt(
-      shell_long,
-      id.vars = c("SNP", "dist_idx", "L_present", "R_present"),
-      measure.vars = c("val1", "val2"),
-      value.name = "bin_val_scaled"
-    )
-
-    LD_dt <- shell_long[, .(
-      LD_int = median(bin_val_scaled, na.rm = TRUE)
-    ), by = SNP]
-
-  } else {
-    LD_dt <- shell_wide[, .(
-      LD_int = median(bin_val_scaled, na.rm = TRUE)
-    ), by = SNP]
-  }
+  # final DPI: median across occupied bins
+  LD_dt <- shell_side[, .(
+    LD_int = median(med_r2)
+  ), by = SNP]
 
   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
   result[LD_dt$SNP] <- LD_dt$LD_int
 
-  if (!return_support) {
-    return(result)
-  }
-
-  support_dt <- shell_wide[, .(
-    n_bins_obs   = .N,
-    n_bins_both  = sum(!is.na(L) & !is.na(R)),
-    n_bins_Lonly = sum(!is.na(L) &  is.na(R)),
-    n_bins_Ronly = sum( is.na(L) & !is.na(R))
-  ), by = SNP]
-
-  list(
-    LD_int = result,
-    support = support_dt
-  )
+  result
 }
+#
+# compute_ld_int <- function(
+#     el,
+#     snp_ids,
+#     a,
+#     b = NULL,
+#     c = NULL,
+#     n_bins = 20,
+#     rho_max = 0.90,
+#     min_pairs = 3,
+#     edge_mode = c("none", "trim", "fill"),
+#     scale = c("raw", "excess", "contrast"),
+#     clip_contrast = TRUE,
+#     return_support = FALSE
+# ) {
+#
+#   edge_mode <- match.arg(edge_mode)
+#   scale <- match.arg(scale)
+#
+#   if (nrow(el) == 0L) {
+#     result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+#     if (return_support) {
+#       return(list(
+#         LD_int = result,
+#         support = data.table::data.table()
+#       ))
+#     }
+#     return(result)
+#   }
+#
+#   if (!is.finite(a) || a <= 0) {
+#     stop("`a` must be a positive finite number.")
+#   }
+#
+#   if (scale %in% c("excess", "contrast") && !is.finite(b)) {
+#     stop("For `scale = 'excess'` or `scale = 'contrast'`, `b` must be provided.")
+#   }
+#
+#   if (scale == "contrast") {
+#     if (!is.finite(c)) stop("For `scale = 'contrast'`, `c` must be provided.")
+#     if ((c - b) <= 0) stop("For `scale = 'contrast'`, `c - b` must be > 0.")
+#   }
+#
+#   if (!is.numeric(rho_max) || length(rho_max) != 1L || rho_max <= 0 || rho_max >= 1) {
+#     stop("`rho_max` must be a single number in (0, 1).")
+#   }
+#
+#   n_bins <- as.integer(n_bins)
+#   if (!is.finite(n_bins) || n_bins < 1L) {
+#     stop("`n_bins` must be a positive integer.")
+#   }
+#
+#   req_cols <- c("SNP", "d", "r2", "pos1", "pos2")
+#   if (!all(req_cols %in% names(el))) {
+#     stop("`el` must contain columns: ", paste(req_cols, collapse = ", "))
+#   }
+#
+#   ## ---- truncate to rho support
+#   d_cap <- rho_max / (a * (1 - rho_max))
+#   el_use <- el[d <= d_cap, .(SNP, d, r2, pos1, pos2)]
+#
+#   if (nrow(el_use) == 0L) {
+#     result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+#     if (return_support) {
+#       return(list(
+#         LD_int = result,
+#         support = data.table::data.table()
+#       ))
+#     }
+#     return(result)
+#   }
+#
+#   ## ---- left/right leg
+#   el_use[, side := data.table::fifelse(pos2 > pos1, "R", "L")]
+#
+#   ## ---- optional symmetric trimming
+#   if (edge_mode == "trim") {
+#     support_trim <- el_use[, .(
+#       maxL = if (any(side == "L")) max(d[side == "L"]) else 0,
+#       maxR = if (any(side == "R")) max(d[side == "R"]) else 0
+#     ), by = SNP]
+#
+#     support_trim[, S := pmin(maxL, maxR)]
+#
+#     el_use <- support_trim[el_use, on = "SNP"]
+#     el_use <- el_use[d <= S, .(SNP, d, r2, pos1, pos2, side)]
+#   }
+#
+#   if (nrow(el_use) == 0L) {
+#     result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+#     if (return_support) {
+#       return(list(
+#         LD_int = result,
+#         support = data.table::data.table()
+#       ))
+#     }
+#     return(result)
+#   }
+#
+#   ## ---- equal-rho bins via direct mapping
+#   rho <- (a * el_use$d) / (1 + a * el_use$d)
+#   dist_idx <- as.integer(floor(n_bins * rho / rho_max) + 1L)
+#   dist_idx[dist_idx < 1L] <- 1L
+#   dist_idx[dist_idx > n_bins] <- n_bins
+#   el_use[, dist_idx := dist_idx]
+#
+#   ## ---- side-specific bin medians
+#   shell_side <- el_use[, .(
+#     n_pairs = .N,
+#     med_r2 = median(r2)
+#   ), by = .(SNP, side, dist_idx)]
+#
+#   shell_side <- shell_side[is.finite(med_r2)]
+#
+#   if (nrow(shell_side) == 0L) {
+#     result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+#     if (return_support) {
+#       return(list(
+#         LD_int = result,
+#         support = data.table::data.table()
+#       ))
+#     }
+#     return(result)
+#   }
+#
+#   ## ---- wide table: one row per SNP x bin, columns L and R
+#   shell_wide <- data.table::dcast(
+#     shell_side,
+#     SNP + dist_idx ~ side,
+#     value.var = "med_r2"
+#   )
+#
+#   ## make sure missing side columns exist
+#   if (!"L" %in% names(shell_wide)) shell_wide[, L := NA_real_]
+#   if (!"R" %in% names(shell_wide)) shell_wide[, R := NA_real_]
+#
+#   ## ---- combine sides within bins
+#   shell_wide[, bin_val := data.table::fifelse(
+#     !is.na(L) & !is.na(R), (L + R) / 2,
+#     data.table::fifelse(!is.na(L), L, R)
+#   )]
+#
+#   shell_wide <- shell_wide[is.finite(bin_val)]
+#
+#   if (nrow(shell_wide) == 0L) {
+#     result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+#     if (return_support) {
+#       return(list(
+#         LD_int = result,
+#         support = data.table::data.table()
+#       ))
+#     }
+#     return(result)
+#   }
+#
+#   ## ---- transform bin values if requested
+#   if (scale == "raw") {
+#     shell_wide[, bin_val_scaled := bin_val]
+#   }
+#
+#   if (scale == "excess") {
+#     shell_wide[, bin_val_scaled := pmax(0, bin_val - b)]
+#   }
+#
+#   if (scale == "contrast") {
+#     shell_wide[, bin_val_scaled := (bin_val - b) / (c - b)]
+#     if (clip_contrast) {
+#       shell_wide[, bin_val_scaled := pmin(1, pmax(0, bin_val_scaled))]
+#     }
+#   }
+#
+#   ## ---- fill mode: duplicate missing leg at the bin-summary level
+#   if (edge_mode == "fill") {
+#     shell_long <- shell_wide[, .(
+#       SNP,
+#       dist_idx,
+#       val1 = data.table::fifelse(!is.na(L), bin_val_scaled, bin_val_scaled),
+#       val2 = data.table::fifelse(!is.na(R), bin_val_scaled, bin_val_scaled),
+#       L_present = !is.na(L),
+#       R_present = !is.na(R)
+#     )]
+#
+#     ## if both sides present, keep two equal representatives
+#     ## if only one side present, fill the missing side with the observed bin value
+#     shell_long <- data.table::melt(
+#       shell_long,
+#       id.vars = c("SNP", "dist_idx", "L_present", "R_present"),
+#       measure.vars = c("val1", "val2"),
+#       value.name = "bin_val_scaled"
+#     )
+#
+#     LD_dt <- shell_long[, .(
+#       LD_int = median(bin_val_scaled, na.rm = TRUE)
+#     ), by = SNP]
+#
+#   } else {
+#     LD_dt <- shell_wide[, .(
+#       LD_int = median(bin_val_scaled, na.rm = TRUE)
+#     ), by = SNP]
+#   }
+#
+#   result <- setNames(rep(NA_real_, length(snp_ids)), snp_ids)
+#   result[LD_dt$SNP] <- LD_dt$LD_int
+#
+#   if (!return_support) {
+#     return(result)
+#   }
+#
+#   support_dt <- shell_wide[, .(
+#     n_bins_obs   = .N,
+#     n_bins_both  = sum(!is.na(L) & !is.na(R)),
+#     n_bins_Lonly = sum(!is.na(L) &  is.na(R)),
+#     n_bins_Ronly = sum( is.na(L) & !is.na(R))
+#   ), by = SNP]
+#
+#   list(
+#     LD_int = result,
+#     support = support_dt
+#   )
+# }
+#
 
 
 #' @export
-compute_DPI <- function(ld_decay,bins=1000,rho_max=0.99,edge_mode="fill",scale=c("raw", "excess", "contrast"),cores=1){
-
+compute_DPI <- function(ld_decay,bins=10,rho_max=0.5,edge_mode="fill",scale=c("raw", "excess", "contrast"),cores=1){
+  #chr_obj <- ld_decay$by_chr$Chr1
+  #scale = "raw"
+  # rho_max=0.9
+  # bins = 1000
   dpi <- unlist(parallel_apply(ld_decay$by_chr, function(chr_obj) {
 
-    a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a]
+    a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
 
-    compute_ld_int(chr_obj$el, snp_ids=chr_obj$snp_ids, a,n_bins = bins,rho_max = rho_max,edge_mode = edge_mode)
+    compute_dpi(chr_obj$el, snp_ids=chr_obj$snp_ids, a,n_bins = bins,rho_max = rho_max)
 
   }, cores = cores))
+
 
   return(dpi)
 }

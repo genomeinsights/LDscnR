@@ -10,37 +10,40 @@ map_3sp <- map_3sp[maf>0.1]
 #if(any(ls() %in% "gds_3sp")) snpgdsClose(gds); unlink(gds)
 
 gds_3sp <- create_gds_from_geno(geno = GTs_3sp, map=map_3sp,"gds_3sp.gds")
-
+#gds <- gds_3sp
 #------------------------------------------------------------
 #gds <- gds_3sp
-
 #max_rho = 0.99
 t1 <- Sys.time()
 ld_struct_3sp <-  compute_ld_structure(
   gds = gds_3sp,
+  el_data_folder = "./el_3sp/",
+  ## for LD-decay and bg
   q = 0.95,
+  ## for bg
   n_sub_bg = 5000,
+  ## for decay
   n_win_decay = 20,
+  max_pairs = 5000,
+  n_strata = 20,
   overlap = 0.5,
   prob_robust = 0.95,
-  target_dist_bins_for_decay = 100,
-  n_snps_for_decay = 500,
-  n_dist_target_for_hist = 20,
-  eps = 0.001,
-  r2_unit = 0.01,
-  compression = "hist",
+  target_dist_bins_for_decay = 60,
+  keep_rho_hist = FALSE,
+  keep_el = FALSE,
+  n_rho_bins_hist = 20,
+  n_bins_ld_int = 20,
+  rho = 0.999,
+  k_max=1000,
   cores = 8
 )
-
 t2 <- Sys.time()
 print(difftime(t2,t1))
 saveRDS(ld_struct_3sp,"ld_struct_3sp.rds")
 #ld_struct_3sp <- readRDS("ld_struct_3sp.rds")
 q("no")
-#ld_struct_3sp$by_chr$Chr1$hist_obj
 
-LD_int_3sp  <- compute_ld_summary(ld_struct_3sp,method = "ld_int",shell_type = "median",eps = 0.001,cores = 8)
-
+LD_int_3sp  <- unlist(lapply(ld_struct_3sp$by_chr,function(x) x$ld_int))
 map_3sp[,ld_w:=LD_int_3sp]
 map_3sp[,emx_F:=readRDS("../LD-scaling-genome-scans/empirical_data/3sp/emx_3sp.rds")$F] ## add to map
 emx_gif = map_3sp[,median(emx_F)/qf(0.5,1,115,lower.tail = FALSE)] ## inflation factor
@@ -55,12 +58,34 @@ map_3sp[,lfmm_q:=p.adjust(lfmm_P,"fdr")]
 lfmm_F_prime_full <- .compute_Fprime(map_3sp$lfmm_F,map_3sp$ld_w,n_rep=10,n_inds = nrow(GTs_3sp),full=TRUE)
 
 plot(-log10(lfmm_F_prime_full[[1]]$q_prime),pch=20)
-abline(h=1.31,lty=2)
+abline(h=1.31,lty=2,cex=2,col="salmon")
 
+t1 <- Sys.time()
+draws_3sp_int <- ld_rho_draws(gds=gds_3sp,
+                                ld_struct  = ld_struct_3sp,
+                                F_vals     = map_3sp[,..F_cols],
+                                q_vals     = map_3sp[,..q_cols],
+                                n_rho_w    = 1,
+                                n_draws    = 25*25,
+                                ld_w_int   = map_3sp$ld_w,
+                                stat_type  = "q",
+                                rho_w_lim  = NULL,
+                                rho_d_lim  = list(min=0.5,max=0.99),
+                                rho_ld_lim = list(min=0.5,max=0.99),
+                                alpha_lim  = list(min=1.31,max=4),
+                                lmin_lim   = list(min=1,max=10),
+                                cores      = 8,
+                                mode       = "joint"
 
-.compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, full)
-SNP_ids <- map_3sp$marker
-n_inds <- nrow(GTs_3sp)
+)
+t2 <- Sys.time()
+
+map_3sp2 <- add_consistency_to_map(map_3sp, consistency_obj = consistency_score(draws_3sp_int$draws))
+
+map_3sp2[,plot(Joint_C)]
+map_3sp2[!is.na(Joint_C),]
+ggplot(map_3sp2, aes(1:nrow(map_3sp2),Joint_C)) +
+  geom_point()
 
 
 ld_w_int <- compute_ld_summary(ld_structure=ld_struct,
@@ -88,6 +113,7 @@ draws_joint_3sp <- ld_rho_draws(gds = gds_3sp,
 joint <- rbindlist(draws_joint_3sp$draws)
 
 draws_joint_3sp$draws$joint
+
 plots_3sp <- lapply(names(draws_joint_3sp$draws),function(rho_name){
   map2 <- add_consistency_to_map(map_3sp, consistency_obj = consistency_score(draws_joint_3sp$draws[[rho_name]]))
   #map2 <- add_consistency_to_map(map2, consistency_obj = consistency_score(draws_per_method))
