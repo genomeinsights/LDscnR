@@ -51,9 +51,9 @@ plot_manhattan <- function(map,
                            gds,
                            ld_decay,
                            draws,
-                           rho_d=0.99,
-                           rho_ld=0.99,
-                           sign_th=0.05,
+                           rho_d = 0.99,
+                           rho_ld = 0.99,
+                           sign_th = 0.05,
                            mode="joint",
                            sign_if ="greater",
                            l_min = 1,
@@ -63,7 +63,8 @@ plot_manhattan <- function(map,
                            thresholds = c(0.05),
                            col_var = "OR_id",
                            shape_var = NULL,
-                           col_vector=NULL){
+                           col_vector = NULL,
+                           point_size = 1){
 
   map_manh <- add_consistency_to_map(map, consistency_obj = consistency_score(draws$draws))
 
@@ -87,6 +88,7 @@ plot_manhattan <- function(map,
     thresholds = thresholds,
     col_var = col_var,
     shape_var = shape_var,
+    point_size = point_size,
     titles = titles,
     ncol=1,
     col_vector

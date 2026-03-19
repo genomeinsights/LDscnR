@@ -103,11 +103,14 @@ ld_rho_draws <- function(gds,
 
   ids <- .read_gds_ids(gds)
 
+
+
+
   if(stat_type[1]=="q"){
-    cat("Working on rho: ")
-    #rh = 0.95
+    pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
     draws <- rbindlist(lapply(rho,function(rh){
-      cat(" -- ",rh)
+
+      setTxtProgressBar(pb, which(rho==rh))
 
       ld_decay$decay_sum
       ld_w <- compute_ld_w(ld_decay,
@@ -157,7 +160,10 @@ ld_rho_draws <- function(gds,
       draws[,rho_w:=rh]
       return(draws)
     }))
+    close(pb)
   }
+
+
 
   if(stat_type[1]=="C"){
 

@@ -1,6 +1,10 @@
 ---
 title: "A quick introduction to LDscnR"
-output: rmarkdown::html_vignette
+output:
+  pdf_document:
+    toc: true
+    number_sections: true
+latex_engine: xelatex
 vignette: >
   %\VignetteIndexEntry{A quick introduction to LDscnR}
   %\VignetteEngine{knitr::rmarkdown}
@@ -15,6 +19,7 @@ knitr::opts_chunk$set(
   warning = FALSE,
   cache = TRUE
 )
+
 ```
 
 ```{r packages}
@@ -102,7 +107,16 @@ ld_decay_pre
 
 In this simulated example, chromosomes are relatively short, so only five decay windows per chromosome are used. For empirical datasets, the default settings are usually more appropriate.
 
-The preliminary LD-decay fit can be used to select a more suitable sliding window for the full analysis. Here we use the mean recommended SNP window corresponding to `rho = 0.99`.
+The preliminary LD-decay fit can be used to select a more suitable sliding window for the full analysis. We can visualize LD-decay, and use the recommended new slide window for estimating LD.
+
+```{r ld-decay-plot,fig.width=8, fig.height=6}
+plot(ld_decay_pre, type = "summary")
+plot(ld_decay_pre, type = "recommendation")
+plot(ld_decay_pre, type = "recommendation", rho = 0.99)
+plot(ld_decay_pre, type = "chr", chr = "Chr2")
+```
+
+Here we use the mean recommended SNP window corresponding to `rho = 0.99`.
 
 ```{r ld-decay-full-load, include=FALSE, cache=FALSE}
 
@@ -128,6 +142,7 @@ ld_decay <- compute_LD_decay(
 
 ```
 
+
 ```{r ld-decay-full, eval=FALSE}
 
 new_slide_window <- mean(ld_decay_pre$decay_sum$slide_snp_rho_0.99)
@@ -143,7 +158,7 @@ ld_decay <- compute_LD_decay(
 
 ```
 
-The second run uses all SNPs and stores LD edge lists for downstream analyses.
+The second run uses all SNPs and stores LD edge lists for downstream analyses. 
 
 ## Repeated outlier-region draws
 
@@ -289,7 +304,7 @@ true_ORs <- true_ORs[true_ORs != "ns"]
 map_manh[, OR_test := ifelse(OR_id %in% true_ORs, "True pos", "False pos")]
 ```
 
-The resulting Manhattan-style plot highlights true and false positive outlier regions. Because the threshold settings for OR clustering were low (0.9), we can see two false positives on chromosomes 13 and 19. If you repat the above with `rho_d = rho_ld = 0.99`, you will see that they will be considered part of the adjacent true positive ORs. This illustrates the effect of the clustering thresholds on the numbers of true and false positive ORs (TP and FP, respectively).
+The resulting Manhattan-style plot highlights true and false positive outlier regions. Because the threshold settings for OR clustering were low (0.9), we can see two false positives on chromosomes 13 and 19. This illustrates "overclustering" and if you repat the above with `rho_d = rho_ld = 0.99`, you will see that they will be considered part of the adjacent true positive ORs. This illustrates the effect of the clustering thresholds on the numbers of true and false positive ORs (TP and FP, respectively). Note that on the even numbered neutal chormosomes, no outlier regions are found, regardless of clustering thresholds.
 
 ```{r manhattan-truth, fig.width=10, fig.height=7}
 layout <- prep_manhattan(
@@ -320,7 +335,7 @@ plot_manhattan_gg(
 )
 ```
 
-Here we set the clustering thresholds low to illustrate "overclustering"
+
 
 ## Area under the PR curve
 
@@ -331,7 +346,11 @@ For the q-based workflow:
 ```{r pr-q}
 PR_dat <- cbind(
   method = "joint",
-  get_PR(draw_ORs = draws$draws$OR, map, map_filt = map_filt, p_Va_th = 0.05, cores = cores)
+  get_PR(draw_ORs = draws$draws$OR, 
+         map = map, 
+         map_filt = map_filt, 
+         p_Va_th = 0.05, 
+         cores = cores)
 )
 
 get_AUC_OR(PR_dat)$AUC$AUC_norm

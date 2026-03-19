@@ -10,13 +10,11 @@
 
 -   📉 **LD decay estimation** (chromosome-specific)
 
--   ⚖️ **LD-scaled statistics** (e.g. (F'))
-
--   🔁 **Repeated outlier-region detection** across parameter space
-
--   📊 **Consistency scores (C)** summarizing robustness
+-   ⚖️ **LD-scaled statistics** (F')
 
 -   🧬 **Outlier-region clustering** using LD and distance thresholds
+
+-   📊 **Consistency scores (C)** summarizing robustness
 
 -   📈 **Manhattan-style visualization**
 
@@ -58,19 +56,12 @@ draws <- ld_rho_draws(
   n_draws = 50
 )
 
-# Compute consistency scores
-cons <- consistency_score(draws$draws)
-
-# Add to map
-map2 <- add_consistency_to_map(map, cons)
-
-# Plot Manhattan
+# Plot manhattan based on the consitency score (C) and colored by outlier region
 plot_manhattan(
-  map2,
+  map,
   gds,
   ld_decay,
-  draws,
-  y_vars = "Joint_C"
+  draws
 )
 ```
 
@@ -82,15 +73,15 @@ plot_manhattan(
 
 ### 1. LD decay estimation
 
-LD decay is estimated per chromosome to define a biologically meaningful scale for clustering SNPs into regions.
+LD decay is estimated per chromosome to define a biologically meaningful scale for clustering SNPs into regions. Decay rate is regressed against chromosome size and predicted rates are used to reduce chromosome level variation caused by large haplotype blocks etc (e.g. inversions).
 
 ### 2. Repeated outlier-region detection
 
-Outlier regions are detected repeatedly across a range of:
+Based on F-outlier statistics e.g. from genotype-environment association analyses, scaled by local LD ($ld_w$ the median LD between a focal SNPs and other snips with window size $w$), outlier regions are detected repeatedly across a range of:
 
--   LD thresholds
+-   LD window sizes
 
--   distance thresholds
+-   distance thresholds for outlier clustering
 
 -   significance thresholds
 
@@ -138,11 +129,13 @@ vignette("LDscnR_quick_introduction")
 
 ## ⚠️ Notes
 
--   Large datasets can generate substantial intermediate objects (LD edge lists, OR draws)
+-   LD-decay estimation is performed in two steps. First based on subsets of SNPs from chromosomes, but large sliding windows (1000 bps). Based on this, a new (smaller) sliding window is determined such that 99% of the decay curve is covered to reduce the number of pairwise comparisons for subsequent downstream analyses.
+
+-   However, large data sets can still generate substantial intermediate objects (LD edge lists, OR draws)
 
 -   For heavy workflows, consider saving intermediate results using `saveRDS()`
 
--   Parallelization is supported via the `cores` argument
+-   Parallelization is supported via the `cores` argument (`mclapply`)
 
 ------------------------------------------------------------------------
 

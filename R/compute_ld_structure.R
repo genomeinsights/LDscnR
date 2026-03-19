@@ -88,6 +88,7 @@ compute_LD_decay <- function(
   out_by_chr <- vector("list", length(chrs))
   names(out_by_chr) <- chrs
 
+  pb <- txtProgressBar(min = 0, max = length(chrs)-1, style = 3)
   message("Estimating LD-decay")
   for (ch in chrs) {
 
@@ -95,7 +96,11 @@ compute_LD_decay <- function(
     pos_chr  <- ids$snp_pos[chr_idx]
     snps_chr <- ids$snp_id[chr_idx]
 
-    cat(ch, " - ")
+
+
+
+    setTxtProgressBar(pb, which(chrs==ch))
+
 
     ## robust chromosome-specific bp per SNP scale
     chr_size_bp <- max(pos_chr) - min(pos_chr)
@@ -180,6 +185,7 @@ compute_LD_decay <- function(
       decay_sum = decay_sum_chr
     )
   }
+  close(pb)
 
   message("Predicting a from chromosome size")
   decay_sum <- data.table::rbindlist(
@@ -780,10 +786,6 @@ print.ld_decay <- function(x, digits = 3) {
   invisible(x)
 }
 
-#' @export
-summary.ld_decay <- function(object) {
-  object$recommendation$suggested_slide_summary
-}
 
 #' Compute Local LD Support (ld_w)
 #'
@@ -830,5 +832,405 @@ compute_ld_w <- function(
   }, cores = cores))
 
   return(ld_w)
+}
+
+#' Plot LD-decay results
+#'
+#' S3 plotting method for objects of class \code{"ld_decay"} produced by
+#' \code{compute_LD_decay()}.
+#'
+#' @param x Object of class \code{"ld_decay"}.
+#' @param type Type of plot. One of \code{"summary"}, \code{"chr"},
+#'   or \code{"recommendation"}.
+#' @param chr Optional chromosome name for \code{type = "chr"}.
+#'   Defaults to the first chromosome in \code{x$by_chr}.
+#' @param rho Optional target rho value for highlighting in
+#'   \code{type = "recommendation"}.
+#' @param ask Logical; if \code{TRUE}, ask before advancing multi-panel plots.
+#' @param ... Further graphical arguments passed to low-level plotting functions.
+#'
+#' @details
+#' \describe{
+#'   \item{\code{type = "summary"}}{
+#'     Shows a multi-panel overview of chromosome-wise LD decay, including
+#'     observed and predicted decay rates, slide-window rho coverage, and the
+#'     number of informative windows retained per chromosome.
+#'   }
+#'   \item{\code{type = "chr"}}{
+#'     Shows chromosome-specific decay estimates across windows, including
+#'     window-wise parameter estimates and fitted LD-decay curves from the
+#'     stratified data stored in \code{agg}.
+#'   }
+#'   \item{\code{type = "recommendation"}}{
+#'     Visualizes suggested slide-window sizes in SNP units for the requested
+#'     target rho values.freco
+#'   }
+#' }
+#'
+#' @return Invisibly returns \code{x}.
+#'
+#' @method plot ld_decay
+#' @export
+plot.ld_decay <- function(
+    x,
+    type = c("summary", "chr", "recommendation"),
+    chr = NULL,
+    rho = NULL,
+    ...
+){
+
+  type <- match.arg(type)
+
+  if (!inherits(x, "ld_decay")) {
+    stop("`x` must be an object of class 'ld_decay'.")
+  }
+
+  ds <- x$decay_sum
+
+  if (is.null(ds) || !nrow(ds)) {
+    stop("No `decay_sum` found in `x`.")
+  }
+
+  old_par <- par(no.readonly = TRUE)
+  on.exit(par(old_par), add = TRUE)
+
+
+
+  if (type == "summary") {
+
+    par(
+      mfrow = c(2, 2),
+      mar = c(3, 3, 2, 1),   # tighter margins
+      mgp = c(2, 0.7, 0),    # axis label spacing
+      tcl = -0.3             # shorter ticks
+    )
+
+    ## ------------------------------------------------------------
+    ## 1. Observed vs predicted decay rate by chromosome size
+    ## ------------------------------------------------------------
+    ok <- is.finite(ds$chr_size) & ds$chr_size > 0 &
+      is.finite(ds$a) & ds$a > 0
+
+    plot(
+      log(ds$chr_size[ok]),
+      log(ds$a[ok]),
+      xlab = "log chromosome size (bp)",
+      ylab = "log observed decay rate (a)",
+      main = "Decay rate vs chromosome size",
+      pch = 19,
+      ...
+    )
+
+    if ("a_pred" %in% names(ds)) {
+      ord <- order(ds$chr_size)
+      lines(
+        log(ds$chr_size[ord]),
+        log(ds$a_pred[ord]),
+        lwd = 2
+      )
+    }
+
+    if ("Chr" %in% names(ds)) {
+      text(
+        log(ds$chr_size[ok]),
+        log(ds$a[ok]),
+        labels = ds$Chr[ok],
+        pos = 3,
+        cex = 0.8
+      )
+    }
+
+    ## ------------------------------------------------------------
+    ## 2. Rho covered by current slide
+    ## ------------------------------------------------------------
+    if ("rho_slide_pred" %in% names(ds)) {
+      plot(
+        seq_len(nrow(ds)),
+        ds$rho_slide_pred,
+        xaxt = "n",
+        xlab = "Chromosome",
+        ylab = expression(rho),
+        main = "Rho covered by current slide",
+        pch = 19,
+        ...
+      )
+      #axis(1, at = seq_len(nrow(ds)), labels = ds$Chr, las = 2)
+      axis(1, at = seq_len(nrow(ds)), labels = ds$Chr, las = 2, cex.axis = 0.7)
+      abline(h = median(ds$rho_slide_pred, na.rm = TRUE), lty = 2)
+    } else {
+      plot.new()
+      title("Rho covered by current slide")
+      text(0.5, 0.5, "No rho_slide_pred available")
+    }
+
+    ## ------------------------------------------------------------
+    ## 3. Structured windows used per chromosome
+    ## ------------------------------------------------------------
+    if ("n_w_used" %in% names(ds)) {
+      barplot(
+        height = ds$n_w_used,
+        names.arg = ds$Chr,
+        las = 2,
+        ylab = "Number of structured windows",
+        main = "Informative windows per chromosome",
+        ...
+      )
+    } else {
+      plot.new()
+      title("Informative windows per chromosome")
+      text(0.5, 0.5, "No n_w_used available")
+    }
+
+    ## ------------------------------------------------------------
+    ## 4. Suggested slide windows across rho targets
+    ## ------------------------------------------------------------
+    rec_cols <- grep("^slide_snp_rho_", names(ds), value = TRUE)
+
+    if (length(rec_cols) > 0) {
+      mat <- as.matrix(ds[, ..rec_cols])
+      colnames(mat) <- sub("^slide_snp_rho_", "", rec_cols)
+
+      matplot(
+        x = seq_len(nrow(mat)),
+        y = mat,
+        type = "b",
+        pch = 19,
+        lty = 1,
+        xaxt = "n",
+        xlab = "Chromosome",
+        ylab = "Suggested slide (SNPs)",
+        main = "Recommended slide sizes"
+      )
+      axis(1, at = seq_len(nrow(ds)), labels = ds$Chr, las = 2)
+      legend(
+        "topleft",
+        legend = paste0("rho=", colnames(mat)),
+        lty = 1,
+        pch = 19,
+        bty = "n"
+      )
+    } else {
+      plot.new()
+      title("Recommended slide sizes")
+      text(0.5, 0.5, "No slide recommendations available")
+    }
+  }
+
+  if (type == "recommendation") {
+
+    rec_cols <- grep("^slide_snp_rho_", names(ds), value = TRUE)
+
+    if (!length(rec_cols)) {
+      stop("No recommendation columns found in `x$decay_sum`.")
+    }
+
+    if (!is.null(rho)) {
+      rho_lab <- formatC(rho, format = "f", digits = 2)
+      rec_cols <- rec_cols[sub("^slide_snp_rho_", "", rec_cols) == rho_lab]
+
+      if (!length(rec_cols)) {
+        stop("Requested `rho` not found among recommendation columns.")
+      }
+    }
+
+    mat <- as.matrix(ds[, ..rec_cols])
+    colnames(mat) <- sub("^slide_snp_rho_", "", rec_cols)
+
+    if (ncol(mat) == 1) {
+      plot(
+        seq_len(nrow(ds)),
+        mat[, 1],
+        type = "b",
+        pch = 19,
+        xaxt = "n",
+        xlab = "Chromosome",
+        ylab = "Suggested slide (SNPs)",
+        main = paste0("Recommended slide size (rho=", colnames(mat)[1], ")"),
+        ...
+      )
+      axis(1, at = seq_len(nrow(ds)), labels = ds$Chr, las = 2)
+      abline(h = median(mat[, 1], na.rm = TRUE), lty = 2)
+    } else {
+
+      cols <- c("salmon","steelblue","black","firebrick","darkorange")[seq_len(ncol(mat))]
+
+      matplot(
+        x = seq_len(nrow(ds)),
+        y = mat,
+        type = "b",
+        pch = 19,
+        col = cols,
+        lty = 1,
+        xaxt = "n",
+        xlab = "Chromosome",
+        ylab = "Suggested slide (SNPs)",
+        main = "Recommended slide sizes",
+        ...
+      )
+      axis(1, at = seq_len(nrow(ds)), labels = ds$Chr, las = 2)
+      legend(
+        "topleft",
+        legend = paste0("rho=", colnames(mat)),
+        lty = 1,
+        pch = 19,
+        col = cols,
+        bty = "n"
+      )
+    }
+  }
+
+  if (type == "chr") {
+
+    if (is.null(chr)) {
+      chr <- names(x$by_chr)[1]
+    }
+
+    if (!chr %in% names(x$by_chr)) {
+      stop("`chr` not found in `x$by_chr`.")
+    }
+
+    chr_obj <- x$by_chr[[chr]]
+    decay   <- chr_obj$decay
+
+    if (is.null(decay) || !nrow(decay)) {
+      stop("No chromosome-specific decay data found for `chr`.")
+    }
+
+
+    par(
+      mfrow = c(2, 2),
+      mar = c(3, 3, 2, 1),   # tighter margins
+      mgp = c(2, 0.7, 0),    # axis label spacing
+      tcl = -0.3             # shorter ticks
+    )
+
+    ## ------------------------------------------------------------
+    ## 1. Window-wise a
+    ## ------------------------------------------------------------
+    if ("a" %in% names(decay)) {
+      mid <- rowMeans(decay[, .(start, end)], na.rm = TRUE)
+
+      plot(
+        mid,
+        decay$a,
+        xlab = "Genomic position (bp)",
+        ylab = "Decay rate (a)",
+        main = paste0(chr, ": window-wise decay rate"),
+        pch = 19,
+        ...
+      )
+
+      chr_sum <- chr_obj$decay_sum
+      if (!is.null(chr_sum) && "a" %in% names(chr_sum)) {
+        abline(h = chr_sum$a[1], lty = 2, lwd = 2)
+      }
+    } else {
+      plot.new()
+      title(paste0(chr, ": window-wise decay rate"))
+      text(0.5, 0.5, "No window-wise a estimates")
+    }
+
+    ## ------------------------------------------------------------
+    ## 2. Window-wise c
+    ## ------------------------------------------------------------
+    if ("c" %in% names(decay)) {
+      mid <- rowMeans(decay[, .(start, end)], na.rm = TRUE)
+
+      plot(
+        mid,
+        decay$c,
+        xlab = "Genomic position (bp)",
+        ylab = "Short-range LD (c)",
+        main = paste0(chr, ": window-wise short-range LD"),
+        pch = 19,
+        ...
+      )
+
+      chr_sum <- chr_obj$decay_sum
+      if (!is.null(chr_sum) && "c" %in% names(chr_sum)) {
+        abline(h = chr_sum$c[1], lty = 2, lwd = 2)
+      }
+    } else {
+      plot.new()
+      title(paste0(chr, ": window-wise short-range LD"))
+      text(0.5, 0.5, "No window-wise c estimates")
+    }
+
+    ## ------------------------------------------------------------
+    ## 3. Contrast by window
+    ## ------------------------------------------------------------
+    if (all(c("c", "b") %in% names(decay))) {
+      mid <- rowMeans(decay[, .(start, end)], na.rm = TRUE)
+      contrast <- decay$c - decay$b
+
+      plot(
+        mid,
+        contrast,
+        xlab = "Genomic position (bp)",
+        ylab = expression(c - b),
+        main = paste0(chr, ": LD contrast across windows"),
+        pch = 19,
+        ...
+      )
+      abline(h = 0.05, lty = 2)
+    } else {
+      plot.new()
+      title(paste0(chr, ": LD contrast across windows"))
+      text(0.5, 0.5, "No c/b estimates available")
+    }
+
+    ## ------------------------------------------------------------
+    ## 4. Stratified decay curves from stored agg data
+    ## ------------------------------------------------------------
+    agg_list <- decay$agg[!vapply(decay$agg, is.null, logical(1))]
+    agg_list <- agg_list[lengths(agg_list) > 0]
+
+    if (length(agg_list) > 0) {
+
+      xlim <- range(unlist(lapply(agg_list, function(z) z$d_mid)), na.rm = TRUE)
+      ylim <- range(unlist(lapply(agg_list, function(z) z$r2_q)), na.rm = TRUE)
+
+      plot(
+        NA,
+        xlim = xlim,
+        ylim = ylim,
+        xlab = "Distance (bp)",
+        ylab = expression(r^2),
+        main = paste0(chr, ": fitted decay curves"),
+        ...
+      )
+
+      for (i in seq_along(agg_list)) {
+        agg <- agg_list[[i]]
+        points(agg$d_mid, agg$r2_q, pch = 16, cex = 0.6)
+
+        if (all(c("a", "c", "b") %in% names(decay))) {
+          ai <- decay$a[match(i, which(!vapply(decay$agg, is.null, logical(1))))]
+          ci <- decay$c[match(i, which(!vapply(decay$agg, is.null, logical(1))))]
+          bi <- decay$b[match(i, which(!vapply(decay$agg, is.null, logical(1))))]
+
+          if (all(is.finite(c(ai, ci, bi)))) {
+            dseq <- seq(min(agg$d_mid), max(agg$d_mid), length.out = 200)
+            yhat <- bi + (ci - bi) / (1 + ai * dseq)
+            lines(dseq, yhat)
+          }
+        }
+      }
+
+      chr_sum <- chr_obj$decay_sum
+      if (!is.null(chr_sum) && all(c("a", "c", "b") %in% names(chr_sum))) {
+        dseq <- seq(xlim[1], xlim[2], length.out = 300)
+        yhat <- chr_sum$b[1] + (chr_sum$c[1] - chr_sum$b[1]) / (1 + chr_sum$a[1] * dseq)
+        lines(dseq, yhat, lwd = 3,col="salmon")
+      }
+
+    } else {
+      plot.new()
+      title(paste0(chr, ": fitted decay curves"))
+      text(0.5, 0.5, "No stored stratified fits available")
+    }
+  }
+
+  invisible(x)
 }
 
