@@ -38,8 +38,7 @@
 #' @export
 consistency_score <- function(draws,combine=TRUE) {
 
-  long_dt <- draws[OR_size<size_th
-    , .(SNP = unlist(OR)),
+  long_dt <- draws[, .(SNP = unlist(OR)),
     by = .(method)
   ]
 
