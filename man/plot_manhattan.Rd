@@ -21,7 +21,8 @@ plot_manhattan(
   thresholds = c(0.05),
   col_var = "OR_id",
   shape_var = NULL,
-  col_vector = NULL
+  col_vector = NULL,
+  point_size = 1
 )
 }
 \arguments{

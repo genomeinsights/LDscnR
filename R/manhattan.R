@@ -73,6 +73,8 @@ plot_manhattan <- function(map,
   vars <- c(y_vars,col_var,shape_var)
   map_manh[,..vars]
 
+  if(map_manh[OR_id!="ns",length(unique(OR_id))>0]) stop("No outlier regins detected at given significance threshold, aborting")
+
   layout <- prep_manhattan(
     cbind(map_manh[, .(
       bp = Pos,

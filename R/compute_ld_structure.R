@@ -88,8 +88,9 @@ compute_LD_decay <- function(
   out_by_chr <- vector("list", length(chrs))
   names(out_by_chr) <- chrs
 
-  pb <- txtProgressBar(min = 0, max = length(chrs)-1, style = 3)
+
   message("Estimating LD-decay")
+  pb <- txtProgressBar(min = 0, max = length(chrs)-1, style = 3)
   for (ch in chrs) {
 
     chr_idx  <- which(ids$snp_chr == ch)
@@ -193,11 +194,21 @@ compute_LD_decay <- function(
     fill = TRUE
   )
 
-  ## robust background decay model
-  d_mod <- MASS::rlm(log(a) ~ log(chr_size), data = decay_sum)
 
-  decay_sum[, a_pred := exp(predict(d_mod, decay_sum))]
-  decay_sum[, c_pred := median(c, na.rm = TRUE)]
+    ## robust background decay model
+    if(length(unique(decay_sum$chr_size))<3){
+      message("Not enough unique chromosome sizes to predict, using median")
+      d_mod <- NA
+      decay_sum[, a_pred := median(a, na.rm = TRUE)]
+      decay_sum[, c_pred := median(c, na.rm = TRUE)]
+    }else{
+      d_mod <- MASS::rlm(log(a) ~ log(chr_size), data = decay_sum)
+
+      decay_sum[, a_pred := exp(predict(d_mod, decay_sum))]
+      decay_sum[, c_pred := median(c, na.rm = TRUE)]
+
+    }
+
 
   ## rho covered by the current slide using predicted background a
   decay_sum[, rho_slide_pred := (a_pred * slide_bp) / (1 + a_pred * slide_bp)]

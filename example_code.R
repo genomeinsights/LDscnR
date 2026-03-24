@@ -1,8 +1,9 @@
 library(LDscnR)
+devtools::load_all()
+devtools::document()
 library(ggplot2)
 library(data.table)
 library(SNPRelate)
-
 #devtools::load_all()
 
 # tmp <- readRDS("../LD-scaling-genome-scans/results_sim/c1_V0.5_rep4.rds")
@@ -95,7 +96,7 @@ plot_manhattan(map,
                ld_decay,
                draws,
                ## for defining ORs
-               sign_th=0.05,
+               sign_th=0.5,
                mode="joint",
                sign_if ="greater",
                rho_d = 0.9,

@@ -104,8 +104,6 @@ ld_rho_draws <- function(gds,
   ids <- .read_gds_ids(gds)
 
 
-
-
   if(stat_type[1]=="q"){
     pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
     draws <- rbindlist(lapply(rho,function(rh){
