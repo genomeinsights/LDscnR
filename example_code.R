@@ -65,6 +65,17 @@ ld_decay <- compute_LD_decay(
   cores = cores
 )
 
+## with saving EL
+ld_decay <- compute_LD_decay(
+  gds,el_data_folder = "./el/",
+  ## for LD-decay and bg
+  n_win_decay = 5,
+  max_SNPs_decay = Inf, ## all SNPs are now used...
+  keep_el = TRUE, ## now we keep the edge lists for downstream analysse
+  slide=new_slide_window, ## .. but a smaller window is used
+  cores = cores
+)
+
 # ------------------------------------------------------------
 # 3. Generate draws
 # ------------------------------------------------------------

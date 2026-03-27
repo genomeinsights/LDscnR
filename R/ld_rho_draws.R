@@ -103,14 +103,14 @@ ld_rho_draws <- function(gds,
 
   ids <- .read_gds_ids(gds)
 
-
+  #rh = 0.9
   if(stat_type[1]=="q"){
     pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
     draws <- rbindlist(lapply(rho,function(rh){
 
       setTxtProgressBar(pb, which(rho==rh))
 
-      ld_decay$decay_sum
+
       ld_w <- compute_ld_w(ld_decay,
                            rho = rh,
                            cores = cores)

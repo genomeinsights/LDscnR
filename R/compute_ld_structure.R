@@ -26,7 +26,7 @@
 #' }
 #'
 #' @param gds A GDS file handle containing genotype data.
-#' @param el_data_folder Optional path to store LD edge lists (currently not used internally).
+#' @param el_data_folder If not `NULL`, optional path to store LD edge lists (currently not used internally).
 #' @param q Quantile of \eqn{r^2} used for decay fitting (default = 0.95).
 #' @param n_sub_bg Number of SNPs used to estimate background LD.
 #' @param n_win_decay Number of sliding windows per chromosome.
@@ -78,6 +78,7 @@ compute_LD_decay <- function(
 
   if (!is.null(el_data_folder)) {
     if (!dir.exists(el_data_folder)) dir.create(el_data_folder, recursive = TRUE)
+    keep_el = FALSE # don't keep if saved
   }
 
   ids  <- .read_gds_ids(gds)
@@ -96,9 +97,6 @@ compute_LD_decay <- function(
     chr_idx  <- which(ids$snp_chr == ch)
     pos_chr  <- ids$snp_pos[chr_idx]
     snps_chr <- ids$snp_id[chr_idx]
-
-
-
 
     setTxtProgressBar(pb, which(chrs==ch))
 
@@ -151,6 +149,12 @@ compute_LD_decay <- function(
       )
     )
 
+
+    if(!is.null(el_data_folder)){
+      ## save as text file to el_data_folder
+      fwrite(el, paste0(el_data_folder,ch,".el"))
+    }
+
     decay[, contrast := c - b]
 
     decay[, regime := ifelse(
@@ -181,7 +185,7 @@ compute_LD_decay <- function(
 
     out_by_chr[[ch]] <- list(
       snp_ids   = snps_chr,
-      el        = if (keep_el) el else NULL,
+      el        = if (keep_el) el else paste0(el_data_folder,ch,".el"),
       decay     = decay,
       decay_sum = decay_sum_chr
     )
@@ -826,7 +830,7 @@ compute_ld_w <- function(
     rho = 0.95,
     cores = 1
 ) {
-
+  #chr_obj <- ld_decay$by_chr$Chr1
   ld_w <- unlist(parallel_apply(ld_decay$by_chr, function(chr_obj) {
 
     a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
@@ -835,6 +839,10 @@ compute_ld_w <- function(
     d_window <- d_from_rho(a, rho)
 
     if(is.null(chr_obj$el)) stop("No edge list present")
+
+    if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el)
+
+
 
     ld_w <- chr_obj$el[d<d_window,.(r2_median=median(r2)),by=SNP]
 
