@@ -92,13 +92,14 @@ compute_LD_decay <- function(
 
   message("Estimating LD-decay")
   pb <- txtProgressBar(min = 0, max = length(chrs)-1, style = 3)
+  setTxtProgressBar(pb, 0)
   for (ch in chrs) {
 
     chr_idx  <- which(ids$snp_chr == ch)
     pos_chr  <- ids$snp_pos[chr_idx]
     snps_chr <- ids$snp_id[chr_idx]
 
-    setTxtProgressBar(pb, which(chrs==ch))
+
 
 
     ## robust chromosome-specific bp per SNP scale
@@ -182,7 +183,7 @@ compute_LD_decay <- function(
     } else {
       decay_sum_chr[, rho_slide_raw := NA_real_]
     }
-
+    setTxtProgressBar(pb, which(chrs==ch))
     out_by_chr[[ch]] <- list(
       snp_ids   = snps_chr,
       el        = if (keep_el) el else paste0(el_data_folder,ch,".el"),
@@ -510,7 +511,7 @@ estimate_background_ld <- function(gds,
     stop("Sampled SNPs fall on a single chromosome; increase n_sub.")
   }
 
-  ld <- snpgdsLDMat(
+  ld <- SNPRelate::snpgdsLDMat(
     gds,
     snp.id = ids$snp_id[idx][snp_pool],
     method = "r",

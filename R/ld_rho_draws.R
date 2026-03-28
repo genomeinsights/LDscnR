@@ -106,9 +106,10 @@ ld_rho_draws <- function(gds,
   #rh = 0.9
   if(stat_type[1]=="q"){
     pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
+    setTxtProgressBar(pb, 0)
     draws <- rbindlist(lapply(rho,function(rh){
 
-      setTxtProgressBar(pb, which(rho==rh))
+
 
 
       ld_w <- compute_ld_w(ld_decay,
@@ -156,8 +157,10 @@ ld_rho_draws <- function(gds,
       )
 
       draws[,rho_w:=rh]
+      setTxtProgressBar(pb, which(rho==rh))
       return(draws)
     }))
+
     close(pb)
   }
 
