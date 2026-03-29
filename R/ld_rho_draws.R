@@ -121,7 +121,7 @@ ld_rho_draws <- function(gds,
 
         if(is.null(chr_obj$el)) stop("No edge list present")
 
-        if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,verbose = FALSE)
+        if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,showProgress = FALSE)
 
         ld_w <-lapply(d_window,function(win){
           ld_w <- chr_obj$el[d<win,.(r2_median=median(r2)),by=SNP]
