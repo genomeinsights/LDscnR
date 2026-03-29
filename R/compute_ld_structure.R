@@ -79,6 +79,7 @@ compute_LD_decay <- function(
   if (!is.null(el_data_folder)) {
     if (!dir.exists(el_data_folder)) dir.create(el_data_folder, recursive = TRUE)
     keep_el = FALSE # don't keep if saved
+    message("Savinge edge list to folder ",el_data_folder)
   }
 
   ids  <- .read_gds_ids(gds)
@@ -98,9 +99,6 @@ compute_LD_decay <- function(
     chr_idx  <- which(ids$snp_chr == ch)
     pos_chr  <- ids$snp_pos[chr_idx]
     snps_chr <- ids$snp_id[chr_idx]
-
-
-
 
     ## robust chromosome-specific bp per SNP scale
     chr_size_bp <- max(pos_chr) - min(pos_chr)

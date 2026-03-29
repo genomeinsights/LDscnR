@@ -72,8 +72,8 @@ ld_decay <- compute_LD_decay(
   n_win_decay = 5,
   max_SNPs_decay = Inf, ## all SNPs are now used...
   keep_el = TRUE, ## now we keep the edge lists for downstream analysse
-  slide=new_slide_window, ## .. but a smaller window is used
-  cores = cores
+  slide=1000, ## .. but a smaller window is used
+  cores = 1
 )
 
 # ------------------------------------------------------------
@@ -107,7 +107,7 @@ plot_manhattan(map,
                ld_decay,
                draws,
                ## for defining ORs
-               sign_th=0.5,
+               sign_th=0.05,
                mode="joint",
                sign_if ="greater",
                rho_d = 0.9,

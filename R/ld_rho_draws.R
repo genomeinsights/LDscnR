@@ -103,23 +103,46 @@ ld_rho_draws <- function(gds,
 
   ids <- .read_gds_ids(gds)
 
-  #rh = 0.9
+
+  #rho = 0.9
+  ld_ws <- do.call(rbind,parallel_apply(ld_decay$by_chr, function(chr_obj) {
+
+        a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
+        b <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,b]
+
+        d_window <- d_from_rho(a, rho)
+
+        if(is.null(chr_obj$el)) stop("No edge list present")
+
+        if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el)
+
+        ld_w <-lapply(d_window,function(win){
+          ld_w <- chr_obj$el[d<win,.(r2_median=median(r2)),by=SNP]
+        })
+
+
+        new_order <- match(chr_obj$snp_ids,ld_w[[1]]$SNP)
+        ld_w <- do.call(cbind,lapply(ld_w,function(x){
+          x[new_order,r2_median]
+        }))
+
+      }, cores = cores))
+  colnames(ld_ws) <-  rho
+
+
   if(stat_type[1]=="q"){
-    pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
-    setTxtProgressBar(pb, 0)
+    if(length(rho)>1){
+      pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
+      setTxtProgressBar(pb, 0)
+    }
     draws <- rbindlist(lapply(rho,function(rh){
 
 
 
-
-      ld_w <- compute_ld_w(ld_decay,
-                           rho = rh,
-                           cores = cores)
-
       scan <- ld_scan(
         SNP_ids   = ids$snp_id,
         F_vals    = F_vals,
-        ld_w      = ld_w,
+        ld_w      = ld_ws[,which(colnames(ld_ws) == rh)],
         n_inds    = n_inds,
         full      = TRUE
       )
@@ -157,11 +180,12 @@ ld_rho_draws <- function(gds,
       )
 
       draws[,rho_w:=rh]
-      setTxtProgressBar(pb, which(rho==rh))
+      if(length(rho)>1)
+        setTxtProgressBar(pb, which(rho==rh))
       return(draws)
     }))
-
-    close(pb)
+    if(length(rho)>1)
+      close(pb)
   }
 
 
