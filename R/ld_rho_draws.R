@@ -112,7 +112,7 @@ ld_rho_draws <- function(gds,
     setTxtProgressBar(pb, 0)
   }
 
-  ld_ws <- do.call(rbind,parallel_apply(ld_decay$by_chr, function(chr_obj) {
+  ld_ws <- do.call(rbind,lpply(ld_decay$by_chr, function(chr_obj) {
 
         a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
         b <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,b]
@@ -121,7 +121,7 @@ ld_rho_draws <- function(gds,
 
         if(is.null(chr_obj$el)) stop("No edge list present")
 
-        if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el)
+        if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,verbose = FALSE)
 
         ld_w <-lapply(d_window,function(win){
           ld_w <- chr_obj$el[d<win,.(r2_median=median(r2)),by=SNP]
@@ -139,7 +139,7 @@ ld_rho_draws <- function(gds,
 
         return(ld_w)
 
-      }, cores = 1))
+      }))
 
   if(length(rho)>1)
     close(pb)
@@ -197,8 +197,10 @@ ld_rho_draws <- function(gds,
       )
 
       draws[,rho_w:=rh]
+
       if(length(rho)>1)
         setTxtProgressBar(pb, which(rho==rh))
+
       return(draws)
     }))
     if(length(rho)>1)

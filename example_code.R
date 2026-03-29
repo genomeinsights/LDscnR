@@ -92,7 +92,7 @@ draws <- ld_rho_draws(gds,
                       alpha_lim  = list(min=0.6,max=4), ## lowest alpha is 1/10^0.6=0.25; this range is defined in the -log10 scale!
                       lmin_lim   = list(min=1,max=10),
                       cores      = cores,
-                      mode       = "joint"
+                      mode       = "per_method"
 )
 
 # ------------------------------------------------------------
