@@ -105,6 +105,13 @@ ld_rho_draws <- function(gds,
 
 
   #rho = 0.9
+
+  message("Precalculating ld_w")
+  if(length(rho)>1){
+    pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
+    setTxtProgressBar(pb, 0)
+  }
+
   ld_ws <- do.call(rbind,parallel_apply(ld_decay$by_chr, function(chr_obj) {
 
         a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
@@ -122,11 +129,21 @@ ld_rho_draws <- function(gds,
 
 
         new_order <- match(chr_obj$snp_ids,ld_w[[1]]$SNP)
+
         ld_w <- do.call(cbind,lapply(ld_w,function(x){
           x[new_order,r2_median]
         }))
 
-      }, cores = cores))
+        if(length(rho)>1)
+          setTxtProgressBar(pb, which(names(ld_decay$by_chr)==chr_obj$decay_sum$Chr))
+
+        return(ld_w)
+
+      }, cores = 1))
+
+  if(length(rho)>1)
+    close(pb)
+
   colnames(ld_ws) <-  rho
 
 
