@@ -80,13 +80,16 @@ ld_decay <- compute_LD_decay(
 # 3. Generate draws
 # ------------------------------------------------------------
 
+#pre-calulate ld_w's
+ld_ws <- precalculate_ld_w(pmin(seq(0.75,1,by=0.05),0.99),ld_decay)
 draws <- ld_rho_draws(gds,
                       ld_decay  = ld_decay,
                       F_vals     = map[,.(lfmm_F,emx_F)], ## the F values are pre-calculated and must be provided, these will be used for getting F_prime.
                       q_vals     = NULL, ## q-values from original analyses can also be used but not necessary
                       n_draws    = 100,
                       stat_type  = "q",
-                      rho        = pmin(seq(0.75,1,by=0.05),0.99), ## grid of rho values used for ld_w
+                      rho        = NULL, ## grid of rho values used for ld_w
+                      ld_ws      = ld_ws,
                       rho_d_lim  = list(min=0.9,max=0.99),
                       rho_ld_lim = list(min=0.9,max=0.99),
                       alpha_lim  = list(min=0.6,max=4), ## lowest alpha is 1/10^0.6=0.25; this range is defined in the -log10 scale!

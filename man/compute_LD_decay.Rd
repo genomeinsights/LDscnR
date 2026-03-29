@@ -24,7 +24,7 @@ compute_LD_decay(
 \arguments{
 \item{gds}{A GDS file handle containing genotype data.}
 
-\item{el_data_folder}{Optional path to store LD edge lists (currently not used internally).}
+\item{el_data_folder}{If not \code{NULL}, optional path to store LD edge lists (currently not used internally).}
 
 \item{q}{Quantile of \eqn{r^2} used for decay fitting (default = 0.95).}
 

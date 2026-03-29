@@ -4,12 +4,12 @@
 \name{LDscnR-package}
 \alias{LDscnR}
 \alias{LDscnR-package}
-\title{LDscnR: What the Package Does (One Line, Title Case)}
+\title{LDscnR: LD-aware detection of outlier regions in population genomic data}
 \description{
 What the package does (one paragraph).
 }
 \author{
-\strong{Maintainer}: First Last \email{first.last@example.com}
+\strong{Maintainer}: Petri Kemppainen \email{petri@genomeinsights.fi}
 
 }
 \keyword{internal}

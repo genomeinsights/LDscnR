@@ -14,6 +14,7 @@ ld_rho_draws(
   mode = c("joint", "per_method"),
   n_draws = 100,
   rho = seq(0.75, 0.95, by = 0.025),
+  ld_ws = NULL,
   rho_d_lim = list(min = 0.5, max = 0.999),
   rho_ld_lim = list(min = 0.9, max = 0.999),
   alpha_lim = list(min = 1.31, max = 4),
@@ -49,6 +50,9 @@ Passed to \code{or_draws()}. Typically one of \code{"joint"} or
 
 \item{rho}{Numeric vector of LD-support thresholds (\eqn{\rho_w}) used to
 recompute \code{ld_w}. Only used when \code{stat_type = "q"}.}
+
+\item{ld_ws}{Pre-calculated matrix of \code{ld_w}-values from \code{precalculate_ld_w}.
+If Null, they are calculated based on the \code{rho}.}
 
 \item{rho_d_lim}{Named list with elements \code{min} and \code{max}
 defining the sampling range for the distance threshold parameter

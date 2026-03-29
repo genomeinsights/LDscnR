@@ -35,6 +35,8 @@
 #' @param n_draws Number of OR parameter draws per \code{rho} value.
 #' @param rho Numeric vector of LD-support thresholds (\eqn{\rho_w}) used to
 #'   recompute \code{ld_w}. Only used when \code{stat_type = "q"}.
+#' @param ld_ws Pre-calculated matrix of \code{ld_w}-values from \code{precalculate_ld_w}.
+#'   If Null, they are calculated based on the \code{rho}.
 #' @param rho_d_lim Named list with elements \code{min} and \code{max}
 #'   defining the sampling range for the distance threshold parameter
 #'   \code{rho_d}.
@@ -90,6 +92,7 @@ ld_rho_draws <- function(gds,
                          mode       = c("joint","per_method"),
                          n_draws    = 100,
                          rho        = seq(0.75,0.95,by=0.025),
+                         ld_ws      = NULL,
                          rho_d_lim  = list(min=0.5,max=0.999),
                          rho_ld_lim = list(min=0.9,max=0.999),
                          alpha_lim  = list(min=1.31,max=4),
@@ -106,47 +109,15 @@ ld_rho_draws <- function(gds,
 
   #rho = 0.9
 
-  message("Precalculating ld_w")
-  if(length(rho)>1){
-    pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
-    setTxtProgressBar(pb, 0)
+  if(is.null(ld_ws)){
+    ld_ws <- precalculate_ld_w(rho = rho, ld_decay=ld_decay)
+  }else{
+    rho = colnames(ld_ws)
   }
 
-  ld_ws <- do.call(rbind,lapply(ld_decay$by_chr, function(chr_obj) {
-
-        a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
-        b <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,b]
-
-        d_window <- d_from_rho(a, rho)
-
-        if(is.null(chr_obj$el)) stop("No edge list present")
-
-        if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,showProgress = FALSE)
-
-        ld_w <-lapply(d_window,function(win){
-          ld_w <- chr_obj$el[d<win,.(r2_median=median(r2)),by=SNP]
-        })
 
 
-        new_order <- match(chr_obj$snp_ids,ld_w[[1]]$SNP)
-
-        ld_w <- do.call(cbind,lapply(ld_w,function(x){
-          x[new_order,r2_median]
-        }))
-
-        if(length(rho)>1)
-          setTxtProgressBar(pb, which(names(ld_decay$by_chr)==chr_obj$decay_sum$Chr))
-
-        return(ld_w)
-
-      }))
-
-  if(length(rho)>1)
-    close(pb)
-
-  colnames(ld_ws) <-  rho
-
-
+  message("Getting draws")
   if(stat_type[1]=="q"){
     if(length(rho)>1){
       pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
@@ -248,6 +219,61 @@ ld_rho_draws <- function(gds,
   )
   class(out) <- "ld_rho_draws"
   out
+}
+
+
+#' Pre-calculates \code{ld_w}'s for \code{"ld_rho_draws"}
+#'
+#' Pre-calculates \code{ld_w}'s for use with \code{"ld_rho_draws"}. Saves time, especially if edge lists are saved to file by \code{"compute_LD_decay"}
+#'
+#' @param rho A vector o rho values. Can be a single value.
+#' @param ld_decay Object of class \code{"ld_decay"} returned by
+#'   \code{compute_LD_decay()}.
+#'
+#' @return matrix of \code{ld_w}'s for SNPs with each column corresponding to a different rho value
+#'
+#' @export
+precalculate_ld_w <- function(rho,ld_decay){
+  message("Precalculating ld_w")
+  if(length(rho)>1){
+    pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
+    setTxtProgressBar(pb, 0)
+  }
+
+  ld_ws <- do.call(rbind,lapply(ld_decay$by_chr, function(chr_obj) {
+
+    a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
+    b <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,b]
+
+    d_window <- d_from_rho(a, rho)
+
+    if(is.null(chr_obj$el)) stop("No edge list present")
+
+    if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,showProgress = FALSE)
+
+    ld_w <-lapply(d_window,function(win){
+      ld_w <- chr_obj$el[d<win,.(r2_median=median(r2)),by=SNP]
+    })
+
+
+    new_order <- match(chr_obj$snp_ids,ld_w[[1]]$SNP)
+
+    ld_w <- do.call(cbind,lapply(ld_w,function(x){
+      x[new_order,r2_median]
+    }))
+
+    if(length(rho)>1)
+      setTxtProgressBar(pb, which(names(ld_decay$by_chr)==chr_obj$decay_sum$Chr))
+
+    return(ld_w)
+
+  }))
+
+  if(length(rho)>1)
+    close(pb)
+
+  colnames(ld_ws) <-  rho
+  return(ld_ws)
 }
 
 

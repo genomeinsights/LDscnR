@@ -384,8 +384,8 @@ plot_manhattan_gg <- function(layout,
         legend.position = "none",
         aspect.ratio = 0.25
       ) +
-      scale_color_manual(values=col_vector)+
-      ggtitle(titles[i])
+      ggplot2::scale_color_manual(values=col_vector)+
+      ggplot2::ggtitle(titles[i])
   })
 
   if(is.null(ncol)){
