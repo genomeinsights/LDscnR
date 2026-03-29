@@ -26,7 +26,7 @@
 
 ```         
 # install from GitHub
-devtools::install_github("genomeinsights/LDscnR")
+pak::pak("genomeinsights/LDscnR") 
 ```
 
 ------------------------------------------------------------------------

@@ -112,7 +112,7 @@ ld_rho_draws <- function(gds,
     setTxtProgressBar(pb, 0)
   }
 
-  ld_ws <- do.call(rbind,lpply(ld_decay$by_chr, function(chr_obj) {
+  ld_ws <- do.call(rbind,lapply(ld_decay$by_chr, function(chr_obj) {
 
         a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
         b <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,b]
