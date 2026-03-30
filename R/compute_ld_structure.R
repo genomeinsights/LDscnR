@@ -128,7 +128,7 @@ compute_LD_decay <- function(
       by_chr = TRUE,
       symmetric = TRUE,
       edge_symmetry = FALSE,
-      ld_method = ld_method
+      method = ld_method
     )
 
     data.table::setkey(el, SNP)
