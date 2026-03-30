@@ -839,7 +839,7 @@ compute_ld_w <- function(
 
     if(is.null(chr_obj$el)) stop("No edge list present")
 
-    if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el)
+    if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,showProgress = FALSE)
 
 
 
