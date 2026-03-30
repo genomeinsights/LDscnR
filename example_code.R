@@ -82,6 +82,8 @@ ld_decay <- compute_LD_decay(
 
 #pre-calulate ld_w's
 ld_ws <- precalculate_ld_w(pmin(seq(0.75,1,by=0.05),0.99),ld_decay)
+plot(ld_ws[,1])
+
 draws <- ld_rho_draws(gds,
                       ld_decay  = ld_decay,
                       F_vals     = map[,.(lfmm_F,emx_F)], ## the F values are pre-calculated and must be provided, these will be used for getting F_prime.

@@ -69,6 +69,7 @@ compute_LD_decay <- function(
     max_SNPs_decay = Inf,
     prob_robust = 0.95,
     max_pairs = 5000,
+    ld_method = "r",
     n_strata = 20,
     keep_el = FALSE,
     slide = 1000,
@@ -126,7 +127,8 @@ compute_LD_decay <- function(
       cores = cores,
       by_chr = TRUE,
       symmetric = TRUE,
-      edge_symmetry = FALSE
+      edge_symmetry = FALSE,
+      ld_method = ld_method
     )
 
     data.table::setkey(el, SNP)

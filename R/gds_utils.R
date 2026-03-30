@@ -107,6 +107,7 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 get_el <- function(gds,
                    idx = NULL,
                    slide_win_ld = 1000,
+                   method="r",
                    cores = 1,
                    by_chr = FALSE,
                    symmetric = FALSE,
@@ -137,7 +138,7 @@ get_el <- function(gds,
     ldmat <- SNPRelate::snpgdsLDMat(
       gds,
       snp.id = snp_ids,
-      method = "r",
+      method = method,
       slide = slide,
       verbose = FALSE,
       num.thread = as.integer(cores)
@@ -196,22 +197,22 @@ get_el <- function(gds,
         el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
       ))
 
-      # if(edge_symmetry){
-      #
-      #   el[, side := data.table::fifelse(pos_other > pos, "R", "L")]
-      #
-      #   maxL <- if (any(el$side == "L")) max(el$d[el$side == "L"]) else 0
-      #   maxR <- if (any(el$side == "R")) max(el$d[el$side == "R"]) else 0
-      #   S <- min(maxL, maxR)
-      #
-      #   if (S > 0 && maxL != maxR) {
-      #     long_side <- if (maxL > maxR) "L" else "R"
-      #     tail_el <- el[side == long_side & d > S]
-      #     if (nrow(tail_el) > 0)
-      #       el <- data.table::rbindlist(list(el, tail_el))
-      #   }
-      #
-      # }
+      if(edge_symmetry){
+
+        el[, side := data.table::fifelse(pos_other > pos, "R", "L")]
+
+        maxL <- if (any(el$side == "L")) max(el$d[el$side == "L"]) else 0
+        maxR <- if (any(el$side == "R")) max(el$d[el$side == "R"]) else 0
+        S <- min(maxL, maxR)
+
+        if (S > 0 && maxL != maxR) {
+          long_side <- if (maxL > maxR) "L" else "R"
+          tail_el <- el[side == long_side & d > S]
+          if (nrow(tail_el) > 0)
+            el <- data.table::rbindlist(list(el, tail_el))
+        }
+
+      }
 
      el <- el[,.(SNP,pos1=pos,pos2=pos_other,r2,d)]
 
