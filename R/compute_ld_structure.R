@@ -86,7 +86,7 @@ compute_LD_decay <- function(
   ids  <- .read_gds_ids(gds)
   chrs <- unique(ids$snp_chr)
 
-  b <- estimate_background_ld(gds, n_sub = n_sub_bg, q = q)
+  b <- estimate_background_ld(gds, n_sub = n_sub_bg, q = q,ld_method=ld_method)
 
   out_by_chr <- vector("list", length(chrs))
   names(out_by_chr) <- chrs
@@ -477,7 +477,8 @@ estimate_decay_chr <- function(el,
 estimate_background_ld <- function(gds,
                                    idx=NULL,
                                    n_sub = 5000,
-                                   q = 0.95) {
+                                   q = 0.95,
+                                   ld_method="r") {
 
 
   ids <- .read_gds_ids(gds)
@@ -514,7 +515,7 @@ estimate_background_ld <- function(gds,
   ld <- SNPRelate::snpgdsLDMat(
     gds,
     snp.id = ids$snp_id[idx][snp_pool],
-    method = "r",
+    method = ld_method,
     slide = -1,
     verbose = FALSE
   )
