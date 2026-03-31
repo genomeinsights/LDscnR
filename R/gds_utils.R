@@ -96,21 +96,20 @@ get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
   if (is.null(SNP_id)) {
     if (missing(idx) || is.null(idx)) {
       snp_ids <- ids$snp_id
-    }
-    else {
+    } else {
       snp_ids <- ids$snp_id[as.integer(idx)]
     }
-  }else {
+  } else {
     snp_ids <- SNP_id
   }
-  slide <- if (slide_win_ld > 0)
-    as.integer(slide_win_ld)
-  else -1L
+  slide <- if (slide_win_ld > 0) as.integer(slide_win_ld) else -1L
+
   compute_one <- function(local_idx) {
-    ldmat <- SNPRelate::snpgdsLDMat(gds, snp.id = snp_ids,
+    ldmat <- SNPRelate::snpgdsLDMat(gds, snp.id = ids$snp_id[local_idx],
                                     method = method, slide = slide, verbose = FALSE,
                                     num.thread = as.integer(cores))
     el <- data.table::as.data.table(reshape2::melt(ldmat$LD^2,
+
                                                    value.name = "r2"))
     if (slide_win_ld > 0) {
       el[, `:=`(Var1, Var1 + Var2)]
@@ -129,13 +128,15 @@ get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
   if (!by_chr) {
     return(compute_one(which(ids$snp_id %in% snp_ids)))
   }
-  chr_vec <- ids$snp_chr[ids$snp_id %in% snp_ids]
+  chr_vec <- ids$snp_chr
   chr_levels <- unique(chr_vec)
   el_list <- vector("list", length(chr_levels))
   # i <- 1
   for (i in seq_along(chr_levels)) {
     ch <- chr_levels[i]
-    local_idx <- which(chr_vec == ch)
+
+    local_idx <- which(chr_vec == ch & ids$snp_id %in% snp_ids)
+
     if (length(local_idx) < 2L)
       next
     el_list[[i]] <- compute_one(local_idx)
