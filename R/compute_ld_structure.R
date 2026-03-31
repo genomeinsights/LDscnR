@@ -95,6 +95,7 @@ compute_LD_decay <- function(
   message("Estimating LD-decay")
   pb <- txtProgressBar(min = 0, max = length(chrs)-1, style = 3)
   setTxtProgressBar(pb, 0)
+  #ch = "Chr1"
   for (ch in chrs) {
 
     chr_idx  <- which(ids$snp_chr == ch)
@@ -126,12 +127,12 @@ compute_LD_decay <- function(
       slide_win_ld = slide,   # still in SNPs for get_el
       cores = cores,
       by_chr = TRUE,
-      symmetric = TRUE,
-      edge_symmetry = FALSE,
       method = ld_method
     )
 
-    data.table::setkey(el, SNP)
+
+
+    data.table::setkey(el, SNP1)
 
     window_size <- chr_size_bp / n_win_decay
     step_size   <- window_size * overlap
@@ -584,6 +585,7 @@ coef_ld_dec <- function(dt_strata,
   c_start <- max(agg$r2_q, na.rm = TRUE)
   a_start <- 1 / median(agg$d_mid)
 
+
   fit <- tryCatch(
     nls(
       r2_q ~ b + (c - b)/(1 + a * d_mid),
@@ -844,7 +846,11 @@ compute_ld_w <- function(
 
     if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,showProgress = FALSE)
 
-
+    #make symmetric
+    chr_obj$el <- data.table::rbindlist(list(
+      chr_obj$el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
+      chr_obj$el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
+    ))
 
     ld_w <- chr_obj$el[d<d_window,.(r2_median=median(r2)),by=SNP]
 

@@ -14,6 +14,7 @@ compute_LD_decay(
   max_SNPs_decay = Inf,
   prob_robust = 0.95,
   max_pairs = 5000,
+  ld_method = "r",
   n_strata = 20,
   keep_el = FALSE,
   slide = 1000,

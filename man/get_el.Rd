@@ -7,11 +7,11 @@
 get_el(
   gds,
   idx = NULL,
+  SNP_id = NULL,
   slide_win_ld = 1000,
+  method = "r",
   cores = 1,
-  by_chr = FALSE,
-  symmetric = FALSE,
-  edge_symmetry = FALSE
+  by_chr = FALSE
 )
 }
 \arguments{
@@ -25,36 +25,20 @@ SNP order in the GDS file). If \code{NULL}, all SNPs are used.}
 sliding window of this size. If \code{<= 0}, all pairwise LD values are
 computed.}
 
+\item{method}{LD-method paste on to \code{SNPRelate::snpgdsLDMat}, default="r"
+(EM algorithm assuming HWE). If strong deviations from HWE are expected use "corr".}
+
 \item{cores}{Number of CPU threads used in LD computation.}
 
 \item{by_chr}{Logical; if \code{TRUE}, LD is computed separately within each
 chromosome. If \code{FALSE}, LD is computed across the full SNP subset.}
-
-\item{symmetric}{Logical; if \code{TRUE}, returns a SNP-centered edge list in
-which each pair contributes one row for each of the two SNPs.}
-
-\item{edge_symmetry}{Logical; if \code{TRUE}, applies an additional balancing
-step to the SNP-centered representation to reduce asymmetry in left/right
-genomic neighborhoods in chromosome edges (removes edge effects).}
 }
 \value{
-If \code{symmetric = FALSE} and \code{edge_symmetry = FALSE}, a
-\code{data.table} with columns:
+A \code{data.table} with columns:
 \describe{
-\item{Var1, Var2}{Indices of the paired SNPs within the analyzed subset.}
-\item{r2}{Pairwise LD (\eqn{r^2}).}
+\item{SNP1, SNP2}{SNP identifiers.}
 \item{Chr1, Chr2}{Chromosomes of the two SNPs.}
 \item{pos1, pos2}{Physical positions of the two SNPs.}
-\item{SNP1, SNP2}{SNP identifiers.}
-\item{d}{Absolute physical distance between the SNPs.}
-}
-
-If \code{symmetric = TRUE} or \code{edge_symmetry = TRUE}, a SNP-centered
-\code{data.table} with columns:
-\describe{
-\item{SNP}{Reference SNP.}
-\item{pos1}{Position of the reference SNP.}
-\item{pos2}{Position of the paired SNP.}
 \item{r2}{Pairwise LD (\eqn{r^2}).}
 \item{d}{Absolute physical distance between the SNPs.}
 }

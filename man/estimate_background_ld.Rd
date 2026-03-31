@@ -4,7 +4,13 @@
 \alias{estimate_background_ld}
 \title{Estimate Background LD from Inter-chromosomal SNP Pairs}
 \usage{
-estimate_background_ld(gds, idx = NULL, n_sub = 5000, q = 0.95)
+estimate_background_ld(
+  gds,
+  idx = NULL,
+  n_sub = 5000,
+  q = 0.95,
+  ld_method = "r"
+)
 }
 \arguments{
 \item{gds}{GDS file handle.}

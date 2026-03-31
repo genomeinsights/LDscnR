@@ -8,7 +8,7 @@ prep_manhattan(data_manh, spacer = 0, chr_cols = c("white", "grey50"))
 }
 \arguments{
 \item{data_manh}{Data frame or \code{data.table} containing at least the
-columns \code{Chr} and \code{bp}.}
+columns \code{Chr} and \code{Pos}.}
 
 \item{spacer}{Non-negative spacing added between chromosomes on the cumulative
 x-axis.}

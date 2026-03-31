@@ -83,7 +83,7 @@ ld_decay <- compute_LD_decay(
 
 #pre-calulate ld_w's
 ld_ws <- precalculate_ld_w(pmin(seq(0.75,1,by=0.05),0.99),ld_decay)
-#plot(ld_ws2[,1],ld_ws[,1])
+#plot(ld_ws[,1])
 cores=8
 
 draws <- ld_rho_draws(gds,

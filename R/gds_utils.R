@@ -65,33 +65,18 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 #'   \code{SNPRelate::snpgdsLDMat()}. If \code{> 0}, LD is computed within a
 #'   sliding window of this size. If \code{<= 0}, all pairwise LD values are
 #'   computed.
+#' @param method LD-method paste on to \code{SNPRelate::snpgdsLDMat}, default="r"
+#'   (EM algorithm assuming HWE). If strong deviations from HWE are expected use "corr".
 #' @param cores Number of CPU threads used in LD computation.
 #' @param by_chr Logical; if \code{TRUE}, LD is computed separately within each
 #'   chromosome. If \code{FALSE}, LD is computed across the full SNP subset.
-#' @param symmetric Logical; if \code{TRUE}, returns a SNP-centered edge list in
-#'   which each pair contributes one row for each of the two SNPs.
-#' @param edge_symmetry Logical; if \code{TRUE}, applies an additional balancing
-#'   step to the SNP-centered representation to reduce asymmetry in left/right
-#'   genomic neighborhoods in chromosome edges (removes edge effects).
 #'
 #' @return
-#' If \code{symmetric = FALSE} and \code{edge_symmetry = FALSE}, a
-#' \code{data.table} with columns:
+#' A \code{data.table} with columns:
 #' \describe{
-#'   \item{Var1, Var2}{Indices of the paired SNPs within the analyzed subset.}
-#'   \item{r2}{Pairwise LD (\eqn{r^2}).}
+#'   \item{SNP1, SNP2}{SNP identifiers.}
 #'   \item{Chr1, Chr2}{Chromosomes of the two SNPs.}
 #'   \item{pos1, pos2}{Physical positions of the two SNPs.}
-#'   \item{SNP1, SNP2}{SNP identifiers.}
-#'   \item{d}{Absolute physical distance between the SNPs.}
-#' }
-#'
-#' If \code{symmetric = TRUE} or \code{edge_symmetry = TRUE}, a SNP-centered
-#' \code{data.table} with columns:
-#' \describe{
-#'   \item{SNP}{Reference SNP.}
-#'   \item{pos1}{Position of the reference SNP.}
-#'   \item{pos2}{Position of the paired SNP.}
 #'   \item{r2}{Pairwise LD (\eqn{r^2}).}
 #'   \item{d}{Absolute physical distance between the SNPs.}
 #' }
@@ -106,25 +91,23 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 #' @export
 get_el <- function(gds,
                    idx = NULL,
+                   SNP_id = NULL,
                    slide_win_ld = 1000,
                    method="r",
                    cores = 1,
-                   by_chr = FALSE,
-                   symmetric = FALSE,
-                   edge_symmetry = FALSE) {
+                   by_chr = FALSE) {
 
   ids <- .read_gds_ids(gds)
 
-  if (missing(idx) || is.null(idx)) {
-    idx <- seq_along(ids$snp_id)
-  } else {
-    idx <- as.integer(idx)
+  if(is.null(SNP_id)){
+    if (missing(idx) || is.null(idx)) {
+      snp_ids <- ids$snp_id
+    } else {
+      snp_ids <- ids$snp_id[as.integer(idx)]
+    }
+  }else{
+    snp_ids <- SNP_id
   }
-
-  if (anyNA(idx) || length(idx) == 0L)
-    stop("`idx` must be a non-empty integer vector.")
-  if (min(idx) < 1L || max(idx) > length(ids$snp_id))
-    stop("`idx` is out of range for this GDS.")
 
   slide <- if (slide_win_ld > 0) as.integer(slide_win_ld) else -1L
 
@@ -132,8 +115,6 @@ get_el <- function(gds,
   # Helper to compute LD for one index subset
   # ------------------------------------------------------------
   compute_one <- function(local_idx) {
-
-    snp_ids <- ids$snp_id[local_idx]
 
     ldmat <- SNPRelate::snpgdsLDMat(
       gds,
@@ -155,73 +136,42 @@ get_el <- function(gds,
     el <- el[Var1 > Var2]
     el <- el[is.finite(r2)]
 
-    el[, Chr1 := ids$snp_chr[local_idx][Var1]]
-    el[, Chr2 := ids$snp_chr[local_idx][Var2]]
-    el[, pos1 := ids$snp_pos[local_idx][Var1]]
-    el[, pos2 := ids$snp_pos[local_idx][Var2]]
-    el[, SNP1 := ids$snp_id[local_idx][Var1]]
-    el[, SNP2 := ids$snp_id[local_idx][Var2]]
+    el[, Chr1 := ids$snp_chr[idx][Var1]]
+    el[, Chr2 := ids$snp_chr[idx][Var2]]
+    el[, pos1 := ids$snp_pos[idx][Var1]]
+    el[, pos2 := ids$snp_pos[idx][Var2]]
+    el[, SNP1 := ids$snp_id[idx][Var1]]
+    el[, SNP2 := ids$snp_id[idx][Var2]]
     el[, d := abs(pos1 - pos2)]
 
-    el
+    el[,.(SNP1,SNP2,Chr1,Chr2,pos1,pos2,r2,d)]
   }
 
   # ------------------------------------------------------------
   # by_chr = FALSE → original behavior
   # ------------------------------------------------------------
   if (!by_chr) {
-    return(compute_one(idx))
+    return(compute_one(which(ids$snp_id %in% snp_ids)))
   }
 
   # ------------------------------------------------------------
   # by_chr = TRUE → split per chromosome
   # ------------------------------------------------------------
-  chr_vec <- ids$snp_chr[idx]
+  chr_vec <- ids$snp_chr[ids$snp_id %in% snp_ids]
   chr_levels <- unique(chr_vec)
 
   el_list <- vector("list", length(chr_levels))
-
+  #i <- 1
   for (i in seq_along(chr_levels)) {
     ch <- chr_levels[i]
-    local_idx <- idx[chr_vec == ch]
+    local_idx <- which(chr_vec == ch)
 
     if (length(local_idx) < 2L)
       next
 
-    el <-  compute_one(local_idx)
 
-    if(symmetric || edge_symmetry){
-
-      el <- data.table::rbindlist(list(
-        el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
-        el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
-      ))
-
-      if(edge_symmetry){
-
-        el[, side := data.table::fifelse(pos_other > pos, "R", "L")]
-
-        maxL <- if (any(el$side == "L")) max(el$d[el$side == "L"]) else 0
-        maxR <- if (any(el$side == "R")) max(el$d[el$side == "R"]) else 0
-        S <- min(maxL, maxR)
-
-        if (S > 0 && maxL != maxR) {
-          long_side <- if (maxL > maxR) "L" else "R"
-          tail_el <- el[side == long_side & d > S]
-          if (nrow(tail_el) > 0)
-            el <- data.table::rbindlist(list(el, tail_el))
-        }
-
-      }
-
-     el <- el[,.(SNP,pos1=pos,pos2=pos_other,r2,d)]
-
-    }
-
-    el_list[[i]] <- el
+    el_list[[i]] <- compute_one(local_idx)
   }
-
-
 
   data.table::rbindlist(el_list, use.names = TRUE)
 }

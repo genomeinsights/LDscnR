@@ -250,6 +250,12 @@ precalculate_ld_w <- function(rho,ld_decay){
     if(is.null(chr_obj$el)) stop("No edge list present")
 
     if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,showProgress = FALSE)
+    #make symmetric
+    chr_obj$el <- data.table::rbindlist(list(
+      chr_obj$el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
+      chr_obj$el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
+    ))
+
 
     ld_w <-lapply(d_window,function(win){
       ld_w <- chr_obj$el[d<win,.(r2_median=median(r2)),by=SNP]
