@@ -77,7 +77,7 @@ plot_manhattan <- function(map,
 
   layout <- prep_manhattan(
     cbind(map_manh[, .(
-      bp = Pos,
+      Pos,
       Chr,
       marker
     )], map_manh[,..vars])
@@ -162,7 +162,7 @@ add_ORs <- function(gds, ld_decay, map, stat="Joint_C", sign_th,sign_if="greater
 #' for Manhattan-style plotting across chromosomes.
 #'
 #' @param data_manh Data frame or \code{data.table} containing at least the
-#'   columns \code{Chr} and \code{bp}.
+#'   columns \code{Chr} and \code{Pos}.
 #' @param spacer Non-negative spacing added between chromosomes on the cumulative
 #'   x-axis.
 #' @param chr_cols Alternating background colours used for chromosome bands.
@@ -183,26 +183,26 @@ prep_manhattan <- function(data_manh,
                            spacer = 0,
                            chr_cols = c("white", "grey50")) {
 
-  stopifnot(all(c("Chr", "bp") %in% names(data_manh)))
+  stopifnot(all(c("Chr", "Pos") %in% names(data_manh)))
 
   data_manh <- as.data.table(data_manh)
 
   ## extract numeric chromosome index once
   data_manh[, chr_idx := as.integer(sub("^Chr", "", Chr))]
-  setorder(data_manh, chr_idx, bp)
+  setorder(data_manh, chr_idx, Pos)
 
   ## fix chromosome factor order
   chr_levels <- unique(data_manh$Chr)
   data_manh[, Chr := factor(Chr, levels = chr_levels)]
 
   ## chromosome lengths + cumulative offsets
-  chr_dt <- data_manh[, .(chr_len = max(bp) + spacer), by = Chr]
+  chr_dt <- data_manh[, .(chr_len = max(Pos) + spacer), by = Chr]
   chr_dt[, offset := cumsum(chr_len) - chr_len]
 
   ## merge offsets back
   don <- merge(data_manh, chr_dt[, .(Chr, offset)], by = "Chr")
-  don[, BPcum := bp + offset]
-  setorder(don, Chr, bp)
+  don[, BPcum := Pos + offset]
+  setorder(don, Chr, Pos)
 
   ## axis centers
   axisdf <- don[, .(center = (min(BPcum) + max(BPcum)) / 2), by = Chr]

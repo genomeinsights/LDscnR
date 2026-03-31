@@ -61,8 +61,9 @@ ld_decay <- compute_LD_decay(
   n_win_decay = 5,
   max_SNPs_decay = Inf, ## all SNPs are now used...
   keep_el = TRUE, ## now we keep the edge lists for downstream analysse
-  slide=new_slide_window, ## .. but a smaller window is used
-  cores = cores
+  slide=2000, ## .. but a smaller window is used
+  cores = 8,
+  ld_method = "r"
 )
 
 ## with saving EL
@@ -82,7 +83,8 @@ ld_decay <- compute_LD_decay(
 
 #pre-calulate ld_w's
 ld_ws <- precalculate_ld_w(pmin(seq(0.75,1,by=0.05),0.99),ld_decay)
-plot(ld_ws[,1])
+#plot(ld_ws2[,1],ld_ws[,1])
+cores=8
 
 draws <- ld_rho_draws(gds,
                       ld_decay  = ld_decay,
@@ -97,7 +99,7 @@ draws <- ld_rho_draws(gds,
                       alpha_lim  = list(min=0.6,max=4), ## lowest alpha is 1/10^0.6=0.25; this range is defined in the -log10 scale!
                       lmin_lim   = list(min=1,max=10),
                       cores      = cores,
-                      mode       = "per_method"
+                      mode       = "joint"
 )
 
 # ------------------------------------------------------------
