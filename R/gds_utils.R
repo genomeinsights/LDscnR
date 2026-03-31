@@ -89,87 +89,55 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 #' require all LD partners of each focal SNP.
 #'
 #' @export
-get_el <- function(gds,
-                   idx = NULL,
-                   SNP_id = NULL,
-                   slide_win_ld = 1000,
-                   method="r",
-                   cores = 1,
-                   by_chr = FALSE) {
-
+get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
+                    method = "r", cores = 1, by_chr = FALSE)
+{
   ids <- .read_gds_ids(gds)
-
-  if(is.null(SNP_id)){
+  if (is.null(SNP_id)) {
     if (missing(idx) || is.null(idx)) {
       snp_ids <- ids$snp_id
-    } else {
+    }
+    else {
       snp_ids <- ids$snp_id[as.integer(idx)]
     }
-  }else{
+  }else {
     snp_ids <- SNP_id
   }
-
-  slide <- if (slide_win_ld > 0) as.integer(slide_win_ld) else -1L
-
-  # ------------------------------------------------------------
-  # Helper to compute LD for one index subset
-  # ------------------------------------------------------------
+  slide <- if (slide_win_ld > 0)
+    as.integer(slide_win_ld)
+  else -1L
   compute_one <- function(local_idx) {
-
-    ldmat <- SNPRelate::snpgdsLDMat(
-      gds,
-      snp.id = snp_ids,
-      method = method,
-      slide = slide,
-      verbose = FALSE,
-      num.thread = as.integer(cores)
-    )
-
-    el <- data.table::as.data.table(
-      reshape2::melt(ldmat$LD^2, value.name = "r2")
-    )
-
+    ldmat <- SNPRelate::snpgdsLDMat(gds, snp.id = snp_ids,
+                                    method = method, slide = slide, verbose = FALSE,
+                                    num.thread = as.integer(cores))
+    el <- data.table::as.data.table(reshape2::melt(ldmat$LD^2,
+                                                   value.name = "r2"))
     if (slide_win_ld > 0) {
-      el[, Var1 := Var1 + Var2]
+      el[, `:=`(Var1, Var1 + Var2)]
     }
-
     el <- el[Var1 > Var2]
     el <- el[is.finite(r2)]
-
-    el[, Chr1 := ids$snp_chr[idx][Var1]]
-    el[, Chr2 := ids$snp_chr[idx][Var2]]
-    el[, pos1 := ids$snp_pos[idx][Var1]]
-    el[, pos2 := ids$snp_pos[idx][Var2]]
-    el[, SNP1 := ids$snp_id[idx][Var1]]
-    el[, SNP2 := ids$snp_id[idx][Var2]]
-    el[, d := abs(pos1 - pos2)]
-
-    el[,.(SNP1,SNP2,Chr1,Chr2,pos1,pos2,r2,d)]
+    el[, `:=`(Chr1, ids$snp_chr[local_idx][Var1])]
+    el[, `:=`(Chr2, ids$snp_chr[local_idx][Var2])]
+    el[, `:=`(pos1, ids$snp_pos[local_idx][Var1])]
+    el[, `:=`(pos2, ids$snp_pos[local_idx][Var2])]
+    el[, `:=`(SNP1, ids$snp_id[local_idx][Var1])]
+    el[, `:=`(SNP2, ids$snp_id[local_idx][Var2])]
+    el[, `:=`(d, abs(pos1 - pos2))]
+    el[, .(SNP1, SNP2, Chr1, Chr2, pos1, pos2, r2, d)]
   }
-
-  # ------------------------------------------------------------
-  # by_chr = FALSE → original behavior
-  # ------------------------------------------------------------
   if (!by_chr) {
     return(compute_one(which(ids$snp_id %in% snp_ids)))
   }
-
-  # ------------------------------------------------------------
-  # by_chr = TRUE → split per chromosome
-  # ------------------------------------------------------------
   chr_vec <- ids$snp_chr[ids$snp_id %in% snp_ids]
   chr_levels <- unique(chr_vec)
-
   el_list <- vector("list", length(chr_levels))
-  #i <- 1
+  # i <- 1
   for (i in seq_along(chr_levels)) {
     ch <- chr_levels[i]
     local_idx <- which(chr_vec == ch)
-
     if (length(local_idx) < 2L)
       next
-
-
     el_list[[i]] <- compute_one(local_idx)
   }
 

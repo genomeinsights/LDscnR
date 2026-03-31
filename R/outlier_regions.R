@@ -84,7 +84,7 @@ detect_or <- function(el,
 
   mode <- match.arg(mode)
 
-  #stat_type <- infer_stat_type(methods)
+
 
   outlier_fun <- switch(
     sign_if,
@@ -442,32 +442,3 @@ or_to_table <- function(or_obj) {
   data.table::rbindlist(res)
 }
 
-
-#' Infer statistic type from method names
-#'
-#' Internal helper that determines whether a set of method names corresponds
-#' to q-based statistics or C-based statistics.
-#'
-#' @param method_names Character vector of method names.
-#'
-#' @return Character scalar: \code{"q"} or \code{"C"}.
-#'
-#' @details
-#' Method names beginning with \code{"C"} or containing \code{"_C"} are treated
-#' as C-based. All others are treated as q-based. Mixed inputs are rejected.
-#'
-#' @keywords internal
-infer_stat_type <- function(method_names) {
-
-  has_C  <- grepl("^C", method_names) | grepl("_C", method_names)
-  has_q  <- !has_C
-
-  if (any(has_C) && any(has_q)) {
-    stop("Cannot mix C-based and q-value-based methods in the same call.")
-  }
-
-  if (all(has_C)) return("C")
-  if (all(has_q)) return("q")
-
-  stop("Unable to infer statistic type.")
-}
