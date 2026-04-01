@@ -287,7 +287,8 @@ plot_manhattan_gg <- function(layout,
                               titles = NULL,
                               point_size = 1,
                               ncol = NULL,
-                              col_vector=NULL) {
+                              col_vector=NULL,
+                              use_identity=FALSE) {
 
   if(is.null(col_vector)) col_vector <- c("#B2DF8A", "#FFD92F", "firebrick", "#33A02C", "#7FC97F", "#CAB2D6",
                                           "#FB8072", "grey30", "#E6AB02", "#FDC086", "steelblue", "#1F78B4",
