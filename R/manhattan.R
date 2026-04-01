@@ -119,7 +119,6 @@ plot_manhattan <- function(map,
     use_identity = use_identity
   )
 }
-
 #' Add outlier-region labels to a SNP map
 #'
 #' Detects outlier regions from a selected SNP-level statistic and merges the
@@ -334,18 +333,18 @@ plot_manhattan_gg <- function(layout,
       )
 
     # --- Non-OR points ---
-    if (!is.null(col_var)) {
-      p <- p + ggplot2::aes(color = .data[[col_var]])
-
-      if (isTRUE(use_identity)) {
-        p <- p + ggplot2::scale_color_identity()
-      } else if (!is.null(col_vector)) {
-        p <- p + ggplot2::scale_color_manual(values = col_vector)
-      }
+    if (!is.null(col_var) & isFALSE(use_identity)) {
+      p <- p +
+        ggplot2::geom_point(
+          data = don[get(col_var) == "ns"],
+          ggplot2::aes(BPcum, yval),
+          size = point_size,
+          colour = "grey50"
+        )
     }
 
     # --- OR coloured points ---
-    if (!is.null(col_var)) {
+    if (!is.null(col_var) & isFALSE(use_identity)) {
       p <- p +
         ggplot2::geom_point(
           data = don[get(col_var) != "ns"],
@@ -360,6 +359,10 @@ plot_manhattan_gg <- function(layout,
           size = point_size,
           colour = "grey50"
         )
+    }
+
+    if (!is.null(col_var) & isTRUE(use_identity)) {
+        p <- p + ggplot2::scale_color_identity()
     }
 
     # --- QTN markers ---
