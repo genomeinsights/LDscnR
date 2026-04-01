@@ -36,6 +36,10 @@
 #' @param shape_var Optional column used to highlight special SNP classes
 #'   (for example QTNs).
 #' @param col_vector Optional vector of colours used for OR categories.
+#' @param use_identity Logical; if \code{TRUE}, values in \code{col_var} are
+#'   treated as actual colour values and plotted with
+#'   \code{ggplot2::scale_color_identity()}. If \code{FALSE}, colours are
+#'   assigned as categories, typically via \code{col_vector}.
 #'
 #' @return A ggplot/patchwork object.
 #'
@@ -54,8 +58,8 @@ plot_manhattan <- function(map,
                            rho_d = 0.99,
                            rho_ld = 0.99,
                            sign_th = 0.05,
-                           mode="joint",
-                           sign_if ="greater",
+                           mode = "joint",
+                           sign_if = "greater",
                            l_min = 1,
                            y_vars = c("Joint_C"),
                            y_labels = c("C (Joint analyses)"),
@@ -64,26 +68,44 @@ plot_manhattan <- function(map,
                            col_var = "OR_id",
                            shape_var = NULL,
                            col_vector = NULL,
-                           point_size = 1){
+                           use_identity = FALSE,
+                           point_size = 1) {
 
-  map_manh <- add_consistency_to_map(map, consistency_obj = consistency_score(draws$draws))
-
-  map_manh <- add_ORs(gds, ld_decay, map_manh, stat=y_vars[1], sign_th=sign_th,sign_if=sign_if,mode=mode,rho_d=rho_d, rho_ld=rho_ld,l_min=l_min)
-
-  vars <- c(y_vars,col_var,shape_var)
-  map_manh[,..vars]
-
-  if(map_manh[,length(which(OR_id!="ns"))]==0) stop("No outlier regins detected at given significance threshold, aborting")
-
-  layout <- prep_manhattan(
-    cbind(map_manh[, .(
-      Pos,
-      Chr,
-      marker
-    )], map_manh[,..vars])
+  map_manh <- add_consistency_to_map(
+    map,
+    consistency_obj = consistency_score(draws$draws)
   )
 
-  return(plot_manhattan_gg(
+  map_manh <- add_ORs(
+    gds,
+    ld_decay,
+    map_manh,
+    stat = y_vars[1],
+    sign_th = sign_th,
+    sign_if = sign_if,
+    mode = mode,
+    rho_d = rho_d,
+    rho_ld = rho_ld,
+    l_min = l_min
+  )
+
+  vars <- c(y_vars, col_var, shape_var)
+  vars <- vars[!is.null(vars)]
+
+  map_manh[, ..vars]
+
+  if (map_manh[, length(which(OR_id != "ns"))] == 0) {
+    stop("No outlier regins detected at given significance threshold, aborting")
+  }
+
+  layout <- prep_manhattan(
+    cbind(
+      map_manh[, .(Pos, Chr, marker)],
+      map_manh[, ..vars]
+    )
+  )
+
+  plot_manhattan_gg(
     layout,
     y_vars = y_vars,
     y_labels = y_labels,
@@ -92,11 +114,12 @@ plot_manhattan <- function(map,
     shape_var = shape_var,
     point_size = point_size,
     titles = titles,
-    ncol=1,
-    col_vector
-  ))
-
+    ncol = 1,
+    col_vector = col_vector,
+    use_identity = use_identity
+  )
 }
+
 #' Add outlier-region labels to a SNP map
 #'
 #' Detects outlier regions from a selected SNP-level statistic and merges the
@@ -311,13 +334,13 @@ plot_manhattan_gg <- function(layout,
 
     # --- Non-OR points ---
     if (!is.null(col_var)) {
-      p <- p +
-        ggplot2::geom_point(
-          data = don[get(col_var) == "ns"],
-          ggplot2::aes(BPcum, yval),
-          size = point_size,
-          colour = "grey50"
-        )
+      p <- p + ggplot2::aes(color = .data[[col_var]])
+
+      if (isTRUE(use_identity)) {
+        p <- p + ggplot2::scale_color_identity()
+      } else if (!is.null(col_vector)) {
+        p <- p + ggplot2::scale_color_manual(values = col_vector)
+      }
     }
 
     # --- OR coloured points ---
