@@ -286,20 +286,21 @@ plot_manhattan_gg <- function(layout,
                               titles = NULL,
                               point_size = 1,
                               ncol = NULL,
-                              col_vector=NULL,
-                              use_identity=FALSE) {
+                              col_vector = NULL,
+                              use_identity = FALSE) {
 
-  if(is.null(col_vector)) col_vector <- c("#B2DF8A", "#FFD92F", "firebrick", "#33A02C", "#7FC97F", "#CAB2D6",
-                                          "#FB8072", "grey30", "#E6AB02", "#FDC086", "steelblue", "#1F78B4",
-                                          "#FB9A99", "#1B9E77", "#BC80BD", "#E31A1C", "#7570B3", "#A6761D",
-                                          "#A6CEE3", "salmon", "#FFFF33", "forestgreen", "#FDCDAC", "#BF5B17",
-                                          "#A6761D", "#FBB4AE", "#4DAF4A", "#B3E2CD", "#FDDAEC", "#BEBADA",
-                                          "#FFF2AE", "#1F78B4", "#66C2A5", "#F0027F", "#E6AB02", "#E78AC3",
-                                          "#FF7F00", "#8DA0CB", "#6A3D9A", "#B15928", "#E41A1C")
+  if (is.null(col_vector)) {
+    col_vector <- c("#B2DF8A", "#FFD92F", "firebrick", "#33A02C", "#7FC97F", "#CAB2D6",
+                    "#FB8072", "grey30", "#E6AB02", "#FDC086", "steelblue", "#1F78B4",
+                    "#FB9A99", "#1B9E77", "#BC80BD", "#E31A1C", "#7570B3", "#A6761D",
+                    "#A6CEE3", "salmon", "#FFFF33", "forestgreen", "#FDCDAC", "#BF5B17",
+                    "#A6761D", "#FBB4AE", "#4DAF4A", "#B3E2CD", "#FDDAEC", "#BEBADA",
+                    "#FFF2AE", "#1F78B4", "#66C2A5", "#F0027F", "#E6AB02", "#E78AC3",
+                    "#FF7F00", "#8DA0CB", "#6A3D9A", "#B15928", "#E41A1C")
+  }
 
   if (!inherits(layout, "manhattan_layout"))
     stop("layout must be from prep_manhattan().")
-
 
   don     <- data.table::copy(layout$data)
   axisdf  <- layout$axis
@@ -310,20 +311,18 @@ plot_manhattan_gg <- function(layout,
   if (!is.null(thresholds) && length(thresholds) != n_panels)
     stop("thresholds must match length of y_vars")
 
-  ## make sure we have enough colors
-  tmp <- unique(unlist(don[,..col_var]))
-  tmp <- tmp[tmp!="ns"]
-  col_vector <- rep(col_vector,ceiling(length(tmp)/length(col_vector)))
+  if (!is.null(col_var) && !use_identity) {
+    tmp <- unique(don[[col_var]])
+    tmp <- tmp[!is.na(tmp) & tmp != "ns"]
+    col_vector <- rep(col_vector, ceiling(length(tmp) / length(col_vector)))
+  }
 
-  #i  <- 1
   plots <- lapply(seq_len(n_panels), function(i) {
 
     don[, yval := get(y_vars[i])]
     don[is.na(yval), yval := 0]
 
     p <- ggplot2::ggplot() +
-
-      # chromosome background
       ggplot2::geom_rect(
         data = rect_dt,
         ggplot2::aes(xmin = x1, xmax = x2, ymin = -Inf, ymax = Inf),
@@ -332,25 +331,32 @@ plot_manhattan_gg <- function(layout,
         inherit.aes = FALSE
       )
 
-    # --- Non-OR points ---
-    if (!is.null(col_var) & isFALSE(use_identity)) {
+    if (!is.null(col_var) && !use_identity) {
       p <- p +
         ggplot2::geom_point(
           data = don[get(col_var) == "ns"],
           ggplot2::aes(BPcum, yval),
           size = point_size,
           colour = "grey50"
-        )
-    }
-
-    # --- OR coloured points ---
-    if (!is.null(col_var) & isFALSE(use_identity)) {
-      p <- p +
+        ) +
         ggplot2::geom_point(
           data = don[get(col_var) != "ns"],
-          ggplot2::aes(BPcum, yval, colour = get(col_var)),
+          ggplot2::aes(BPcum, yval, colour = .data[[col_var]]),
           size = point_size
-        )
+        ) +
+        ggplot2::scale_color_manual(values = col_vector)
+    } else if (!is.null(col_var) && use_identity) {
+      p <- p +
+        ggplot2::geom_point(
+          data = don,
+          ggplot2::aes(
+            BPcum,
+            yval,
+            colour = ifelse(.data[[col_var]] == "ns", "grey50", .data[[col_var]])
+          ),
+          size = point_size
+        ) +
+        ggplot2::scale_color_identity()
     } else {
       p <- p +
         ggplot2::geom_point(
@@ -361,29 +367,46 @@ plot_manhattan_gg <- function(layout,
         )
     }
 
-    if (!is.null(col_var) & isTRUE(use_identity)) {
-        p <- p + ggplot2::scale_color_identity()
-    }
-
-    # --- QTN markers ---
     if (!is.null(shape_var)) {
-      p <- p +
-        ggplot2::geom_point(
-          data = don[get(shape_var) == "QTN" & get(col_var) != "ns"],
-          ggplot2::aes(BPcum, yval,colour = get(col_var)),
-          shape = 3,
-          size = point_size * 3
-        ) +
-        ggplot2::geom_point(
-          data = don[get(shape_var) == "QTN" & get(col_var) == "ns"],
-          ggplot2::aes(BPcum, yval),
-          shape = 3,
-          size = point_size * 3,
-          col="black"
-        )
+      if (!is.null(col_var) && use_identity) {
+        p <- p +
+          ggplot2::geom_point(
+            data = don[get(shape_var) == "QTN"],
+            ggplot2::aes(
+              BPcum,
+              yval,
+              colour = ifelse(.data[[col_var]] == "ns", "black", .data[[col_var]])
+            ),
+            shape = 3,
+            size = point_size * 3
+          )
+      } else if (!is.null(col_var)) {
+        p <- p +
+          ggplot2::geom_point(
+            data = don[get(shape_var) == "QTN" & get(col_var) != "ns"],
+            ggplot2::aes(BPcum, yval, colour = .data[[col_var]]),
+            shape = 3,
+            size = point_size * 3
+          ) +
+          ggplot2::geom_point(
+            data = don[get(shape_var) == "QTN" & get(col_var) == "ns"],
+            ggplot2::aes(BPcum, yval),
+            shape = 3,
+            size = point_size * 3,
+            colour = "black"
+          )
+      } else {
+        p <- p +
+          ggplot2::geom_point(
+            data = don[get(shape_var) == "QTN"],
+            ggplot2::aes(BPcum, yval),
+            shape = 3,
+            size = point_size * 3,
+            colour = "black"
+          )
+      }
     }
 
-    # --- Threshold ---
     if (!is.null(thresholds) && !is.na(thresholds[i])) {
       p <- p +
         ggplot2::geom_hline(
@@ -411,13 +434,12 @@ plot_manhattan_gg <- function(layout,
         legend.position = "none",
         aspect.ratio = 0.25
       ) +
-      ggplot2::scale_color_manual(values=col_vector)+
       ggplot2::ggtitle(titles[i])
   })
 
-  if(is.null(ncol)){
+  if (is.null(ncol)) {
     patchwork::wrap_plots(plots)
-  }else{
-    patchwork::wrap_plots(plots,ncol=ncol)
+  } else {
+    patchwork::wrap_plots(plots, ncol = ncol)
   }
 }
