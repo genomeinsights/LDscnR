@@ -22,6 +22,7 @@ plot_manhattan(
   col_var = "OR_id",
   shape_var = NULL,
   col_vector = NULL,
+  use_identity = FALSE,
   point_size = 1
 )
 }
@@ -66,6 +67,11 @@ such as \code{"OR_id"}.}
 (for example QTNs).}
 
 \item{col_vector}{Optional vector of colours used for OR categories.}
+
+\item{use_identity}{Logical; if \code{TRUE}, values in \code{col_var} are
+treated as actual colour values and plotted with
+\code{ggplot2::scale_color_identity()}. If \code{FALSE}, colours are
+assigned as categories, typically via \code{col_vector}.}
 }
 \value{
 A ggplot/patchwork object.

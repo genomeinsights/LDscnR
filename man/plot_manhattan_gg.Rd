@@ -14,7 +14,8 @@ plot_manhattan_gg(
   titles = NULL,
   point_size = 1,
   ncol = NULL,
-  col_vector = NULL
+  col_vector = NULL,
+  use_identity = FALSE
 )
 }
 \arguments{

@@ -51,7 +51,7 @@ ld_decay_pre <- compute_LD_decay(
   slide=1000, ## Slide window large because we are analysing a susbset of SNPs only
   cores = cores
 )
-ld_decay_pre
+#ld_decay_pre
 
 ## specify new slide window. Here it will rougly same as above, since chromosomes are only ~10cM (ld decays slower)
 new_slide_window <- mean(ld_decay_pre$decay_sum$slide_snp_rho_0.99)
@@ -65,6 +65,7 @@ ld_decay <- compute_LD_decay(
   cores = 8,
   ld_method = "r"
 )
+
 
 ## with saving EL
 ld_decay <- compute_LD_decay(

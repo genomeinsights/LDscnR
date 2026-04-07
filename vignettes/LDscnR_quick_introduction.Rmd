@@ -71,21 +71,21 @@ We first run a preliminary analysis on a subset of markers to obtain a rough est
 ```{r ld-decay-pre-load,include=FALSE,cache=FALSE}
 cores <- 8
 dir.create("vignette_cache", showWarnings = FALSE)
-ld_file <- "vignette_cache/ld_decay_pre.rds"
+ld_file_pre <- "vignette_cache/ld_decay_pre.rds"
 
-if (file.exists(ld_file)) {
-  ld_decay_pre <- readRDS(ld_file)
+if (file.exists(ld_file_pre)) {
+  ld_decay_pre <- readRDS(ld_file_pre)
 } else {
   
 ld_decay_pre <- compute_LD_decay(
   gds,
   n_win_decay = 5,
   max_SNPs_decay = 5000,
-  keep_el = TRUE,
+  keep_el = FALSE,
   slide = 1000,
   cores = cores
 )
-  saveRDS(ld_decay_pre, ld_file)
+  saveRDS(ld_decay_pre, ld_file_pre)
 }
 ```
 
@@ -100,12 +100,14 @@ ld_decay_pre <- compute_LD_decay(
   cores = cores
 )
 ```
-This gives a summary of LD-decay basd on the subset of the data.
+
+This gives a summary of LD-decay based on the subset of the data.
+
 ```{r ld-decay-pre-show}
 ld_decay_pre
 ```
 
-In this simulated example, chromosomes are relatively short, so only five decay windows per chromosome are used. For empirical datasets, the default settings are usually more appropriate.
+In this simulated example, chromosomes are relatively short, so only five decay windows per chromosome are used. For empirical data sets, the default settings are usually more appropriate.
 
 The preliminary LD-decay fit can be used to select a more suitable sliding window for the full analysis. We can visualize LD-decay, and use the recommended new slide window for estimating LD.
 
@@ -142,7 +144,6 @@ ld_decay <- compute_LD_decay(
 
 ```
 
-
 ```{r ld-decay-full, eval=FALSE}
 
 new_slide_window <- mean(ld_decay_pre$decay_sum$slide_snp_rho_0.99)
@@ -158,30 +159,35 @@ ld_decay <- compute_LD_decay(
 
 ```
 
-The second run uses all SNPs and stores LD edge lists for downstream analyses. 
+The second run uses all SNPs and stores LD edge lists for downstream analyses. Note that the edge list of pairwise $r^2$ values can be saved to files (using `fwrite` and `fread`) instead to save RAM by specifying e.g. `el_data_folder = "./el/"`. 
 
 ## Repeated outlier-region draws
 
 Next, we generate repeated outlier-region draws across a grid of LD-support thresholds (`rho_w`) and a range of outlier-region detection parameters.
 
-In this example, we use two precomputed test statistics from the simulated data: `lfmm_F` and `emx_F`.
+In this example, we use two precomputed test statistics from the simulated data: `lfmm_F` and `emx_F`. We also pre-compute the $ld_w$ vectors for a range of rho values.
 
 ```{r draws-q}
-draws <- ld_rho_draws(
-  gds,
-  ld_decay = ld_decay,
-  F_vals = map[, .(lfmm_F, emx_F)],
-  q_vals = NULL,
-  n_draws = 100,
-  stat_type = "q",
-  rho = pmin(seq(0.75, 1, by = 0.05), 0.99),
-  rho_d_lim = list(min = 0.9, max = 0.99),
-  rho_ld_lim = list(min = 0.9, max = 0.99),
-  alpha_lim = list(min = 0.6, max = 4),
-  lmin_lim = list(min = 1, max = 10),
-  cores = cores,
-  mode = "joint"
+
+ld_ws <- precalculate_ld_w(rho=c(seq(0.75,0.95,by=0.05),0.99),ld_decay)
+#ld_decay$by_chr$Chr1$el
+
+draws <- ld_rho_draws(gds,
+                      ld_decay  = ld_decay,
+                      F_vals     = map[,.(lfmm_F,emx_F)], 
+                      q_vals     = NULL, 
+                      n_draws    = 100,
+                      stat_type  = "q",
+                      rho        = NULL, 
+                      ld_ws      = ld_ws,
+                      rho_d_lim  = list(min=0.9,max=0.99),
+                      rho_ld_lim = list(min=0.9,max=0.99),
+                      alpha_lim  = list(min=0.3,max=2),
+                      lmin_lim   = list(min=1,max=10),
+                      cores      = cores,
+                      mode       = "joint"
 )
+
 ```
 
 Here, `alpha_lim` is defined on the `-log10` scale. For example, the lower bound `0.6` corresponds to a q-value threshold of approximately `1 / 10^0.6 = 0.25`.
@@ -196,7 +202,7 @@ We first add a transformed q-value for LFMM:
 map[, log_lfmm_q := -log10(lfmm_q)]
 ```
 
-We can then plot the joint consistency score together with the LFMM q-values, coloring points by detected outlier region. 
+We can then plot the joint consistency score together with the LFMM q-values, coloring points by detected outlier region.
 
 ```{r manhattan-overview, fig.width=10, fig.height=7}
 plot_manhattan(
@@ -309,7 +315,7 @@ The resulting Manhattan-style plot highlights true and false positive outlier re
 ```{r manhattan-truth, fig.width=10, fig.height=7}
 layout <- prep_manhattan(
   map_manh[, .(
-    bp = Pos,
+    Pos,
     Chr,
     marker,
     OR_test,
@@ -334,8 +340,6 @@ plot_manhattan_gg(
   col_vector = c("firebrick4", "steelblue")
 )
 ```
-
-
 
 ## Area under the PR curve
 

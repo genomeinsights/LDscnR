@@ -239,7 +239,7 @@ precalculate_ld_w <- function(rho,ld_decay){
     pb <- txtProgressBar(min = 0, max = length(rho)-1, style = 3)
     setTxtProgressBar(pb, 0)
   }
-
+  #chr_obj <- ld_decay$by_chr[[1]]
   ld_ws <- do.call(rbind,lapply(ld_decay$by_chr, function(chr_obj) {
 
     a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
@@ -255,7 +255,6 @@ precalculate_ld_w <- function(rho,ld_decay){
       chr_obj$el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
       chr_obj$el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
     ))
-
 
     #win = 300000
     ld_w <-do.call(cbind,lapply(d_window,function(win){
