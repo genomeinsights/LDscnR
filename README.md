@@ -2,7 +2,7 @@
 
 **LD-aware genome scan and outlier-region detection**
 
-`LDscnR` provides tools for analysing genome scan results while accounting for linkage disequilibrium (LD). The package combines LD decay estimation, LD-scaled statistics, and repeated outlier-region detection to identify robust signals of selection.
+`LDscnR` provides tools for analysing genome scan results while accounting for linkage disequilibrium (LD). The package combines LD decay estimation, LD-scaled statistics, and repeated outlier-region detection to identify robust signals of selection. A tutorial PDF can be found in vignettes.
 
 ------------------------------------------------------------------------
 
@@ -27,6 +27,9 @@
 ```         
 # install from GitHub
 pak::pak("genomeinsights/LDscnR") 
+
+# or potentially (if you don't have Github account)
+devtools::install_github(repo = "genomeinsights/LDscnR")
 ```
 
 ------------------------------------------------------------------------
