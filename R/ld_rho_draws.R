@@ -257,16 +257,12 @@ precalculate_ld_w <- function(rho,ld_decay){
     ))
 
 
-    ld_w <-lapply(d_window,function(win){
+    #win = 300000
+    ld_w <-do.call(cbind,lapply(d_window,function(win){
       ld_w <- chr_obj$el[d<win,.(r2_median=median(r2)),by=SNP]
-    })
-
-
-    new_order <- match(chr_obj$snp_ids,ld_w[[1]]$SNP)
-
-    ld_w <- do.call(cbind,lapply(ld_w,function(x){
-      x[new_order,r2_median]
+      ld_w[match(chr_obj$snp_ids,ld_w$SNP)]$r2_median
     }))
+
 
     if(length(rho)>1)
       setTxtProgressBar(pb, which(names(ld_decay$by_chr)==chr_obj$decay_sum$Chr))
