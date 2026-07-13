@@ -19,7 +19,8 @@ compute_LD_decay(
   keep_el = FALSE,
   slide = 1000,
   rho_targets = c(0.9, 0.95, 0.99),
-  cores = 1
+  cores = 1,
+  min_maf_decay = 0.1
 )
 }
 \arguments{
@@ -50,6 +51,17 @@ compute_LD_decay(
 \item{rho_targets}{Numeric vector of target LD thresholds used to derive recommended window sizes.}
 
 \item{cores}{Number of CPU cores for parallel computation.}
+
+\item{min_maf_decay}{Minor-allele-frequency threshold for decay fitting
+(default 0.1). When non-\code{NULL}, minor allele frequencies are computed
+directly from \code{gds} (via \code{SNPRelate::snpgdsSNPRateFreq()}) and only
+SNP pairs where BOTH members have \code{MAF > min_maf_decay} are used for
+background-LD and decay-curve fitting (low-MAF pairs mechanically deflate
+\eqn{r^2} regardless of true linkage, which biases the fitted a/b/c
+parameters). Filtering is applied only to the curve-fitting step; the
+returned edge lists (\code{by_chr[[ch]]$el}) still contain ALL SNPs,
+unfiltered, for downstream use (e.g. \code{compute_ld_w()}). Set to
+\code{NULL} to disable MAF filtering.}
 }
 \value{
 An object of class \code{"ld_decay"} containing:

@@ -9,7 +9,9 @@ estimate_background_ld(
   idx = NULL,
   n_sub = 5000,
   q = 0.95,
-  ld_method = "r"
+  ld_method = "r",
+  maf = NULL,
+  min_maf = NULL
 )
 }
 \arguments{
@@ -20,6 +22,13 @@ estimate_background_ld(
 \item{n_sub}{Number of SNPs sampled for estimation.}
 
 \item{q}{Quantile used to define background LD.}
+
+\item{maf}{Optional named numeric vector of MAF, named by SNP id. If supplied
+together with \code{min_maf}, only SNPs with \code{MAF > min_maf} are
+eligible for sampling (low-MAF pairs mechanically deflate r^2 and bias the
+background estimate).}
+
+\item{min_maf}{MAF threshold used with \code{maf}.}
 }
 \value{
 Numeric scalar representing background LD (\eqn{b}).

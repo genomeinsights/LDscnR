@@ -39,6 +39,16 @@
 #' @param slide Sliding window size in number of SNPs used for LD estimation.
 #' @param rho_targets Numeric vector of target LD thresholds used to derive recommended window sizes.
 #' @param cores Number of CPU cores for parallel computation.
+#' @param min_maf_decay Minor-allele-frequency threshold for decay fitting
+#'   (default 0.1). When non-\code{NULL}, minor allele frequencies are computed
+#'   directly from \code{gds} (via \code{SNPRelate::snpgdsSNPRateFreq()}) and only
+#'   SNP pairs where BOTH members have \code{MAF > min_maf_decay} are used for
+#'   background-LD and decay-curve fitting (low-MAF pairs mechanically deflate
+#'   \eqn{r^2} regardless of true linkage, which biases the fitted a/b/c
+#'   parameters). Filtering is applied only to the curve-fitting step; the
+#'   returned edge lists (\code{by_chr[[ch]]$el}) still contain ALL SNPs,
+#'   unfiltered, for downstream use (e.g. \code{compute_ld_w()}). Set to
+#'   \code{NULL} to disable MAF filtering.
 #'
 #' @return An object of class \code{"ld_decay"} containing:
 #' \describe{
@@ -74,7 +84,8 @@ compute_LD_decay <- function(
     keep_el = FALSE,
     slide = 1000,
     rho_targets = c(0.90, 0.95, 0.99),
-    cores = 1
+    cores = 1,
+    min_maf_decay = 0.1
 ) {
 
   if (!is.null(el_data_folder)) {
@@ -86,7 +97,20 @@ compute_LD_decay <- function(
   ids  <- .read_gds_ids(gds)
   chrs <- unique(ids$snp_chr)
 
-  b <- estimate_background_ld(gds, n_sub = n_sub_bg, q = q,ld_method=ld_method)
+  ## ---- MAF filtering for decay-curve fitting.
+  ## Active whenever `min_maf_decay` is non-NULL. Minor allele frequencies are
+  ## computed directly from the GDS (via snpgdsSNPRateFreq), so callers do not
+  ## supply them. Filtering affects only background-LD and decay-curve fitting;
+  ## edge lists (by_chr[[ch]]$el) remain unfiltered for downstream use.
+  maf <- NULL
+  if (!is.null(min_maf_decay)) {
+    maf <- SNPRelate::snpgdsSNPRateFreq(gds)$MinorFreq
+    names(maf) <- ids$snp_id
+    message("Filtering SNPs to MAF > ", min_maf_decay,
+            " for background-LD and decay-curve fitting (edge lists remain unfiltered).")
+  }
+
+  b <- estimate_background_ld(gds, n_sub = n_sub_bg, q = q, ld_method = ld_method,maf = maf, min_maf = min_maf_decay)
 
   out_by_chr <- vector("list", length(chrs))
   names(out_by_chr) <- chrs
@@ -130,17 +154,25 @@ compute_LD_decay <- function(
       method = ld_method
     )
 
-
-
     data.table::setkey(el, SNP1)
 
     window_size <- chr_size_bp / n_win_decay
     step_size   <- window_size * overlap
 
+    ## ---- MAF-filtered view of the edge list, used ONLY for decay-curve
+    ## fitting below. `el` itself is left untouched (all SNPs, all MAFs)
+    ## so downstream ld_w computation can apply its own MAF filter later.
+    if (!is.null(maf)) {
+      hi_maf_ids <- snps_chr[maf[snps_chr] > min_maf_decay & !is.na(maf[snps_chr])]
+      el_decay <- el[SNP1 %in% hi_maf_ids & SNP2 %in% hi_maf_ids]
+    } else {
+      el_decay <- el
+    }
+
     ## ---- LD-decay
     decay <- suppressWarnings(
       estimate_decay_chr(
-        el = el[d < window_size],
+        el = el_decay[d < window_size],
         b = b,
         window_size = window_size,
         step_size   = step_size,
@@ -466,6 +498,11 @@ estimate_decay_chr <- function(el,
 #' @param idx Optional vector of SNP indices.
 #' @param n_sub Number of SNPs sampled for estimation.
 #' @param q Quantile used to define background LD.
+#' @param maf Optional named numeric vector of MAF, named by SNP id. If supplied
+#'   together with \code{min_maf}, only SNPs with \code{MAF > min_maf} are
+#'   eligible for sampling (low-MAF pairs mechanically deflate r^2 and bias the
+#'   background estimate).
+#' @param min_maf MAF threshold used with \code{maf}.
 #'
 #' @return Numeric scalar representing background LD (\eqn{b}).
 #'
@@ -479,16 +516,24 @@ estimate_background_ld <- function(gds,
                                    idx=NULL,
                                    n_sub = 5000,
                                    q = 0.95,
-                                   ld_method="r") {
+                                   ld_method="r",
+                                   maf = NULL,
+                                   min_maf = NULL) {
 
 
   ids <- .read_gds_ids(gds)
 
   if (is.null(idx)) idx <- seq_along(ids$snp_id)
 
+  if (!is.null(maf) && !is.null(min_maf)) {
+    maf_ok <- maf[ids$snp_id[idx]] > min_maf
+    maf_ok[is.na(maf_ok)] <- FALSE
+    idx <- idx[maf_ok]
+  }
+
   n_snps <- length(idx)
   if (n_snps < 2L) {
-    stop("Not enough SNPs to estimate background LD.")
+    stop("Not enough SNPs to estimate background LD (after MAF filtering, if applied).")
   }
 
   chr_vec <- ids$snp_chr[idx]
@@ -805,6 +850,61 @@ print.ld_decay <- function(x, digits = 3) {
   invisible(x)
 }
 
+
+#' Compute Local LD Support (ld_w)
+#'
+#' Computes per-SNP local LD support within a distance defined by a
+#' relative LD threshold \eqn{\rho}.
+#'
+#' For each SNP, LD support is defined as the median \eqn{r^2} with
+#' neighboring SNPs within the corresponding distance window.
+#'
+#' @param ld_decay Object of class \code{"ld_decay"}.
+#' @param rho Relative LD threshold used to define the window.
+#' @param cores Number of CPU cores.
+#'
+#' @return Numeric vector of LD support values (one per SNP).
+#'
+#' @details
+#' The physical window is derived using:
+#' \deqn{d = \frac{\rho}{a(1 - \rho)}}
+#'
+#' where \eqn{a} is the chromosome-specific decay rate.
+#'
+#' Requires \code{keep_el = TRUE} when calling \code{compute_LD_decay()}.
+#'
+#' @export
+compute_ld_w <- function(
+    ld_decay,
+    rho = 0.95,
+    cores = 1
+) {
+  #chr_obj <- ld_decay$by_chr$Chr1
+  ld_w <- unlist(parallel_apply(ld_decay$by_chr, function(chr_obj) {
+
+    a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
+    b <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,b]
+
+    d_window <- d_from_rho(a, rho)
+
+    if(is.null(chr_obj$el)) stop("No edge list present")
+
+    if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,showProgress = FALSE)
+
+    #make symmetric
+    chr_obj$el <- data.table::rbindlist(list(
+      chr_obj$el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
+      chr_obj$el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
+    ))
+
+    ld_w <- chr_obj$el[d<d_window,.(r2_median=median(r2)),by=SNP]
+
+    ld_w[match(chr_obj$snp_ids,ld_w$SNP),r2_median]
+
+  }, cores = cores))
+
+  return(ld_w)
+}
 
 #' Plot LD-decay results
 #'

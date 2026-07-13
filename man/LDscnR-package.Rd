@@ -4,7 +4,7 @@
 \name{LDscnR-package}
 \alias{LDscnR}
 \alias{LDscnR-package}
-\title{LDscnR: LD-aware detection of outlier regions in population genomic data}
+\title{LDscnR: Chromosome-wise LD-decay estimation for population genomic data}
 \description{
 What the package does (one paragraph).
 }
