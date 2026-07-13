@@ -1,5 +1,5 @@
 Package: LDscnR
-Title: LD-aware detection of outlier regions in population genomic data
+Title: Chromosome-wise LD-decay estimation for population genomic data
 Version: 0.0.0.9000
 Authors@R: 
     person("Petri", "Kemppainen", , "petri@genomeinsights.fi", role = c("aut", "cre"))
@@ -7,10 +7,9 @@ Description: What the package does (one paragraph).
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
-Imports: 
+Imports:
     data.table,
-    ggplot2,
-    patchwork,
+    reshape2,
     SNPRelate
 Depends: 
     R (>= 3.5)

@@ -1,24 +1,22 @@
 # LDscnR
 
-**LD-aware genome scan and outlier-region detection**
+**Chromosome-wise LD-decay estimation**
 
-`LDscnR` provides tools for analysing genome scan results while accounting for linkage disequilibrium (LD). The package combines LD decay estimation, LD-scaled statistics, and repeated outlier-region detection to identify robust signals of selection. A tutorial PDF can be found in vignettes.
+`LDscnR` provides tools for estimating linkage disequilibrium (LD) decay from genotype data. It fits chromosome-specific decay curves, relates decay rate to chromosome size, and derives recommended LD window sizes for user-defined relative LD thresholds ($\rho$). A tutorial PDF can be found in vignettes.
 
 ------------------------------------------------------------------------
 
 ## 🚀 Key features
 
-- 📉 **LD decay estimation** (chromosome-specific)
+- 📉 **Chromosome-specific LD-decay estimation**
 
-- ⚖️ **LD-scaled statistics** (F')
+- 🧮 **Background LD estimation** from inter-chromosomal SNP pairs
 
-- 🧬 **Outlier-region clustering** using LD and distance thresholds
+- 📐 **Decay-rate vs. chromosome-size model** to stabilise per-chromosome estimates
 
-- 📊 **Consistency scores (C)** summarizing robustness
+- 🎯 **Recommended sliding-window sizes** for target LD thresholds ($\rho$)
 
-- 📈 **Manhattan-style visualization**
-
-- 🧪 **Simulation benchmarking tools** (precision–recall, AUC)
+- 📊 **Built-in plotting** of decay summaries, per-chromosome fits, and window recommendations
 
 ------------------------------------------------------------------------
 
@@ -28,7 +26,7 @@
 # install from GitHub
 pak::pak("genomeinsights/LDscnR") 
 
-# or potentially (if you don't have Github account)
+# or (if you don't have a GitHub account)
 devtools::install_github(repo = "genomeinsights/LDscnR")
 ```
 
@@ -44,79 +42,64 @@ data("sim_ex")
 
 map <- sim_ex$map
 
-# Create GDS object
+# Create a GDS object from the genotype matrix
 gds_path <- tempfile(fileext = ".gds")
 gds <- create_gds_from_geno(sim_ex$GTs, map, gds_path)
 
-# Estimate LD decay
+# Estimate chromosome-wise LD decay
 ld_decay <- compute_LD_decay(gds, keep_el = TRUE)
 
-# Generate outlier-region draws
-draws <- ld_rho_draws(
-  gds,
-  ld_decay = ld_decay,
-  F_vals = map[, .(lfmm_F, emx_F)],
-  n_draws = 50
-)
+# Inspect the fitted decay parameters and window recommendations
+ld_decay
 
-# Plot manhattan based on the consitency score (C) and colored by outlier region
-plot_manhattan(
-  map,
-  gds,
-  ld_decay,
-  draws
-)
+# Visualise the results
+plot(ld_decay, type = "summary")
+plot(ld_decay, type = "recommendation", rho = 0.99)
+plot(ld_decay, type = "chr", chr = "Chr2")
 ```
 
 ------------------------------------------------------------------------
 
 ## 🧠 Conceptual overview
 
-`LDscnR` is built around three core steps:
+LD decay is modelled per chromosome as:
 
-### 1. LD decay estimation
+$$r^2(d) = b + \frac{c - b}{1 + a\,d}$$
 
-LD decay is estimated per chromosome to define a biologically meaningful scale for clustering SNPs into regions. Decay rate is regressed against chromosome size and predicted rates are used to reduce chromosome level variation caused by large haplotype blocks etc (e.g. inversions).
+where
 
-### 2. Repeated outlier-region detection
+- $a$ controls the rate of decay,
+- $b$ is background LD (long-distance baseline),
+- $c$ is short-range LD, and
+- $d$ is physical distance (bp).
 
-Based on F-outlier statistics e.g. from genotype-environment association analyses, scaled by local LD ($ld_w$ the median LD between a focal SNPs and other snips with window size $w$), outlier regions are detected repeatedly across a range of:
+The workflow proceeds in the following steps:
 
-- LD window sizes
+### 1. Background LD estimation
 
-- distance thresholds for outlier clustering
+Background LD ($b$) is estimated from inter-chromosomal SNP pairs, giving the long-distance baseline against which decay is measured.
 
-- significance thresholds
+### 2. Chromosome-wise decay fitting
 
-This avoids reliance on a single arbitrary cutoff.
+Decay parameters are estimated per chromosome using sliding windows, then robustly aggregated across windows. A model relating decay rate $a$ to chromosome size is fitted so that per-chromosome estimates can be stabilised and extrapolated across heterogeneous genomic architectures.
 
-### 3. Consistency scoring
+### 3. Window-size recommendations
 
-Each SNP receives a **consistency score (C)** reflecting how often it appears in detected regions across parameter space.
-
-------------------------------------------------------------------------
-
-## 📈 Output interpretation
-
-- **High C-score SNPs** → robust signals across parameter space
-
-- **Outlier regions (ORs)** → clusters of SNPs supported by LD
-
-- **Joint mode** → combines evidence across methods
-
-- **Per-method mode** → method-specific detection
+For each target LD threshold $\rho$, `LDscnR` derives a recommended sliding-window size (in SNP units). The helpers `d_from_rho()` and `ld_from_rho()` convert a relative threshold $\rho$ into a physical distance and an expected $r^2$, respectively.
 
 ------------------------------------------------------------------------
 
-## 🧪 Simulation support
+## 📈 Output
 
-The package includes tools to evaluate performance in simulated data:
+`compute_LD_decay()` returns an object of class `"ld_decay"` containing:
 
-- Precision–recall summaries (`get_PR`)
+- `by_chr` — per-chromosome decay fits (and optional LD edge lists when `keep_el = TRUE`),
+- `decay_sum` — chromosome-wise decay parameters and derived quantities,
+- `decay_model` — model linking decay rate to chromosome size,
+- `recommendation` — suggested window sizes per $\rho$ threshold,
+- `params` — parameters used in the computation.
 
-- AUC of cumulative PR curves (`get_AUC_OR`)
-
-- True/false positive OR classification
+`print()` and `plot()` methods are provided for `"ld_decay"` objects.
 
 ------------------------------------------------------------------------
 
@@ -132,13 +115,11 @@ vignette("LDscnR_quick_introduction")
 
 ## ⚠️ Notes
 
-- LD-decay estimation is performed in two steps. First based on subsets of SNPs from chromosomes, but large sliding windows (1000 bps). Based on this, a new (smaller) sliding window is determined such that 99% of the decay curve is covered to reduce the number of pairwise comparisons for subsequent downstream analyses.
+- LD-decay estimation is performed in two steps. First on subsets of SNPs per chromosome using a large sliding window (e.g. 1000 SNPs). Based on this, a smaller sliding window is chosen such that a target fraction of the decay curve is covered, reducing the number of pairwise comparisons in the full run.
 
-- However, large data sets can still generate substantial intermediate objects (LD edge lists, OR draws)
+- Large data sets can generate substantial intermediate objects (LD edge lists). Edge lists can be written to files instead of held in RAM via the `el_data_folder` argument.
 
-- For heavy workflows, consider saving intermediate results using `saveRDS()`
-
-- Parallelization is supported via the `cores` argument (`mclapply`)
+- Parallelization is supported via the `cores` argument (`mclapply`).
 
 ------------------------------------------------------------------------
 
@@ -146,13 +127,7 @@ vignette("LDscnR_quick_introduction")
 
 - `data.table`
 
-- `ggplot2`
-
-- `patchwork`
-
 - `SNPRelate`
-
-- `future.apply`
 
 ------------------------------------------------------------------------
 

@@ -1,32 +1,22 @@
 library(LDscnR)
-devtools::load_all()
-#devtools::document()
-library(ggplot2)
 library(data.table)
-#library(SNPRelate)
-#devtools::load_all()
 
+# ------------------------------------------------------------
+# 0. (One-off) how the bundled example data was created
+# ------------------------------------------------------------
 # tmp <- readRDS("../LD-scaling-genome-scans/results_sim/c1_V0.5_rep4.rds")
 # map <- tmp$SNP_res[,.(V,c,rep,Chr,Pos,marker,type, Chr_type,max_LD_with_QTN, bp_to_focal_QTN, focal_QTN, p_Va,emx_F,lfmm_F,emx_q,lfmm_q )]
 # GTs <- tmp$GTs
 #
-#
-# sim_ex <- list(
-#   map = map,
-#   GTs = GTs
-# )
+# sim_ex <- list(map = map, GTs = GTs)
 #
 # # Save in package format
 # usethis::use_data(sim_ex, overwrite = TRUE)
 # usethis::use_r("data_sim_ex")
 
-message("Creating gds file")
-
-## the map we will need later
-library(LDscnR)
-library(ggplot2)
-library(data.table)
-library(patchwork)
+# ------------------------------------------------------------
+# 1. Create the GDS object used throughout
+# ------------------------------------------------------------
 
 data("sim_ex")
 
@@ -34,276 +24,81 @@ map <- sim_ex$map
 GTs <- sim_ex$GTs
 colnames(GTs) <- map$marker
 
-## create gds object used throghout
 gds_path <- tempfile(fileext = ".gds")
-gds <- create_gds_from_geno(geno=sim_ex$GTs,map, gds_path)
-
-# r = map[,rank(emx_F) / (.N + 1)]
-# map[,emx_pseudo_F := qf(r, df1 = 1, df2 = 18)]
-#
-# r = map[,rank(lfmm_F) / (.N + 1)]
-# map[,lfmm_pseudo_F := qf(r, df1 = 1, df2 = 18)]
-#
-# map[,plot(lfmm_pseudo_F,lfmm_F)]
-# abline(0,1)
+gds <- create_gds_from_geno(geno = sim_ex$GTs, map, gds_path)
 
 # ------------------------------------------------------------
-# 2. LD decay + structure
+# 2. Estimate chromosome-wise LD decay
 # ------------------------------------------------------------
 
-# specify number of cores used throughout
-cores = 8
+# number of cores used throughout
+cores <- 8
 
-## estimate preliminary LD-decay to be able to run full analyses on smaller sliding window
+## Preliminary LD-decay on a subset of SNPs, to choose a good sliding window
+## for the full run. n_win_decay is 5 (not the default 20) because the
+## simulated chromosomes are only ~10 cM; slide is large because we analyse a
+## subset of SNPs only.
 ld_decay_pre <- compute_LD_decay(
   gds,
-  n_win_decay = 5, ## Number of windows for estimating LD-decay; default is 20 but since the simulated chromosomes are only ~10cm, only 5 is used here
-  max_SNPs_decay = 5000, ## maximum number of SNPs per chromosome for initial decay analyses. For this simulated example, average number of SNPs is 1500 so all are used, but makes a difference for empirical data!
-  slide=1000, ## Slide window large because we are analysing a susbset of SNPs only
-  cores = cores
+  n_win_decay    = 5,
+  max_SNPs_decay = 5000,
+  slide          = 1000,
+  cores          = cores
 )
-#ld_decay_pre
+ld_decay_pre
 
-## specify new slide window. Here it will rougly same as above, since chromosomes are only ~10cM (ld decays slower)
-#new_slide_window <- mean(ld_decay_pre$decay_sum$slide_snp_rho_0.99)
+## Recommended new slide window for the full run (mean across chromosomes at rho = 0.99)
+new_slide_window <- mean(ld_decay_pre$decay_sum$slide_snp_rho_0.99)
+
+## Full LD-decay using all SNPs, keeping the edge lists
 ld_decay <- compute_LD_decay(
   gds,
-  ## for LD-decay and bg
-  n_win_decay = 5,
-  max_SNPs_decay = Inf, ## all SNPs are now used...
-  keep_el = TRUE, ## now we keep the edge lists for downstream analysse
-  slide=2000, ## .. but a smaller window is used
-  cores = 8,
-  ld_method = "r"
+  n_win_decay    = 5,
+  max_SNPs_decay = Inf,   # all SNPs used now
+  keep_el        = TRUE,  # keep edge lists
+  slide          = new_slide_window,
+  cores          = cores,
+  ld_method      = "r"
 )
 
-
-## with saving EL
-ld_decay <- compute_LD_decay(
-  gds,el_data_folder = "./el/",
-  ## for LD-decay and bg
-  n_win_decay = 5,
-  max_SNPs_decay = Inf, ## all SNPs are now used...
-  keep_el = TRUE, ## now we keep the edge lists for downstream analysse
-  slide=1000, ## .. but a smaller window is used
-  cores = 1
-)
+## Alternative: write edge lists to disk instead of RAM (large data sets)
+# ld_decay <- compute_LD_decay(
+#   gds, el_data_folder = "./el/",
+#   n_win_decay = 5, max_SNPs_decay = Inf, keep_el = TRUE,
+#   slide = new_slide_window, cores = 1
+# )
 
 # ------------------------------------------------------------
-# 3. Generate draws
+# 3. Inspect and visualise the decay fit
 # ------------------------------------------------------------
 
-#pre-calulate ld_w's
-ld_ws <- precalculate_ld_w(c(seq(0.5,0.95,by=0.05),0.99),ld_decay)
+## Chromosome-wise decay parameters (a = decay rate, b = background LD, c = short-range LD)
+ld_decay$decay_sum
 
-plot(c(seq(0.5,0.95,by=0.05),0.99),apply(ld_ws,2,function(ldw){
-  mean(ldw[map[,type=="QTN"]],na.rm=TRUE)/mean(ldw,na.rm=TRUE)
+## Recommended sliding-window sizes (in SNP units) per rho threshold
+ld_decay$recommendation
 
-  min(ldw[map[,type=="QTN" & lfmm_q<0.05]])
-  #ldw[map[,type=="QTN"]]
-}),type="l")
-
-map[,ld_w := ld_ws[,"0.5"]]
-map[,indx := .I]
-
-#map[,plot(max_LD_with_QTN,ld_w,col="grey40",main="LFMM | ld_w>0.2",pch=ifelse(type=="QTN",3,20),cex=ifelse(type=="QTN",2,0.5))]
-
-par(mfcol=c(2,1))
-th = 0.05
-map[,plot(indx,-log10(p.adjust(pf(lfmm_F,1,115,lower.tail = FALSE),"fdr")),ylab="-log10(q)",col="grey40",main="LFMM | ld_w>0.2",ylim=c(0,10),pch=ifelse(type=="QTN",3,20),cex=ifelse(type=="QTN",2,0.5))]
-map[ld_w>th,points(indx,-log10(p.adjust(pf(lfmm_F,1,115,lower.tail = FALSE),"fdr")),col="black",pch=ifelse(type=="QTN",3,20),cex=ifelse(type=="QTN",2,0.5))]
-abline(h=1.3,col="steelblue")
-
-map[,plot(indx,-log10(p.adjust(pf(emx_F,1,115,lower.tail = FALSE),"fdr")),ylab="-log10(q)",col="grey40",main="EMMAX | ld_w>0.2",ylim=c(0,10),pch=ifelse(type=="QTN",3,20),cex=ifelse(type=="QTN",2,0.5))]
-map[ld_w>th,points(indx,-log10(p.adjust(pf(emx_F,1,115,lower.tail = FALSE),"fdr")),col="black",pch=ifelse(type=="QTN",3,20),cex=ifelse(type=="QTN",2,0.5))]
-abline(h=1.3,col="steelblue")
-#plot(ld_ws[,1])
-
-draws_pseudo2 <- ld_rho_draws(gds,
-                      ld_decay  = ld_decay,
-                      F_vals     = map[,.(lfmm_pseudo_F,emx_pseudo_F)], ## the F values are pre-calculated and must be provided, these will be used for getting F_prime.
-                      q_vals     = NULL, ## q-values from original analyses can also be used but not necessary
-                      n_draws    = 1000,
-                      stat_type  = "q",
-                      rho        = NULL, ## grid of rho values used for ld_w
-                      ld_ws      = ld_ws,
-                      rho_d_lim  = list(min=0.9,max=0.99),
-                      rho_ld_lim = list(min=0.9,max=0.99),
-                      alpha_lim  = list(min=0.3,max=2), ## lowest alpha is 1/10^0.6=0.25; this range is defined in the -log10 scale!
-                      lmin_lim   = list(min=1,max=10),
-                      cores      = 8,
-                      mode       = "joint"
-)
-
-draws2 <- ld_rho_draws(gds,
-                             ld_decay  = ld_decay,
-                             F_vals     = map[,.(lfmm_F,emx_F)], ## the F values are pre-calculated and must be provided, these will be used for getting F_prime.
-                             q_vals     = NULL, ## q-values from original analyses can also be used but not necessary
-                             n_draws    = 1000,
-                             stat_type  = "q",
-                             rho        = NULL, ## grid of rho values used for ld_w
-                             ld_ws      = ld_ws,
-                             rho_d_lim  = list(min=0.9,max=0.99),
-                             rho_ld_lim = list(min=0.9,max=0.99),
-                             alpha_lim  = list(min=0.3,max=2), ## lowest alpha is 1/10^0.6=0.25; this range is defined in the -log10 scale!
-                             lmin_lim   = list(min=1,max=10),
-                             cores      = 8,
-                             mode       = "joint"
-)
-# ------------------------------------------------------------
-# 4. Plot Manhattan
-# ------------------------------------------------------------
-
-C_org <- add_consistency_to_map(map, consistency_obj = consistency_score(draws$draws))$Joint_C
-C_pseudo <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_pseudo$draws))$Joint_C
-C_org2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws2$draws))$Joint_C
-C_pseudo2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_pseudo2$draws))$Joint_C
-
-cor(cbind(C_org,C_pseudo,C_org2,C_pseudo2),use="pair")
-
-## add log value for LFMM
-map[,log_lfmm_q := -log10(lfmm_q)]
-
-plot_manhattan(map,
-               gds,
-               ld_decay,
-               draws_pseudo,
-               ## for defining ORs
-               sign_th=0.05,
-               mode="joint",
-               sign_if ="greater",
-               rho_d = 0.9,
-               rho_ld = 0.9,
-               ## outlier regiosn are defined based on the first in y_vars
-               y_vars = c("Joint_C","log_lfmm_q"),
-               y_labels = c("C (Joint analyses)","-log10(q) | LFMM"),
-               titles = c("a) Joint analyses - C","b) Latent factor mixed model (LFMM) analyses"),
-               thresholds = c(0.05,-log10(0.05)),
-               col_var = "OR_id")
-
+## Diagnostic plots
+plot(ld_decay, type = "summary")
+plot(ld_decay, type = "recommendation")
+plot(ld_decay, type = "recommendation", rho = 0.99)
+plot(ld_decay, type = "chr", chr = "Chr2")
 
 # ------------------------------------------------------------
-# 5. Explore true and false positives in simulated data (using same classification as in the original paper)
+# 4. Convert between rho, physical distance, and expected r^2
 # ------------------------------------------------------------
 
-# maximum LD between a SNP and its QTN_focal relative to LD-decay
-ld_test_th = 0.75
-# maximum physical distance between a SNP and its QTN_focal relative to LD-decay
-d_test_th  = 0.95
-# Mimumum proportion of variance explaiend by QTN to be considered a true positive
-p_Va_th    = 0.05
+chr1 <- ld_decay$decay_sum[1]
 
-# Map decay parameters to map
-as <- setNames(ld_decay$decay_sum$a, ld_decay$decay_sum$Chr)
-bs <- setNames(ld_decay$decay_sum$b, ld_decay$decay_sum$Chr)
-cs <- setNames(ld_decay$decay_sum$c, ld_decay$decay_sum$Chr)
-C <- cs[map$Chr]
-a <- as[map$Chr]
-b <- bs[map$Chr]
+## physical distance (bp) at which rho = 0.99 is reached
+d_from_rho(a = chr1$a, rho = 0.99)
 
-# add distance and LD with QTN_focal relative to LD-decay
-map[,rho_ld := 1 - (max_LD_with_QTN - b) / (C - b)]
-map[,rho_d := a*bp_to_focal_QTN/(a*bp_to_focal_QTN+1)]
-map[type=="QTN", rho_ld:=1]
-
-# Keep only potential true positive SNPs (those that are correlated and close enough to at least one QTN)
-map_filt <- map[rho_ld > ld_test_th & rho_d < d_test_th]
-
-# true positive QTN focal (those that we have a chance to find based on p_Va)
-true_QTN_focal <- unique(map_filt[p_Va > p_Va_th, focal_QTN])
-
-# ---- add outlier regions to map data
-map_manh <- add_consistency_to_map(map, consistency_obj = consistency_score(draws$draws))
-map_manh <- add_ORs(gds, ld_decay, map_manh, stat="Joint_C", sign_th=0.05,sign_if="greater",mode="joint",rho_d=0.99, rho_ld=0.99,l_min=1)
-
-# Unique outlier regions
-unique_ORs <- unique(na.omit(map_manh$OR_id))
-
-# Split outlier regions into clusters
-ORs <- split(map_manh[OR_id!="ns"]$marker,map_manh[OR_id!="ns"]$OR_id)
-
-# Get QTN_focal for each OR (only the one that has the highest LD with any SNP in that cluster)
-OR_focals <- vapply(ORs, function(or) {
-
-  sub <- map_filt[marker %in% or]
-
-  if (nrow(sub) == 0L) return(NA_character_)
-
-  sub[which.max(rho_ld), focal_QTN]
-
-}, character(1))
-
-OR_focals <- unique(na.omit(OR_focals))
-
-# Not all OR focals are true
-true_pos_focals <- OR_focals[OR_focals %in% true_QTN_focal]
-
-# These are the true outlier regions - each true positive focal can be counted once (the OR with highest LD with QTN_focal wins)
-true_ORs <- sapply(true_pos_focals,function(t_focal){
-  map_manh[focal_QTN==t_focal][order(-max_LD_with_QTN)][1,OR_id]
-})
-
-# exclude non-significant SNPs
-true_ORs <- true_ORs[true_ORs != "ns"]
-
-# Now map true and false positive outlier regiosn to map
-map_manh[,OR_test := ifelse(OR_id %in% true_ORs,"True pos","False pos") ]
-
-
-# plot manhattan
-layout <- prep_manhattan(
-  map_manh[, .(
-    Pos,
-    Chr,
-    marker,
-    OR_test,
-    log_lfmm_q,
-    Joint_C,
-    # type is "QTN" or "ntrl"
-    type
-  )]
-)
-
-plot_manhattan_gg(
-  layout,
-  y_vars = c("Joint_C","log_lfmm_q"),
-  y_labels = c("C (Joint analyses)","-log10(q) | LFMM"),
-  titles = c("a) Joint analyses - C","b) Latent factor mixed model (LFMM) analyses"),
-  thresholds = c(0.05,-log10(0.05)),
-  col_var = "OR_test",
-  shape_var = "type",
-  ncol=1,
-  col_vector=c("firebrick4","steelblue")
-)
+## expected r^2 at rho = 0.99
+ld_from_rho(b = chr1$b, c = chr1$c, rho = 0.99)
 
 # ------------------------------------------------------------
-# 6. Area under the PR curve for simulated data
+# 5. Clean up
 # ------------------------------------------------------------
 
-PR_dat <- cbind(method="joint",get_PR(draws$draws$OR, map = map,map_filt, p_Va_th=0.05,cores = cores))
-
-get_AUC_OR(PR_dat)$AUC$AUC_norm
-
-C_scores <- add_consistency_to_map(map,consistency_score(draws$draws))[, .(marker = marker, Joint_C = Joint_C)]
-
-
-draws_C <- ld_rho_draws(
-  gds,
-  ld_decay  = ld_decay,
-  F_vals    = NULL,
-  C_scores  = C_scores[, .(Joint_C)],
-  q_vals    = NULL,
-  n_draws   = 1000,
-  stat_type = "C",
-  rho_d_lim = list(min = 0.9, max = 0.99),
-  rho_ld_lim = list(min = 0.9, max = 0.99),
-  alpha_lim = NULL,
-  lmin_lim  = NULL,
-  C_lim     = list(min = 0, max = 0.5),
-  cores     = cores,
-  mode      = "joint"
-)
-
-PR_C <- cbind(method="joint",get_PR(draws_C$draws$OR, map = map,map_filt,p_Va_th = 0.05, cores = cores))
-
-get_AUC_OR(PR_C)$AUC$AUC_norm
+SNPRelate::snpgdsClose(gds)
+unlink(gds_path)
