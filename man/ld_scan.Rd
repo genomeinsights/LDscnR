@@ -9,9 +9,9 @@ ld_scan(
   F_vals,
   SNP_ids,
   n_inds,
-  n_rep = 10,
+  n_rep = 100,
   full = TRUE,
-  enforce_null_floor = TRUE
+  enforce_null_floor = FALSE
 )
 }
 \arguments{

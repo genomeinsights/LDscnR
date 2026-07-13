@@ -1,9 +1,9 @@
 library(LDscnR)
 devtools::load_all()
-devtools::document()
+#devtools::document()
 library(ggplot2)
 library(data.table)
-library(SNPRelate)
+#library(SNPRelate)
 #devtools::load_all()
 
 # tmp <- readRDS("../LD-scaling-genome-scans/results_sim/c1_V0.5_rep4.rds")
@@ -31,10 +31,21 @@ library(patchwork)
 data("sim_ex")
 
 map <- sim_ex$map
+GTs <- sim_ex$GTs
+colnames(GTs) <- map$marker
 
 ## create gds object used throghout
 gds_path <- tempfile(fileext = ".gds")
 gds <- create_gds_from_geno(geno=sim_ex$GTs,map, gds_path)
+
+# r = map[,rank(emx_F) / (.N + 1)]
+# map[,emx_pseudo_F := qf(r, df1 = 1, df2 = 18)]
+#
+# r = map[,rank(lfmm_F) / (.N + 1)]
+# map[,lfmm_pseudo_F := qf(r, df1 = 1, df2 = 18)]
+#
+# map[,plot(lfmm_pseudo_F,lfmm_F)]
+# abline(0,1)
 
 # ------------------------------------------------------------
 # 2. LD decay + structure
@@ -54,7 +65,7 @@ ld_decay_pre <- compute_LD_decay(
 #ld_decay_pre
 
 ## specify new slide window. Here it will rougly same as above, since chromosomes are only ~10cM (ld decays slower)
-new_slide_window <- mean(ld_decay_pre$decay_sum$slide_snp_rho_0.99)
+#new_slide_window <- mean(ld_decay_pre$decay_sum$slide_snp_rho_0.99)
 ld_decay <- compute_LD_decay(
   gds,
   ## for LD-decay and bg
@@ -83,15 +94,36 @@ ld_decay <- compute_LD_decay(
 # ------------------------------------------------------------
 
 #pre-calulate ld_w's
-ld_ws <- precalculate_ld_w(c(seq(0.75,0.95,by=0.05),0.99),ld_decay)
+ld_ws <- precalculate_ld_w(c(seq(0.5,0.95,by=0.05),0.99),ld_decay)
 
+plot(c(seq(0.5,0.95,by=0.05),0.99),apply(ld_ws,2,function(ldw){
+  mean(ldw[map[,type=="QTN"]],na.rm=TRUE)/mean(ldw,na.rm=TRUE)
+
+  min(ldw[map[,type=="QTN" & lfmm_q<0.05]])
+  #ldw[map[,type=="QTN"]]
+}),type="l")
+
+map[,ld_w := ld_ws[,"0.5"]]
+map[,indx := .I]
+
+#map[,plot(max_LD_with_QTN,ld_w,col="grey40",main="LFMM | ld_w>0.2",pch=ifelse(type=="QTN",3,20),cex=ifelse(type=="QTN",2,0.5))]
+
+par(mfcol=c(2,1))
+th = 0.05
+map[,plot(indx,-log10(p.adjust(pf(lfmm_F,1,115,lower.tail = FALSE),"fdr")),ylab="-log10(q)",col="grey40",main="LFMM | ld_w>0.2",ylim=c(0,10),pch=ifelse(type=="QTN",3,20),cex=ifelse(type=="QTN",2,0.5))]
+map[ld_w>th,points(indx,-log10(p.adjust(pf(lfmm_F,1,115,lower.tail = FALSE),"fdr")),col="black",pch=ifelse(type=="QTN",3,20),cex=ifelse(type=="QTN",2,0.5))]
+abline(h=1.3,col="steelblue")
+
+map[,plot(indx,-log10(p.adjust(pf(emx_F,1,115,lower.tail = FALSE),"fdr")),ylab="-log10(q)",col="grey40",main="EMMAX | ld_w>0.2",ylim=c(0,10),pch=ifelse(type=="QTN",3,20),cex=ifelse(type=="QTN",2,0.5))]
+map[ld_w>th,points(indx,-log10(p.adjust(pf(emx_F,1,115,lower.tail = FALSE),"fdr")),col="black",pch=ifelse(type=="QTN",3,20),cex=ifelse(type=="QTN",2,0.5))]
+abline(h=1.3,col="steelblue")
 #plot(ld_ws[,1])
 
-draws <- ld_rho_draws(gds,
+draws_pseudo2 <- ld_rho_draws(gds,
                       ld_decay  = ld_decay,
-                      F_vals     = map[,.(lfmm_F,emx_F)], ## the F values are pre-calculated and must be provided, these will be used for getting F_prime.
+                      F_vals     = map[,.(lfmm_pseudo_F,emx_pseudo_F)], ## the F values are pre-calculated and must be provided, these will be used for getting F_prime.
                       q_vals     = NULL, ## q-values from original analyses can also be used but not necessary
-                      n_draws    = 100,
+                      n_draws    = 1000,
                       stat_type  = "q",
                       rho        = NULL, ## grid of rho values used for ld_w
                       ld_ws      = ld_ws,
@@ -99,13 +131,35 @@ draws <- ld_rho_draws(gds,
                       rho_ld_lim = list(min=0.9,max=0.99),
                       alpha_lim  = list(min=0.3,max=2), ## lowest alpha is 1/10^0.6=0.25; this range is defined in the -log10 scale!
                       lmin_lim   = list(min=1,max=10),
-                      cores      = cores,
+                      cores      = 8,
                       mode       = "joint"
 )
 
+draws2 <- ld_rho_draws(gds,
+                             ld_decay  = ld_decay,
+                             F_vals     = map[,.(lfmm_F,emx_F)], ## the F values are pre-calculated and must be provided, these will be used for getting F_prime.
+                             q_vals     = NULL, ## q-values from original analyses can also be used but not necessary
+                             n_draws    = 1000,
+                             stat_type  = "q",
+                             rho        = NULL, ## grid of rho values used for ld_w
+                             ld_ws      = ld_ws,
+                             rho_d_lim  = list(min=0.9,max=0.99),
+                             rho_ld_lim = list(min=0.9,max=0.99),
+                             alpha_lim  = list(min=0.3,max=2), ## lowest alpha is 1/10^0.6=0.25; this range is defined in the -log10 scale!
+                             lmin_lim   = list(min=1,max=10),
+                             cores      = 8,
+                             mode       = "joint"
+)
 # ------------------------------------------------------------
 # 4. Plot Manhattan
 # ------------------------------------------------------------
+
+C_org <- add_consistency_to_map(map, consistency_obj = consistency_score(draws$draws))$Joint_C
+C_pseudo <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_pseudo$draws))$Joint_C
+C_org2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws2$draws))$Joint_C
+C_pseudo2 <- add_consistency_to_map(map, consistency_obj = consistency_score(draws_pseudo2$draws))$Joint_C
+
+cor(cbind(C_org,C_pseudo,C_org2,C_pseudo2),use="pair")
 
 ## add log value for LFMM
 map[,log_lfmm_q := -log10(lfmm_q)]
@@ -113,7 +167,7 @@ map[,log_lfmm_q := -log10(lfmm_q)]
 plot_manhattan(map,
                gds,
                ld_decay,
-               draws,
+               draws_pseudo,
                ## for defining ORs
                sign_th=0.05,
                mode="joint",

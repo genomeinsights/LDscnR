@@ -126,12 +126,12 @@ ld_rho_draws <- function(gds,
     draws <- rbindlist(lapply(rho,function(rh){
 
 
-
       scan <- ld_scan(
         SNP_ids   = ids$snp_id,
         F_vals    = F_vals,
         ld_w      = ld_ws[,which(colnames(ld_ws) == rh)],
         n_inds    = n_inds,
+        n_rep     = 100,
         full      = TRUE
       )
 

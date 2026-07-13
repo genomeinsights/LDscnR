@@ -11,5 +11,10 @@ What the package does (one paragraph).
 \author{
 \strong{Maintainer}: Petri Kemppainen \email{petri@genomeinsights.fi}
 
+Authors:
+\itemize{
+  \item Petri Kemppainen \email{petri@genomeinsights.fi}
+}
+
 }
 \keyword{internal}

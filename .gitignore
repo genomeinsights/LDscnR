@@ -9,3 +9,17 @@
 .quarto
 vignettes/*cache
 el_3sp/
+el/
+.positai
+
+# Scratch / generated files
+.Rapp.history
+tmp/
+*.gds
+Rplot*.png
+tst.png
+# Loose scratch scripts (not package source)
+/3sp.R
+/LDna.R
+/emmax.R
+/build.R

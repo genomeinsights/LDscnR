@@ -8,17 +8,17 @@
 
 ## 🚀 Key features
 
--   📉 **LD decay estimation** (chromosome-specific)
+- 📉 **LD decay estimation** (chromosome-specific)
 
--   ⚖️ **LD-scaled statistics** (F')
+- ⚖️ **LD-scaled statistics** (F')
 
--   🧬 **Outlier-region clustering** using LD and distance thresholds
+- 🧬 **Outlier-region clustering** using LD and distance thresholds
 
--   📊 **Consistency scores (C)** summarizing robustness
+- 📊 **Consistency scores (C)** summarizing robustness
 
--   📈 **Manhattan-style visualization**
+- 📈 **Manhattan-style visualization**
 
--   🧪 **Simulation benchmarking tools** (precision–recall, AUC)
+- 🧪 **Simulation benchmarking tools** (precision–recall, AUC)
 
 ------------------------------------------------------------------------
 
@@ -82,11 +82,11 @@ LD decay is estimated per chromosome to define a biologically meaningful scale f
 
 Based on F-outlier statistics e.g. from genotype-environment association analyses, scaled by local LD ($ld_w$ the median LD between a focal SNPs and other snips with window size $w$), outlier regions are detected repeatedly across a range of:
 
--   LD window sizes
+- LD window sizes
 
--   distance thresholds for outlier clustering
+- distance thresholds for outlier clustering
 
--   significance thresholds
+- significance thresholds
 
 This avoids reliance on a single arbitrary cutoff.
 
@@ -98,13 +98,13 @@ Each SNP receives a **consistency score (C)** reflecting how often it appears in
 
 ## 📈 Output interpretation
 
--   **High C-score SNPs** → robust signals across parameter space
+- **High C-score SNPs** → robust signals across parameter space
 
--   **Outlier regions (ORs)** → clusters of SNPs supported by LD
+- **Outlier regions (ORs)** → clusters of SNPs supported by LD
 
--   **Joint mode** → combines evidence across methods
+- **Joint mode** → combines evidence across methods
 
--   **Per-method mode** → method-specific detection
+- **Per-method mode** → method-specific detection
 
 ------------------------------------------------------------------------
 
@@ -112,11 +112,11 @@ Each SNP receives a **consistency score (C)** reflecting how often it appears in
 
 The package includes tools to evaluate performance in simulated data:
 
--   Precision–recall summaries (`get_PR`)
+- Precision–recall summaries (`get_PR`)
 
--   AUC of cumulative PR curves (`get_AUC_OR`)
+- AUC of cumulative PR curves (`get_AUC_OR`)
 
--   True/false positive OR classification
+- True/false positive OR classification
 
 ------------------------------------------------------------------------
 
@@ -132,27 +132,27 @@ vignette("LDscnR_quick_introduction")
 
 ## ⚠️ Notes
 
--   LD-decay estimation is performed in two steps. First based on subsets of SNPs from chromosomes, but large sliding windows (1000 bps). Based on this, a new (smaller) sliding window is determined such that 99% of the decay curve is covered to reduce the number of pairwise comparisons for subsequent downstream analyses.
+- LD-decay estimation is performed in two steps. First based on subsets of SNPs from chromosomes, but large sliding windows (1000 bps). Based on this, a new (smaller) sliding window is determined such that 99% of the decay curve is covered to reduce the number of pairwise comparisons for subsequent downstream analyses.
 
--   However, large data sets can still generate substantial intermediate objects (LD edge lists, OR draws)
+- However, large data sets can still generate substantial intermediate objects (LD edge lists, OR draws)
 
--   For heavy workflows, consider saving intermediate results using `saveRDS()`
+- For heavy workflows, consider saving intermediate results using `saveRDS()`
 
--   Parallelization is supported via the `cores` argument (`mclapply`)
+- Parallelization is supported via the `cores` argument (`mclapply`)
 
 ------------------------------------------------------------------------
 
 ## 🔧 Dependencies
 
--   `data.table`
+- `data.table`
 
--   `ggplot2`
+- `ggplot2`
 
--   `patchwork`
+- `patchwork`
 
--   `SNPRelate`
+- `SNPRelate`
 
--   `future.apply`
+- `future.apply`
 
 ------------------------------------------------------------------------
 

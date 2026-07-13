@@ -585,7 +585,7 @@ coef_ld_dec <- function(dt_strata,
   c_start <- max(agg$r2_q, na.rm = TRUE)
   a_start <- 1 / median(agg$d_mid)
 
-
+  ld_from_rho
   fit <- tryCatch(
     nls(
       r2_q ~ b + (c - b)/(1 + a * d_mid),

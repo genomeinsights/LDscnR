@@ -55,9 +55,9 @@ ld_scan <- function(ld_w,
                     F_vals,
                     SNP_ids,
                     n_inds,
-                    n_rep = 10,
+                    n_rep = 100,
                     full = TRUE,
-                    enforce_null_floor = TRUE) {
+                    enforce_null_floor = FALSE) {
 
 
   scan_res <- compute_Fprime(
@@ -99,7 +99,7 @@ ld_scan <- function(ld_w,
 #'
 #' @return A named list of method-specific results.
 #' @export
-compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, enforce_null_floor = TRUE,full) {
+compute_Fprime <- function(F_vals, ld_w, n_rep, n_inds, enforce_null_floor = FALSE,full) {
 
   F_mat <- as.matrix(F_vals)
   n <- nrow(F_mat)

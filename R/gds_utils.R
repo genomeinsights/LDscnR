@@ -6,7 +6,7 @@
 #' The genotype matrix is expected in \strong{individuals x SNPs} format.
 #' SNP metadata are taken from \code{map}.
 #'
-#' @param geno Numeric genotype matrix of allele counts (0,1,2) with individuals in rows and SNPs in columns. NA's are allowed.
+#' @param geno Numeric genotype matrix of allele counts (0,1,2) with individuals in rows and SNPs in columns. NA's are allowed. Rownames must contain individual ID names.
 #' @param map Data frame or \code{data.table} with one row per SNP. Must contain
 #'   the columns \code{marker}, \code{Chr}, and \code{Pos}.
 #' @param gds_path File path where the GDS file will be written.

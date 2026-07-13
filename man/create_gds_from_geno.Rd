@@ -7,7 +7,7 @@
 create_gds_from_geno(geno, map, gds_path)
 }
 \arguments{
-\item{geno}{Numeric genotype matrix of allele counts (0,1,2) with individuals in rows and SNPs in columns. NA's are allowed.}
+\item{geno}{Numeric genotype matrix of allele counts (0,1,2) with individuals in rows and SNPs in columns. NA's are allowed. Rownames must contain individual ID names.}
 
 \item{map}{Data frame or \code{data.table} with one row per SNP. Must contain
 the columns \code{marker}, \code{Chr}, and \code{Pos}.}
