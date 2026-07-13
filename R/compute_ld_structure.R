@@ -806,61 +806,6 @@ print.ld_decay <- function(x, digits = 3) {
 }
 
 
-#' Compute Local LD Support (ld_w)
-#'
-#' Computes per-SNP local LD support within a distance defined by a
-#' relative LD threshold \eqn{\rho}.
-#'
-#' For each SNP, LD support is defined as the median \eqn{r^2} with
-#' neighboring SNPs within the corresponding distance window.
-#'
-#' @param ld_decay Object of class \code{"ld_decay"}.
-#' @param rho Relative LD threshold used to define the window.
-#' @param cores Number of CPU cores.
-#'
-#' @return Numeric vector of LD support values (one per SNP).
-#'
-#' @details
-#' The physical window is derived using:
-#' \deqn{d = \frac{\rho}{a(1 - \rho)}}
-#'
-#' where \eqn{a} is the chromosome-specific decay rate.
-#'
-#' Requires \code{keep_el = TRUE} when calling \code{compute_LD_decay()}.
-#'
-#' @export
-compute_ld_w <- function(
-    ld_decay,
-    rho = 0.95,
-    cores = 1
-) {
-  #chr_obj <- ld_decay$by_chr$Chr1
-  ld_w <- unlist(parallel_apply(ld_decay$by_chr, function(chr_obj) {
-
-    a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
-    b <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,b]
-
-    d_window <- d_from_rho(a, rho)
-
-    if(is.null(chr_obj$el)) stop("No edge list present")
-
-    if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,showProgress = FALSE)
-
-    #make symmetric
-    chr_obj$el <- data.table::rbindlist(list(
-      chr_obj$el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
-      chr_obj$el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
-    ))
-
-    ld_w <- chr_obj$el[d<d_window,.(r2_median=median(r2)),by=SNP]
-
-    ld_w[match(chr_obj$snp_ids,ld_w$SNP),r2_median]
-
-  }, cores = cores))
-
-  return(ld_w)
-}
-
 #' Plot LD-decay results
 #'
 #' S3 plotting method for objects of class \code{"ld_decay"} produced by
