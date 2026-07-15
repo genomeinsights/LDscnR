@@ -28,7 +28,7 @@ test_that("ld_complexity_reduction returns a well-formed, self-consistent result
   map <- data.table::as.data.table(sim_ex$map)[, .(Chr, Pos, marker)]
   ld  <- build_decay()
 
-  res <- ld_complexity_reduction(sim_ex$GTs, map, ld, rho = 0.5, cores = 1)
+  res <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1)
 
   expect_named(res, c("map_snp", "clusters", "pruned"))
 
@@ -64,12 +64,14 @@ test_that("clusters are true complete linkage: every member pair clears r2_th", 
   # create_gds_from_geno() only relies on positional alignment between GTs
   # columns and map rows, not name matching -- sim_ex$GTs's own colnames
   # (e.g. "1:5570") don't carry the "Chr" prefix map$marker does (e.g.
-  # "Chr1:5570"), so name-based indexing below needs them aligned first.
+  # "Chr1:5570"), so name-based indexing below (independent verification
+  # only -- ld_complexity_reduction() itself no longer takes GTs) needs
+  # them aligned first.
   GTs <- sim_ex$GTs
   colnames(GTs) <- map$marker
 
   rho <- 0.5
-  res <- ld_complexity_reduction(GTs, map, ld, rho = rho, cores = 1)
+  res <- ld_complexity_reduction(map, ld, rho = rho, cores = 1)
 
   big_clusters <- res$clusters[n_snps >= 3][order(-n_snps)][seq_len(min(5, .N))]
 
@@ -89,27 +91,25 @@ test_that("clusters are true complete linkage: every member pair clears r2_th", 
   }
 })
 
-test_that("ld_w_col/ld_w_threshold lets low-ld_w markers skip clustering", {
+test_that("idx restricts ld_complexity_reduction to the given markers only", {
   data(sim_ex, package = "LDscnR")
   map <- data.table::as.data.table(sim_ex$map)[, .(Chr, Pos, marker)]
   ld  <- build_decay()
 
-  map[, ld_w := as.numeric(compute_ld_w(ld, rho = 0.95))]
+  idx <- which(map$Chr == map$Chr[1])
+  res_idx  <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1, idx = idx)
+  res_full <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1)
 
-  res_full     <- ld_complexity_reduction(sim_ex$GTs, map, ld, rho = 0.5, cores = 1)
-  res_filtered <- ld_complexity_reduction(
-    sim_ex$GTs, map, ld, rho = 0.5, cores = 1,
-    ld_w_col = "ld_w", ld_w_threshold = 0.2
+  # idx run only ever sees/returns the selected markers
+  expect_equal(nrow(res_idx$map_snp), length(idx))
+  expect_true(all(res_idx$map_snp$marker == map$marker[idx]))
+  expect_true(all(unique(res_idx$clusters$Chr) == map$Chr[1]))
+
+  # same clustering result as running on that chromosome's markers directly
+  # via the unrestricted call, i.e. idx doesn't change how markers already
+  # in scope get clustered against each other
+  expect_equal(
+    sort(res_idx$pruned),
+    sort(res_full$clusters[Chr == map$Chr[1], core_snp])
   )
-
-  low_ld_w_markers <- map[ld_w < 0.2, marker]
-
-  # every low-ld_w marker is its own singleton cluster when pre-filtered
-  expect_true(all(
-    res_filtered$map_snp[marker %in% low_ld_w_markers, n_loci] == 1
-  ))
-  expect_true(all(low_ld_w_markers %in% res_filtered$pruned))
-
-  # same total marker count either way, nothing dropped
-  expect_equal(nrow(res_full$map_snp), nrow(res_filtered$map_snp))
 })

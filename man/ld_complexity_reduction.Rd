@@ -4,20 +4,9 @@
 \alias{ld_complexity_reduction}
 \title{Reduce a Marker Set to LD-Independent Representatives}
 \usage{
-ld_complexity_reduction(
-  GTs,
-  map,
-  LD_decay,
-  rho = 0.5,
-  cores = 1,
-  ld_w_col = NULL,
-  ld_w_threshold = NULL
-)
+ld_complexity_reduction(map, LD_decay, rho = 0.5, cores = 1, idx = NULL)
 }
 \arguments{
-\item{GTs}{Numeric matrix of genotype dosages, individuals x markers, with
-column names matching \code{map$marker}.}
-
 \item{map}{A \code{data.table} with at least \code{Chr} and \code{marker} columns.}
 
 \item{LD_decay}{An \code{ld_decay} object from \code{\link[=compute_LD_decay]{compute_LD_decay()}}, built with
@@ -28,19 +17,21 @@ chromosome's clustering threshold via \code{\link[=ld_from_rho]{ld_from_rho()}}.
 
 \item{cores}{Number of chromosomes to process in parallel.}
 
-\item{ld_w_col, ld_w_threshold}{Optional. If both are supplied, markers
-with \code{map[[ld_w_col]] < ld_w_threshold} skip clustering entirely and
-pass straight through as their own singleton cluster -- useful when
-most markers are already known to carry little local LD support and
-clustering all of them anyway would be wasted work.}
+\item{idx}{Optional integer vector of row indices into \code{map} (1-based).
+If supplied, only these markers are considered at all -- clustered
+against each other and returned -- letting the caller decide the marker
+set up front (by \code{ld_w}, MAF, a region of interest, or anything else)
+instead of this function taking its own filtering criterion. If \code{NULL}
+(the default), all markers in \code{map} are used.}
 }
 \value{
 A list with:
 \describe{
-\item{map_snp}{\code{map}, with \code{CL_id}, \code{n_loci}, \code{is_core} (logical), and
-\code{median_ld} (this marker's own median r2 to the rest of its cluster,
-\code{NA} for singletons) added. \code{CL_id}/\code{n_loci} are named to match what
-\code{\link[=make_eMLGs]{make_eMLGs()}} expects from \code{map_cl}.}
+\item{map_snp}{\code{map} (subset to \code{idx} if supplied), with \code{CL_id},
+\code{n_loci}, \code{is_core} (logical), and \code{median_ld} (this marker's own
+median r2 to the rest of its cluster, \code{NA} for singletons) added.
+\code{CL_id}/\code{n_loci} are named to match what \code{\link[=make_eMLGs]{make_eMLGs()}} expects from
+\code{map_cl}.}
 \item{clusters}{One row per cluster: \code{Chr}, \code{CL_id}, \code{core_snp},
 \code{median_ld} (the core marker's), \code{n_snps}, and \code{members} (a
 list-column of every marker in the cluster, including the core).}
@@ -93,4 +84,29 @@ spuriously negative correlation with the mean and gets passed over for a
 noisier marker); r2 is sign-agnostic, so median r2 doesn't have that
 problem, and -- since Stage 2 already builds the pairwise r2 sub-matrix
 for \code{hclust()} -- costs nothing extra to compute.
+
+Chromosomes are processed with a \code{txtProgressBar} each, labelled by
+chromosome, tracking progress through that chromosome's connected
+components -- some chromosomes can have tens of thousands of them, so a
+single genome-wide bar would sit at 0\% for a long time on the first (or
+largest) chromosome. With \code{cores > 1} each chromosome's bar is drawn by
+its own forked worker and they write to the same stdout, so output can
+interleave; this is purely cosmetic; use \code{cores = 1} for clean output.
+
+Known limitation: \code{el} itself is built from a sliding window, so a pair
+of markers farther apart than that window was never evaluated at all
+(not "below threshold" -- absent, which behaves as r2 = 0 here). Stage 1
+tolerates this fine, since single-linkage components only need a chain of
+overlapping-window edges to link distant markers together. Stage 2 does
+not: complete linkage requires every pairwise r2 within a final cluster
+to individually clear the threshold, so a genuinely one-block region
+whose extent exceeds the window gets fragmented into more than one
+representative, purely because the missing pairs default to r2 = 0
+rather than their real (unknown) value. The window is normally sized off
+genome/chromosome-average decay to reach a high rho (0.95-0.99), which
+comfortably covers a lower pruning rho (e.g. 0.5) in typical regions --
+but centromeres/inversions decay far slower than that average, so this
+is where fragmentation is most likely. Fixing it would mean recomputing
+r2 directly from genotypes (unlimited by any window) for markers whose
+pairwise LD isn't in \code{el}, which this function does not currently do.
 }
