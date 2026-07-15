@@ -9,6 +9,8 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 Imports:
     data.table,
+    igraph,
+    parallel,
     reshape2,
     SNPRelate
 Depends: 
