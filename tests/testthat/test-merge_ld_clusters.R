@@ -195,3 +195,61 @@ test_that("merge_ld_clusters only merges clusters on the same chromosome", {
   n_chr_by_cluster <- per_cluster_chr[, uniqueN(Chr), by = CL_id]$V1
   expect_true(all(n_chr_by_cluster == 1))
 })
+
+test_that("min_n_snps=1 (default) is unaffected; higher thresholds skip small clusters but keep the same overall result", {
+  set.seed(1)
+  n_ind <- 100
+
+  latent <- rbinom(n_ind, 2, 0.3)
+  block <- sapply(1:6, function(i) {
+    pmin(pmax(latent + rbinom(n_ind, 1, 0.05) - rbinom(n_ind, 1, 0.05), 0), 2)
+  })
+  colnames(block) <- paste0("m", 1:6)
+
+  small_indep <- sapply(1:4, function(i) rbinom(n_ind, 2, 0.3))
+  colnames(small_indep) <- paste0("s", 1:4)
+
+  GTs <- cbind(block, small_indep)
+
+  ld_result <- list(
+    map_snp = data.table::data.table(
+      marker = colnames(GTs), Chr = "Chr1", Pos = 1:10,
+      CL_id = c(1, 1, 1, 2, 2, 2, 3, 4, 5, 6),
+      n_loci = c(3, 3, 3, 3, 3, 3, 1, 1, 1, 1),
+      is_core = c(TRUE, FALSE, FALSE, TRUE, FALSE, FALSE, TRUE, TRUE, TRUE, TRUE),
+      median_ld = NA_real_
+    ),
+    clusters = data.table::data.table(
+      Chr = "Chr1", CL_id = c(1, 2, 3, 4, 5, 6),
+      core_snp = c("m1", "m4", "s1", "s2", "s3", "s4"),
+      median_ld = c(0.9, 0.9, NA, NA, NA, NA),
+      n_snps = c(3L, 3L, 1L, 1L, 1L, 1L),
+      members = list(c("m1", "m2", "m3"), c("m4", "m5", "m6"), "s1", "s2", "s3", "s4")
+    )
+  )
+  LD_decay <- list(decay_sum = data.table::data.table(Chr = "Chr1", b = 0, c = 1))
+
+  res_default  <- merge_ld_clusters(GTs, ld_result, LD_decay, rho = 0.5, cores = 1)
+  res_filtered <- merge_ld_clusters(GTs, ld_result, LD_decay, rho = 0.5, cores = 1, min_n_snps = 3)
+
+  ## the block still gets reunited even though the singletons never enter
+  ## the all-pairs comparison
+  expect_equal(uniqueN(res_filtered$map_snp[marker %in% paste0("m", 1:6), CL_id]), 1)
+
+  ## singletons pass through completely untouched
+  for (s in paste0("s", 1:4)) {
+    expect_equal(res_filtered$map_snp[marker == s, n_loci], 1L)
+  }
+
+  ## same overall structure either way -- filtering shouldn't change the
+  ## actual clustering result here, only which clusters got compared
+  expect_equal(sort(res_default$clusters$n_snps), sort(res_filtered$clusters$n_snps))
+  expect_setequal(res_default$pruned, res_filtered$pruned)
+
+  ## density still populated for every cluster under filtering, including
+  ## the ones that skipped the all-pairs step entirely (this is exactly
+  ## what broke before the fix: an empty below_threshold table was missing
+  ## the density column outright, breaking the final rbindlist())
+  expect_true("density" %in% names(res_filtered$clusters))
+  expect_true(all(!is.na(res_filtered$clusters$density[res_filtered$clusters$n_snps > 1])))
+})

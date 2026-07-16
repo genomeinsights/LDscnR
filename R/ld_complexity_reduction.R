@@ -68,6 +68,13 @@
 #' is where fragmentation is most likely. Fixing it would mean recomputing
 #' r2 directly from genotypes (unlimited by any window) for markers whose
 #' pairwise LD isn't in `el`, which this function does not currently do.
+#' [merge_ld_clusters()] fixes it after the fact instead, by comparing
+#' clusters (not raw markers) directly from genotypes with no window
+#' restriction; its `@examples` document the recommended way to run it only
+#' on the clusters that actually need it (flagged post hoc, using this
+#' function's own cluster boundaries -- not by pre-splitting markers before
+#' clustering, which can sever a real block right at the flagging
+#' threshold).
 #'
 #' @param map A `data.table` with at least `Chr` and `marker` columns.
 #' @param LD_decay An `ld_decay` object from [compute_LD_decay()], built with
@@ -82,7 +89,10 @@
 #'   instead of this function taking its own filtering criterion. If `NULL`
 #'   (the default), all markers in `map` are used.
 #'
-#' @return A list with:
+#' @return An object of class `"ld_complexity_reduction"` (a list with a
+#'   [print.ld_complexity_reduction()] method -- printed automatically once
+#'   at the end of the call, and again any time the returned object is
+#'   printed later):
 #' \describe{
 #'   \item{map_snp}{`map` (subset to `idx` if supplied), with `CL_id`,
 #'     `n_loci`, `is_core` (logical), and `median_ld` (this marker's own
@@ -258,9 +268,72 @@ ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = N
     members   = list(marker)
   ), by = .(Chr, CL_id)]
 
-  list(
+  out <- list(
     map_snp  = map_snp,
     clusters = clusters,
     pruned   = clusters$core_snp
   )
+  class(out) <- "ld_complexity_reduction"
+  print(out)
+  out
+}
+
+#' Print an ld_complexity_reduction Object
+#'
+#' Summarizes the result of [ld_complexity_reduction()]: how many markers
+#' were kept as cluster representatives, the cluster-size distribution, and
+#' the representative markers' median r2 to the rest of their cluster.
+#'
+#' @param x An `"ld_complexity_reduction"` object.
+#' @param digits Number of significant digits for printed statistics.
+#' @param ... Unused; present for S3 consistency.
+#'
+#' @return `x`, invisibly.
+#'
+#' @export
+print.ld_complexity_reduction <- function(x, digits = 3, ...) {
+
+  cat("<ld_complexity_reduction>\n")
+
+  n_markers  <- nrow(x$map_snp)
+  n_clusters <- nrow(x$clusters)
+
+  cat("\nMarkers:\n")
+  cat("  input markers:", format(n_markers, big.mark = ","), "\n")
+  cat(
+    "  clusters / pruned markers:", format(n_clusters, big.mark = ","),
+    " (", signif(100 * n_clusters / n_markers, digits), "% kept)\n",
+    sep = ""
+  )
+  cat("  chromosomes:", data.table::uniqueN(x$clusters$Chr), "\n")
+
+  n_snps <- x$clusters$n_snps
+
+  cat("\nCluster sizes:\n")
+  cat(
+    "  median =", stats::median(n_snps),
+    " range = [", min(n_snps), ", ", max(n_snps), "]\n",
+    sep = ""
+  )
+  cat(
+    "  singleton clusters:", sum(n_snps == 1L),
+    " (", signif(100 * mean(n_snps == 1L), digits), "%)\n",
+    sep = ""
+  )
+
+  ld <- x$clusters$median_ld
+  ld <- ld[!is.na(ld)]
+  if (length(ld)) {
+    cat("\nRepresentative median r2 (non-singleton clusters):\n")
+    cat(
+      "  median =", signif(stats::median(ld), digits),
+      " range = [", signif(min(ld), digits), ", ", signif(max(ld), digits), "]\n",
+      sep = ""
+    )
+  }
+
+  cat("\nStored components:\n")
+  cat("  map_snp, clusters, pruned\n")
+
+  invisible(x)
 }

@@ -25,7 +25,10 @@ instead of this function taking its own filtering criterion. If \code{NULL}
 (the default), all markers in \code{map} are used.}
 }
 \value{
-A list with:
+An object of class \code{"ld_complexity_reduction"} (a list with a
+\code{\link[=print.ld_complexity_reduction]{print.ld_complexity_reduction()}} method -- printed automatically once
+at the end of the call, and again any time the returned object is
+printed later):
 \describe{
 \item{map_snp}{\code{map} (subset to \code{idx} if supplied), with \code{CL_id},
 \code{n_loci}, \code{is_core} (logical), and \code{median_ld} (this marker's own
@@ -109,4 +112,11 @@ but centromeres/inversions decay far slower than that average, so this
 is where fragmentation is most likely. Fixing it would mean recomputing
 r2 directly from genotypes (unlimited by any window) for markers whose
 pairwise LD isn't in \code{el}, which this function does not currently do.
+\code{\link[=merge_ld_clusters]{merge_ld_clusters()}} fixes it after the fact instead, by comparing
+clusters (not raw markers) directly from genotypes with no window
+restriction; its \verb{@examples} document the recommended way to run it only
+on the clusters that actually need it (flagged post hoc, using this
+function's own cluster boundaries -- not by pre-splitting markers before
+clustering, which can sever a real block right at the flagging
+threshold).
 }

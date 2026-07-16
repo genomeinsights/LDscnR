@@ -4,7 +4,14 @@
 \alias{merge_ld_clusters}
 \title{Merge Fragmented LD Clusters via Cluster-Level Correlation}
 \usage{
-merge_ld_clusters(GTs, ld_result, LD_decay, rho = 0.5, cores = 1)
+merge_ld_clusters(
+  GTs,
+  ld_result,
+  LD_decay,
+  rho = 0.5,
+  cores = 1,
+  min_n_snps = 1
+)
 }
 \arguments{
 \item{GTs}{Numeric matrix of genotype dosages, individuals x markers,
@@ -18,10 +25,39 @@ with column names matching the markers in \code{ld_result}.}
 \item{rho}{Numeric in (0, 1), same meaning as in
 \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}}. Default \code{0.5}.}
 
-\item{cores}{Number of chromosomes to process in parallel.}
+\item{cores}{Number of cores. Used both to process chromosomes in
+parallel and, within each chromosome, to compute cluster consensus
+genotypes (\code{\link[=expected_gt_dosage]{expected_gt_dosage()}}) in parallel -- the latter can be a
+real bottleneck when a chromosome has many clusters, since it's one
+function call per cluster. If \code{cores > 1} and multiple chromosomes are
+processed at once, the two loops nest (each chromosome-level worker
+spawns its own consensus-level workers), so total processes can reach
+\code{cores^2}; this is only a concern for genome-wide, many-chromosome,
+high-\code{cores} runs -- the common case here is one chromosome (or
+\code{cores = 1}), where there's no nesting.}
+
+\item{min_n_snps}{Integer. Only clusters with \code{n_snps >= min_n_snps} enter
+the all-pairwise cluster comparison; smaller clusters pass straight
+through unmerged (\code{density} is still computed for them). The dominant
+cost here is the cross-cluster correlation matrix and \code{hclust()}, both
+roughly quadratic in the NUMBER of clusters compared, not their size --
+so excluding a chromosome's small clusters (usually the large majority)
+can be a large speedup. This is a heuristic, not a guarantee: a
+genuinely large true block could in principle fragment into many small
+pieces rather than a few large ones, in which case a small piece could
+still need merging and would be missed here. Default \code{1} (no
+filtering, i.e. identical to previous behaviour) since whether that
+trade-off is worth it depends on the data -- e.g. check
+\code{cor(ld_result$map_snp$ld_w_09x, ld_result$map_snp$n_loci)} first:
+a real positive correlation (fragmentation-prone/high-LD regions
+already coming out of Stage 1 with larger clusters) is what makes a
+higher threshold safe to use.}
 }
 \value{
-A list with the same shape as \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}}:
+An object of class \code{"merge_ld_clusters"} (a list with a
+\code{\link[=print.merge_ld_clusters]{print.merge_ld_clusters()}} method -- printed automatically once at the
+end of the call, and again any time the returned object is printed
+later), with the same shape as \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}}'s output:
 \code{map_snp}, \code{clusters}, \code{pruned}. Clusters that get merged share a new,
 combined \code{members} list and a representative chosen the same way as
 the first stage (highest median r2 -- here, to the other merged
@@ -65,4 +101,61 @@ apart. Comparisons are restricted to within the same chromosome --
 there's no physical basis for merging clusters from different
 chromosomes, since the fragmentation this fixes is specifically a
 sliding-window artifact along one chromosome's marker order.
+}
+\examples{
+\dontrun{
+## Recommended workflow when only some loci need the merge step -- e.g.
+## flagging by ld_w (see compute_ld_w()): loci with unusually high local
+## LD support are where the sliding window behind LD_decay's edge list is
+## most likely to have fragmented one true block into several Stage-1
+## clusters. Run Stage 1 on the WHOLE marker set together FIRST (cheap
+## regardless of scale, and it uses the real window-covered edges to
+## group markers correctly), then flag CLUSTERS -- not markers -- and
+## only pay merge_ld_clusters()'s all-pairwise cost on the flagged ones.
+##
+## Pre-splitting markers into "high"/"low" ld_w BEFORE clustering, then
+## running Stage 1 separately on each half, looks equivalent but isn't:
+## it can sever a real block right at the threshold boundary, since two
+## adjacent markers can straddle the cutoff even though `el` connects
+## them directly. Checked on one real chromosome: 226 of 15,524 Stage-1
+## clusters from a combined run mixed low- and high-ld_w members, and a
+## pre-split would have cut 975 low-ld_w markers loose from their real
+## cluster. Flagging clusters (post hoc, using Stage 1's own boundaries)
+## avoids that entirely.
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5)
+
+## classify via a separate vector, not a mutated column on $clusters --
+## merge_ld_clusters() expects ld_result$clusters in exactly the shape
+## ld_complexity_reduction() returns it; a stray extra column carried
+## through wouldn't survive every internal branch identically (merged
+## clusters get freshly built rows without it, passed-through ones keep
+## it), producing inconsistent columns and a rbindlist() error
+ld_w_threshold <- 0.2
+marker_ldw <- setNames(map$ld_w_095, map$marker)
+needs_merge <- vapply(
+  stage1$clusters$members, function(mk) any(marker_ldw[mk] > ld_w_threshold), logical(1)
+)
+
+flagged   <- stage1$clusters[needs_merge]
+unflagged <- stage1$clusters[!needs_merge]
+
+## a ld_result-shaped list restricted to the flagged clusters -- the only
+## piece merge_ld_clusters() actually reads is $clusters; $map_snp is
+## trimmed to match purely so the two stay consistent, and $pruned isn't
+## used internally at all
+ld_result_flagged <- list(
+  map_snp  = stage1$map_snp[marker \%in\% unlist(flagged$members)],
+  clusters = flagged,
+  pruned   = flagged$core_snp
+)
+
+merged <- merge_ld_clusters(
+  GTs = GTs[, unlist(flagged$members)],
+  ld_result = ld_result_flagged, LD_decay = ld_decay, rho = 0.5
+)
+
+## unflagged clusters' representatives pass straight through untouched
+pruned_markers <- c(unflagged$core_snp, merged$pruned)
+}
+
 }
