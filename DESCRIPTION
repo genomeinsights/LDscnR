@@ -12,7 +12,9 @@ Imports:
     igraph,
     parallel,
     reshape2,
-    SNPRelate
+    SNPRelate,
+    stats,
+    utils
 Depends: 
     R (>= 3.5)
 LazyData: true
