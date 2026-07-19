@@ -136,8 +136,11 @@ stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cor
 Stage 1's edge list is built from a sliding window, so a genuinely correlated, low-recombination block can still come out fragmented into several adjacent clusters (pairs farther apart than the window were never evaluated at all). `ld_prune_and_eMLG()` fixes this after the fact, but only for the clusters that need it: those flagged by high local LD support (`ld_w_col`/`ld_w_threshold`) are re-compared directly from genotypes -- with no window restriction -- and consolidated via a distance-restricted, quality-gated dynamic cut. This produces a refined pruned marker set and an eMLG matrix from the same pass; unflagged clusters (usually the large majority) pass straight through unchanged:
 
 ```         
+# ld_w_threshold = 0.05 here is a "final run" value (see the speed tip
+# below) -- flag more generously so that as many genuine mergers as
+# possible actually happen; raise it for a faster preliminary look
 result <- ld_prune_and_eMLG(
-  GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.2,
+  GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.05,
   score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 5e5, cores = 4
 )
 
@@ -147,21 +150,19 @@ eMLG           <- result$eMLG     # individuals x blocks consensus-genotype matr
 
 ### 4. Visual diagnostic
 
-`plot_pruning_comparison()` stacks Stage 1's raw clusters (top panel) against Stage 2's consolidated groups (bottom panel) for one chromosome, so fragmented blocks and their reunited counterparts can be compared directly:
+`plot_pruning_comparison()` stacks Stage 1's raw clusters (top panel) against Stage 2's consolidated groups (bottom panel) for one chromosome, so fragmented blocks and their reunited counterparts can be compared directly. `ld_w_col`/`ld_w_threshold`/`min_n_loci_flag` default to `result$params` -- whatever `ld_prune_and_eMLG()` was actually called with above -- so the two panels can't silently end up comparing different flagging criteria; passing a value that disagrees with `result$params` warns:
 
 ```         
-plot_pruning_comparison(
-  chr = "Chr3", pruned_stage1 = stage1, result = result, map = map,
-  ld_w_col = "ld_w_095", ld_w_threshold = 0.2
-)
+plot_pruning_comparison(chr = "Chr3", pruned_stage1 = stage1, result = result, map = map)
 ```
 
-### ⚡ Speed tip: exploring vs. final runs
+### ⚡ Speed tip: preliminary vs. final runs
 
-`ld_prune_and_eMLG()`'s cost is dominated by an all-pairs correlation among the *flagged* clusters, which scales roughly quadratically with how many clusters get flagged (on real data: \~0.01s at 292 flagged clusters, \~31s at 15,000). While exploring:
+`ld_prune_and_eMLG()`'s cost is dominated by an all-pairs correlation among the *flagged* clusters, which scales roughly quadratically with how many clusters get flagged (on real data: \~0.01s at 292 flagged clusters, \~31s at 15,000). `ld_w_threshold` is the lever that matters, and it should move in different directions depending on the run:
 
-- **Raise `ld_w_threshold`** to flag fewer clusters -- the single biggest lever on runtime, and the natural one to relax first for a quick look before committing to a slower, more permissive final run.
-- **Set `compute_unflagged_eMLG = FALSE`** if you only need the pruned marker set -- this skips eMLG computation for the unflagged clusters entirely, which are usually the large majority.
+- **Preliminary/exploratory runs**: use a high `ld_w_threshold` to flag only the most obviously redundant clusters -- fast, good enough for a first look at cluster counts and eMLG behaviour.
+- **Final run**: lower `ld_w_threshold` toward `~0.05` (optionally combined with `min_n_loci_flag`, to also pull in large-but-low-`ld_w` clusters) so that as many genuine mergers as possible actually happen -- slower, but this only needs to be run once.
+- **`compute_unflagged_eMLG = FALSE`** skips eMLG computation for the unflagged clusters entirely (usually the large majority) if you only need the pruned marker set, independent of `ld_w_threshold`.
 
 ------------------------------------------------------------------------
 
