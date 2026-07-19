@@ -9,16 +9,25 @@ compute_ld_w(ld_decay, rho = 0.95, cores = 1)
 \arguments{
 \item{ld_decay}{Object of class \code{"ld_decay"}.}
 
-\item{rho}{Relative LD threshold used to define the window.}
+\item{rho}{Relative LD threshold used to define the window. May be a
+vector of multiple thresholds -- each chromosome's edge list is read
+(or pulled from memory) and symmetrized once and reused for every
+\code{rho}, rather than repeating that work once per threshold. This
+matters most when \code{keep_el = FALSE} was used in
+\code{compute_LD_decay()}, so each chromosome's edge list has to be
+re-read from disk.}
 
 \item{cores}{Number of CPU cores.}
 }
 \value{
-Numeric vector of LD support values (one per SNP).
+If \code{rho} has length 1, a numeric vector of LD support
+values (one per SNP, in the same SNP order as \code{ld_decay$by_chr}).
+If \code{rho} has length > 1, a numeric matrix with one row per SNP
+(same order) and one column per \code{rho}, named \code{"rho_<value>"}.
 }
 \description{
-Computes per-SNP local LD support within a distance defined by a
-relative LD threshold \eqn{\rho}.
+Computes per-SNP local LD support within a distance defined by one or
+more relative LD thresholds \eqn{\rho}.
 }
 \details{
 For each SNP, LD support is defined as the median \eqn{r^2} with

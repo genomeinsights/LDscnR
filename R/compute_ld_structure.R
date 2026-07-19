@@ -853,17 +853,26 @@ print.ld_decay <- function(x, digits = 3) {
 
 #' Compute Local LD Support (ld_w)
 #'
-#' Computes per-SNP local LD support within a distance defined by a
-#' relative LD threshold \eqn{\rho}.
+#' Computes per-SNP local LD support within a distance defined by one or
+#' more relative LD thresholds \eqn{\rho}.
 #'
 #' For each SNP, LD support is defined as the median \eqn{r^2} with
 #' neighboring SNPs within the corresponding distance window.
 #'
 #' @param ld_decay Object of class \code{"ld_decay"}.
-#' @param rho Relative LD threshold used to define the window.
+#' @param rho Relative LD threshold used to define the window. May be a
+#'   vector of multiple thresholds -- each chromosome's edge list is read
+#'   (or pulled from memory) and symmetrized once and reused for every
+#'   \code{rho}, rather than repeating that work once per threshold. This
+#'   matters most when \code{keep_el = FALSE} was used in
+#'   \code{compute_LD_decay()}, so each chromosome's edge list has to be
+#'   re-read from disk.
 #' @param cores Number of CPU cores.
 #'
-#' @return Numeric vector of LD support values (one per SNP).
+#' @return If \code{rho} has length 1, a numeric vector of LD support
+#'   values (one per SNP, in the same SNP order as \code{ld_decay$by_chr}).
+#'   If \code{rho} has length > 1, a numeric matrix with one row per SNP
+#'   (same order) and one column per \code{rho}, named \code{"rho_<value>"}.
 #'
 #' @details
 #' The physical window is derived using:
@@ -879,31 +888,39 @@ compute_ld_w <- function(
     rho = 0.95,
     cores = 1
 ) {
+  rho <- unique(rho)
+
   #chr_obj <- ld_decay$by_chr$Chr1
-  ld_w <- unlist(parallel_apply(ld_decay$by_chr, function(chr_obj) {
+  by_chr_w <- parallel_apply(ld_decay$by_chr, function(chr_obj) {
 
     a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
-    b <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,b]
-
-    d_window <- d_from_rho(a, rho)
 
     if(is.null(chr_obj$el)) stop("No edge list present")
 
-    if(is.character(chr_obj$el)) chr_obj$el <- fread(chr_obj$el,showProgress = FALSE)
+    el <- if(is.character(chr_obj$el)) fread(chr_obj$el,showProgress = FALSE) else chr_obj$el
 
-    #make symmetric
-    chr_obj$el <- data.table::rbindlist(list(
-      chr_obj$el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
-      chr_obj$el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
+    #make symmetric -- once per chromosome, reused across all rho below
+    el <- data.table::rbindlist(list(
+      el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
+      el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
     ))
 
-    ld_w <- chr_obj$el[d<d_window,.(r2_median=median(r2)),by=SNP]
+    w <- vapply(rho, function(r) {
+      d_window <- d_from_rho(a, r)
+      ld_w <- el[d<d_window,.(r2_median=median(r2)),by=SNP]
+      ld_w[match(chr_obj$snp_ids,ld_w$SNP),r2_median]
+    }, FUN.VALUE = numeric(length(chr_obj$snp_ids)))
 
-    ld_w[match(chr_obj$snp_ids,ld_w$SNP),r2_median]
+    matrix(w, nrow = length(chr_obj$snp_ids), ncol = length(rho),
+           dimnames = list(NULL, paste0("rho_", rho)))
 
-  }, cores = cores))
+  }, cores = cores)
 
-  return(ld_w)
+  ld_w <- do.call(rbind, by_chr_w)
+
+  if (length(rho) == 1L) return(as.vector(ld_w))
+
+  ld_w
 }
 
 #' Plot LD-decay results
