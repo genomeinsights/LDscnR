@@ -31,11 +31,30 @@
 #     (Ohta statistics) wants to detect, not erase by premature merging.
 #     Fixed by restricting merging to physically-contiguous runs
 #     (single-linkage BY DISTANCE: consecutive cluster gap <=
-#     distance_threshold, default 5e5bp). Note this deliberately does NOT
-#     cap a run's total physical span -- a genuine non-recombining block
-#     is expected to be one long, closely-spaced, contiguous run that can
-#     legitimately span megabases; what should break it into separate runs
-#     is a real gap between neighbours, not the block's overall size.
+#     distance_threshold). Note this deliberately does NOT cap a run's
+#     total physical span -- a genuine non-recombining block is expected
+#     to be one long, closely-spaced, contiguous run that can legitimately
+#     span megabases; what should break it into separate runs is a real
+#     gap between neighbours, not the block's overall size.
+#   - distance_threshold itself defaults to a per-chromosome value derived
+#     from rho (d_from_rho(a_pred, rho), reusing the same rho already
+#     implied by ld_w_col's naming, e.g. "ld_w_095") rather than one fixed
+#     bp constant -- and specifically from a_pred (chromosome-size-
+#     corrected predicted decay rate), not each chromosome's own observed
+#     a. Checked directly on real data: a chromosome with an ~100x slower
+#     observed decay rate than typical (plausibly a large non-recombining
+#     supergene-type region) and a typical chromosome of similar size get
+#     a near-identical, well-calibrated ~11kb window at rho=0.95 this way,
+#     capturing ~98-99% of real local gaps between flagged clusters while
+#     still treating the rare large gaps (the top 1-2%, up to several
+#     hundred kb) as presumptive breaks. Using the chromosome's own
+#     observed a instead would have given the anomalous chromosome a
+#     ~1.5Mb window -- over 2x its largest actually-observed gap, i.e.
+#     license to bridge nearly the whole chromosome into one run
+#     regardless of real local structure. That's exactly backwards: a
+#     chromosome's own anomalous decay is often the reason its internal
+#     structure is worth NOT smoothing over by construction, not a
+#     justification for a more permissive merge threshold.
 #
 # See dynamic_cut_eMLG.R for the average-vs-single-vs-complete-linkage
 # comparison and the score_eMLG/pair_r2 gating rationale/bugs already
@@ -130,13 +149,40 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'   which clusters need the expensive treatment (a cluster is flagged if
 #'   ANY member exceeds `ld_w_threshold`).
 #' @param ld_w_threshold Flagging threshold.
+#' @param LD_decay Object from [compute_LD_decay()], used to derive a
+#'   per-chromosome `distance_threshold` from `rho` when `distance_threshold`
+#'   is not supplied directly (via `d_from_rho(a_pred, rho)`, using each
+#'   chromosome's size-corrected predicted decay rate `a_pred`, not its own
+#'   observed `a` -- see `distance_threshold` below for why). Only required
+#'   when `distance_threshold` is `NULL` (the default).
+#' @param rho Relative LD threshold used to derive `distance_threshold` when
+#'   it isn't supplied directly. Reuses the same `rho` already implied by
+#'   `ld_w_col`'s naming convention (e.g. `"ld_w_095"`) by default, so one
+#'   `rho` governs both what counts as "locally elevated" (upstream, via
+#'   [compute_ld_w()]) and what counts as "still physically contiguous"
+#'   (here). Default `0.95`.
 #' @param score_threshold Minimum `score_eMLG` a candidate merge's result
 #'   must clear (see [dynamic_cut_eMLG()]).
 #' @param min_r2 Minimum r2 required directly between the two sides being
 #'   merged (see [dynamic_cut_eMLG()]).
 #' @param distance_threshold Max consecutive-gap in bp allowed within one
 #'   physically-contiguous run (see `split_by_distance()`). Clusters more
-#'   than this apart are never merged, regardless of correlation.
+#'   than this apart are never merged, regardless of correlation. Default
+#'   `NULL`: derived per chromosome from `rho` and `LD_decay` instead of a
+#'   single fixed value (via `d_from_rho(a_pred, rho)`) -- deliberately
+#'   using `a_pred` (chromosome-size-corrected decay rate), not each
+#'   chromosome's own observed `a`. Checked directly on real data: an
+#'   anomalous, ~100x-slower-decay chromosome and a typical one (similar
+#'   size) get a near-identical, well-calibrated ~11kb window at
+#'   `rho = 0.95` this way, capturing ~98-99% of real local gaps while
+#'   still treating the rare large gaps as presumptive breaks. Using the
+#'   observed `a` instead would have given the anomalous chromosome a
+#'   ~1.5Mb window -- more than double the largest gap actually observed on
+#'   it, i.e. license to bridge essentially the whole chromosome into one
+#'   run regardless of its real local structure. Supplying a single numeric
+#'   value here still works as before (e.g. for hand-built test fixtures
+#'   with no matching decay object) and skips the `rho`-based derivation
+#'   entirely.
 #' @param compute_unflagged_eMLG If `FALSE`, skip eMLG computation for
 #'   unflagged clusters entirely (usually the large majority) -- for
 #'   callers who only need the pruned marker set, not eMLGs. Default `TRUE`.
@@ -176,17 +222,18 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'   always lists EVERY group regardless of eMLG filtering), `pruned`
 #'   (character vector of representative markers, one per group -- for
 #'   LD-pruning use, unaffected by eMLG filtering), `params` (the
-#'   `ld_w_col`/`ld_w_threshold`/`min_n_loci_flag` this call actually used --
-#'   [plot_pruning_comparison()] defaults to these so a Stage 1 vs Combined
-#'   comparison can't silently use a different threshold on each side).
+#'   `ld_w_col`/`ld_w_threshold`/`min_n_loci_flag`/`rho`/`distance_threshold`
+#'   this call actually used -- [plot_pruning_comparison()] defaults to
+#'   these so a Stage 1 vs Combined comparison can't silently use a
+#'   different threshold on each side).
 #'
 #' @examples
 #' \dontrun{
 #' stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5)
 #' result <- ld_prune_and_eMLG(
 #'   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095",
-#'   ld_w_threshold = 0.2, score_threshold = 0.80, min_r2 = 0.2,
-#'   distance_threshold = 5e5
+#'   ld_w_threshold = 0.2, LD_decay = ld_decay, rho = 0.95,
+#'   score_threshold = 0.80, min_r2 = 0.2
 #' )
 #' pruned_markers <- result$pruned
 #' eMLG <- result$eMLG
@@ -194,8 +241,9 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'
 #' @export
 ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
+                               LD_decay = NULL, rho = 0.95,
                                score_threshold = 0.80, min_r2 = 0.2,
-                               distance_threshold = 5e5,
+                               distance_threshold = NULL,
                                compute_unflagged_eMLG = TRUE,
                                min_n_loci_eMLG = 1,
                                min_n_loci_flag = Inf,
@@ -203,6 +251,36 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
 
   map_snp  <- stage1$map_snp
   clusters <- stage1$clusters
+
+  ## distance_threshold defaults to a per-chromosome, rho-derived value
+  ## (d_from_rho(a_pred, rho)) rather than one fixed bp constant, reusing
+  ## the same rho already implied by ld_w_col's naming convention (e.g.
+  ## "ld_w_095") -- one rho value then governs both what counts as
+  ## "locally elevated" and what counts as "still physically contiguous".
+  ## Deliberately uses a_pred (chromosome-size-corrected decay rate), not
+  ## each chromosome's own observed a: checked directly on real data (an
+  ## anomalous ~100x-slower-decay chromosome vs. a typical one, similar
+  ## size), using observed a would blow the anomalous chromosome's window
+  ## up to ~1.5Mb -- more than double the largest gap actually observed on
+  ## it, i.e. license to bridge essentially the whole chromosome into one
+  ## run regardless of its real local structure. a_pred instead gives both
+  ## chromosomes a near-identical, well-calibrated ~11kb window at
+  ## rho=0.95, capturing ~98-99% of real local gaps while still treating
+  ## the rare large gaps as presumptive breaks -- exactly the chromosome
+  ## whose internal structure is most worth not smoothing over by
+  ## construction doesn't get a free pass just because its own decay is
+  ## anomalous.
+  dist_threshold_by_chr <- NULL
+  if (is.null(distance_threshold)) {
+    if (is.null(LD_decay)) {
+      stop(
+        "Either `distance_threshold` or `LD_decay` (to derive a per-chromosome ",
+        "threshold from `rho` via d_from_rho(a_pred, rho)) must be supplied."
+      )
+    }
+    dsum <- LD_decay$decay_sum
+    dist_threshold_by_chr <- stats::setNames(d_from_rho(dsum$a_pred, rho), dsum$Chr)
+  }
 
   needs_merge_ids <- map_snp[get(ld_w_col) > ld_w_threshold, unique(CL_id)]
   if (is.finite(min_n_loci_flag)) {
@@ -269,7 +347,10 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
     )
   }
 
-  params <- list(ld_w_col = ld_w_col, ld_w_threshold = ld_w_threshold, min_n_loci_flag = min_n_loci_flag)
+  params <- list(
+    ld_w_col = ld_w_col, ld_w_threshold = ld_w_threshold, min_n_loci_flag = min_n_loci_flag,
+    rho = rho, distance_threshold = distance_threshold
+  )
 
   if (nrow(flagged) == 0) {
     return(list(
@@ -325,7 +406,8 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
   for (chr_i in seq_along(chr_levels)) {
     ch <- chr_levels[chr_i]
     ids_ch <- as.character(flagged$CL_id[flagged$Chr == ch])
-    runs <- split_by_distance(pos_min[ids_ch], pos_max[ids_ch], distance_threshold)
+    dt_ch <- if (is.null(dist_threshold_by_chr)) distance_threshold else dist_threshold_by_chr[[ch]]
+    runs <- split_by_distance(pos_min[ids_ch], pos_max[ids_ch], dt_ch)
     run_sizes <- table(runs)
     message(
       ch, ": ", length(ids_ch), " flagged clusters -> ", length(run_sizes), " run(s) ",

@@ -133,10 +133,13 @@ Stage 1's edge list is built from a sliding window, so a genuinely correlated, l
 
 `ld_w_threshold = 0` is used below purely because `sim_ex` has so few markers per chromosome that a realistic threshold (e.g. `0.2`, appropriate on real data) flags almost nothing here -- there simply isn't enough local marker density for `ld_w` to build up. `ld_w_threshold = 0` is not really "off": on real data, virtually every marker has *some* positive local LD support, so it routes essentially everything through the expensive merge step rather than skipping it -- see the speed tip below for the tuning that actually matters at realistic scale.
 
+`distance_threshold` (the maximum physical gap allowed between clusters still considered part of one contiguous, mergeable block) is left at its default here, which derives a per-chromosome value from `rho` and `LD_decay` (`d_from_rho(a_pred, rho)`) rather than one fixed bp constant -- see `?ld_prune_and_eMLG` for why this uses each chromosome's size-corrected predicted decay rate rather than its own observed decay rate.
+
 ```{r stage2, results = "hide"}
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0,
-  score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 5e5, cores = cores
+  LD_decay = ld_decay, rho = 0.95,
+  score_threshold = 0.80, min_r2 = 0.2, cores = cores
 )
 ```
 

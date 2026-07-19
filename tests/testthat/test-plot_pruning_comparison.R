@@ -68,7 +68,10 @@ test_that("plot_pruning_comparison() defaults ld_w_col/ld_w_threshold/min_n_loci
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
     score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
   )
-  expect_identical(res$params, list(ld_w_col = "ld_w_095", ld_w_threshold = 0.5, min_n_loci_flag = Inf))
+  expect_identical(
+    res$params,
+    list(ld_w_col = "ld_w_095", ld_w_threshold = 0.5, min_n_loci_flag = Inf, rho = 0.95, distance_threshold = 100)
+  )
 
   out_dir <- tempfile("plot_pruning_comparison_")
   dir.create(out_dir)

@@ -9,9 +9,11 @@ ld_prune_and_eMLG(
   stage1,
   ld_w_col,
   ld_w_threshold,
+  LD_decay = NULL,
+  rho = 0.95,
   score_threshold = 0.8,
   min_r2 = 0.2,
-  distance_threshold = 5e+05,
+  distance_threshold = NULL,
   compute_unflagged_eMLG = TRUE,
   min_n_loci_eMLG = 1,
   min_n_loci_flag = Inf,
@@ -29,6 +31,20 @@ ANY member exceeds \code{ld_w_threshold}).}
 
 \item{ld_w_threshold}{Flagging threshold.}
 
+\item{LD_decay}{Object from \code{\link[=compute_LD_decay]{compute_LD_decay()}}, used to derive a
+per-chromosome \code{distance_threshold} from \code{rho} when \code{distance_threshold}
+is not supplied directly (via \code{d_from_rho(a_pred, rho)}, using each
+chromosome's size-corrected predicted decay rate \code{a_pred}, not its own
+observed \code{a} -- see \code{distance_threshold} below for why). Only required
+when \code{distance_threshold} is \code{NULL} (the default).}
+
+\item{rho}{Relative LD threshold used to derive \code{distance_threshold} when
+it isn't supplied directly. Reuses the same \code{rho} already implied by
+\code{ld_w_col}'s naming convention (e.g. \code{"ld_w_095"}) by default, so one
+\code{rho} governs both what counts as "locally elevated" (upstream, via
+\code{\link[=compute_ld_w]{compute_ld_w()}}) and what counts as "still physically contiguous"
+(here). Default \code{0.95}.}
+
 \item{score_threshold}{Minimum \code{score_eMLG} a candidate merge's result
 must clear (see \code{\link[=dynamic_cut_eMLG]{dynamic_cut_eMLG()}}).}
 
@@ -37,7 +53,22 @@ merged (see \code{\link[=dynamic_cut_eMLG]{dynamic_cut_eMLG()}}).}
 
 \item{distance_threshold}{Max consecutive-gap in bp allowed within one
 physically-contiguous run (see \code{split_by_distance()}). Clusters more
-than this apart are never merged, regardless of correlation.}
+than this apart are never merged, regardless of correlation. Default
+\code{NULL}: derived per chromosome from \code{rho} and \code{LD_decay} instead of a
+single fixed value (via \code{d_from_rho(a_pred, rho)}) -- deliberately
+using \code{a_pred} (chromosome-size-corrected decay rate), not each
+chromosome's own observed \code{a}. Checked directly on real data: an
+anomalous, ~100x-slower-decay chromosome and a typical one (similar
+size) get a near-identical, well-calibrated ~11kb window at
+\code{rho = 0.95} this way, capturing ~98-99\% of real local gaps while
+still treating the rare large gaps as presumptive breaks. Using the
+observed \code{a} instead would have given the anomalous chromosome a
+~1.5Mb window -- more than double the largest gap actually observed on
+it, i.e. license to bridge essentially the whole chromosome into one
+run regardless of its real local structure. Supplying a single numeric
+value here still works as before (e.g. for hand-built test fixtures
+with no matching decay object) and skips the \code{rho}-based derivation
+entirely.}
 
 \item{compute_unflagged_eMLG}{If \code{FALSE}, skip eMLG computation for
 unflagged clusters entirely (usually the large majority) -- for
@@ -82,9 +113,10 @@ group_id, Chr, representative, n_loci, score, has_eMLG, members --
 always lists EVERY group regardless of eMLG filtering), \code{pruned}
 (character vector of representative markers, one per group -- for
 LD-pruning use, unaffected by eMLG filtering), \code{params} (the
-\code{ld_w_col}/\code{ld_w_threshold}/\code{min_n_loci_flag} this call actually used --
-\code{\link[=plot_pruning_comparison]{plot_pruning_comparison()}} defaults to these so a Stage 1 vs Combined
-comparison can't silently use a different threshold on each side).
+\code{ld_w_col}/\code{ld_w_threshold}/\code{min_n_loci_flag}/\code{rho}/\code{distance_threshold}
+this call actually used -- \code{\link[=plot_pruning_comparison]{plot_pruning_comparison()}} defaults to
+these so a Stage 1 vs Combined comparison can't silently use a
+different threshold on each side).
 }
 \description{
 Second-stage clustering on top of \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}}'s output,
@@ -107,8 +139,8 @@ physically-contiguous runs rather than allowed genome-wide.
 stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5)
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095",
-  ld_w_threshold = 0.2, score_threshold = 0.80, min_r2 = 0.2,
-  distance_threshold = 5e5
+  ld_w_threshold = 0.2, LD_decay = ld_decay, rho = 0.95,
+  score_threshold = 0.80, min_r2 = 0.2
 )
 pruned_markers <- result$pruned
 eMLG <- result$eMLG

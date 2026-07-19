@@ -139,7 +139,7 @@ Stage 1 avoids this by construction: within each connected component, `hclust()`
 
 ### 3. Stage 2 (optional) -- consolidate and summarise as eMLGs
 
-`ld_prune_and_eMLG()` closes the sliding-window gap above, but only for the clusters that need it: those flagged by high local LD support (`ld_w_col`/`ld_w_threshold`) are re-compared directly from genotypes -- with no window restriction -- and consolidated via a distance-restricted, quality-gated dynamic cut. This produces a refined pruned marker set and an eMLG matrix from the same pass; unflagged clusters (usually the large majority) pass straight through unchanged:
+`ld_prune_and_eMLG()` closes the sliding-window gap above, but only for the clusters that need it: those flagged by high local LD support (`ld_w_col`/`ld_w_threshold`) are re-compared directly from genotypes -- with no window restriction -- and consolidated via a distance-restricted, quality-gated dynamic cut. This produces a refined pruned marker set and an eMLG matrix from the same pass; unflagged clusters (usually the large majority) pass straight through unchanged. `distance_threshold` -- the max physical gap allowed within one mergeable, contiguous block -- defaults to a per-chromosome value derived from `rho` and `LD_decay` (`d_from_rho(a_pred, rho)`), reusing the same `rho` that `ld_w_col`'s naming already implies, rather than one fixed bp constant:
 
 ```         
 # ld_w_threshold = 0.05 here is a "final run" value (see the speed tip
@@ -147,7 +147,8 @@ Stage 1 avoids this by construction: within each connected component, `hclust()`
 # possible actually happen; raise it for a faster preliminary look
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.05,
-  score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 5e5, cores = 4
+  LD_decay = ld_decay, rho = 0.95,
+  score_threshold = 0.80, min_r2 = 0.2, cores = 4
 )
 
 pruned_markers <- result$pruned   # refined pruned marker set

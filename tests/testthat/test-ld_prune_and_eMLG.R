@@ -82,6 +82,89 @@ test_that("flagging is cluster-level, not marker-level, and distance restriction
   expect_true(all(colnames(d$GTs)[1:3] %in% merged$members[[1]]))
 })
 
+test_that("distance_threshold derived from rho/LD_decay reproduces the same merge outcome as an equivalent explicit value", {
+  d <- build_stage1()
+
+  ## a_pred chosen so d_from_rho(a_pred, 0.95) == 100 exactly, matching the
+  ## explicit distance_threshold = 100 used in the test above -- same
+  ## fixture, same expected merge/no-merge outcome, only the threshold's
+  ## origin differs (rho-derived vs. a literal number)
+  ld_decay <- list(decay_sum = data.table::data.table(Chr = "Chr1", a_pred = 0.19))
+  stopifnot(isTRUE(all.equal(0.95 / (0.19 * 0.05), 100)))
+
+  res <- ld_prune_and_eMLG(
+    GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+    LD_decay = ld_decay, rho = 0.95,
+    score_threshold = 0.80, min_r2 = 0.2, cores = 1
+  )
+
+  fg <- res$groups[startsWith(group_id, "F")]
+  expect_equal(nrow(fg), 2)
+  merged <- fg[n_loci == 6]
+  expect_setequal(merged$members[[1]], c(colnames(d$GTs)[1:3], colnames(d$GTs)[4:6]))
+  distant <- fg[n_loci == 3]
+  expect_setequal(distant$members[[1]], colnames(d$GTs)[7:9])
+
+  expect_equal(res$params$rho, 0.95)
+  expect_null(res$params$distance_threshold)
+})
+
+test_that("ld_prune_and_eMLG() errors when neither distance_threshold nor LD_decay is supplied", {
+  d <- build_stage1()
+
+  expect_error(
+    ld_prune_and_eMLG(
+      GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+      score_threshold = 0.80, min_r2 = 0.2, cores = 1
+    ),
+    "distance_threshold.*LD_decay"
+  )
+})
+
+test_that("a rho-derived distance_threshold can differ per chromosome", {
+  d <- build_stage1()
+
+  ## same fixture, but on two chromosomes with very different a_pred: give
+  ## Chr1 a strict (small) window -- CL1/CL2 should NOT merge despite being
+  ## only 8bp apart -- while a second, otherwise-identical copy of the same
+  ## layout on Chr2 keeps a generous window and merges as usual
+  d2_map <- data.table::copy(d$stage1$map_snp)
+  d2_map[, Chr := "Chr2"]
+  d2_clusters <- data.table::copy(d$stage1$clusters)
+  d2_clusters[, Chr := "Chr2"]
+  d2_clusters[, CL_id := CL_id + 5L]
+  d2_map[, CL_id := CL_id + 5L]
+  colnames(d$GTs) <- paste0("chr2_", colnames(d$GTs))
+  d2_map[, marker := colnames(d$GTs)]
+  d2_clusters[, members := lapply(members, function(mk) paste0("chr2_", mk))]
+  d2_clusters[, core_snp := paste0("chr2_", core_snp)]
+
+  stage1_2chr <- list(
+    map_snp = data.table::rbindlist(list(d$stage1$map_snp, d2_map)),
+    clusters = data.table::rbindlist(list(d$stage1$clusters, d2_clusters))
+  )
+  # first copy of GTs (unprefixed marker names) plus the Chr2 prefixed copy
+  GTs_2chr <- cbind(build_stage1()$GTs, d$GTs)
+
+  ld_decay <- list(decay_sum = data.table::data.table(
+    Chr = c("Chr1", "Chr2"), a_pred = c(19, 0.19)  # Chr1: d_from_rho ~ 1bp (strict); Chr2: 100bp (as before)
+  ))
+
+  res <- ld_prune_and_eMLG(
+    GTs = GTs_2chr, stage1 = stage1_2chr, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+    LD_decay = ld_decay, rho = 0.95,
+    score_threshold = 0.80, min_r2 = 0.2, cores = 1
+  )
+
+  fg <- res$groups[startsWith(group_id, "F")]
+  ## Chr1: strict threshold -- CL1 and CL2 (8bp apart) no longer merge
+  fg_chr1 <- fg[Chr == "Chr1"]
+  expect_equal(nrow(fg_chr1), 3)
+  ## Chr2: generous threshold (same as the single-chromosome test) -- CL1+CL2 still merge
+  fg_chr2 <- fg[Chr == "Chr2"]
+  expect_equal(nrow(fg_chr2), 2)
+})
+
 test_that("unflagged clusters pass straight through unchanged", {
   d <- build_stage1()
 
