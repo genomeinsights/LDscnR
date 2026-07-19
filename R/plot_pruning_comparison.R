@@ -117,7 +117,15 @@ plot_pruning_comparison <- function(chr, pruned_stage1, result, map,
     sprintf("ld_prune_and_eMLG() -- %d groups (%s)", data.table::uniqueN(final_snp$CL_id), direction)
   )
 
-  p_compare <- p_stage1 / p_combined
+  ## patchwork's `/` stacking operator dispatches via an S7 method that only
+  ## gets registered as a side effect of patchwork's namespace being loaded
+  ## -- which nothing in this file otherwise does (only ggplot2:: is called
+  ## directly), so `/` on two ggplots works interactively (something else in
+  ## the session already loaded patchwork) but fails in a clean session (a
+  ## fresh R CMD build/check subprocess): "Can't find method for generic
+  ## `/(e1, e2)`". wrap_plots() is an explicit patchwork:: call, so it always
+  ## loads the namespace itself before needing it.
+  p_compare <- patchwork::wrap_plots(p_stage1, p_combined, ncol = 1)
   fname <- paste0(out_folder, chr, "_stage1_vs_combined_", direction, ".png")
   ggplot2::ggsave(fname, p_compare, width = width, height = height)
   message("Saved: ", fname)
