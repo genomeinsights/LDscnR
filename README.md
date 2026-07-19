@@ -158,7 +158,7 @@ plot_pruning_comparison(
 
 ### ⚡ Speed tip: exploring vs. final runs
 
-`ld_prune_and_eMLG()`'s cost is dominated by an all-pairs correlation among the *flagged* clusters, which scales roughly quadratically with how many clusters get flagged (on real data: ~0.01s at 292 flagged clusters, ~31s at 15,000). While exploring:
+`ld_prune_and_eMLG()`'s cost is dominated by an all-pairs correlation among the *flagged* clusters, which scales roughly quadratically with how many clusters get flagged (on real data: \~0.01s at 292 flagged clusters, \~31s at 15,000). While exploring:
 
 - **Raise `ld_w_threshold`** to flag fewer clusters -- the single biggest lever on runtime, and the natural one to relax first for a quick look before committing to a slower, more permissive final run.
 - **Set `compute_unflagged_eMLG = FALSE`** if you only need the pruned marker set -- this skips eMLG computation for the unflagged clusters entirely, which are usually the large majority.

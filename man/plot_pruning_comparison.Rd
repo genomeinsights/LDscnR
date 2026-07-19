@@ -9,9 +9,9 @@ plot_pruning_comparison(
   pruned_stage1,
   result,
   map,
-  ld_w_col = "ld_w_095",
-  ld_w_threshold = 0.2,
-  min_n_loci_flag = Inf,
+  ld_w_col = NULL,
+  ld_w_threshold = NULL,
+  min_n_loci_flag = NULL,
   direction = c("high", "low"),
   out_folder = "./Figures/",
   width = 10,
@@ -27,21 +27,35 @@ plot_pruning_comparison(
 
 \item{map}{Map data.table with Chr, Pos, marker, and \code{ld_w_col}.}
 
-\item{ld_w_col}{Name of the ld_w column in \code{map}/\code{pruned_stage1$map_snp}.}
+\item{ld_w_col}{Name of the ld_w column in \code{map}/\code{pruned_stage1$map_snp}.
+Defaults to whatever \code{result$params$ld_w_col} says \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}}
+was actually called with; falls back to \code{"ld_w_095"} if \code{result} has no
+\code{params} (e.g. a hand-built \code{result} predating this field).}
 
 \item{ld_w_threshold}{Threshold used to flag clusters for the Stage-1
-comparison view -- should match what was used to build \code{result}.}
+comparison view -- MUST match what was used to build \code{result}, since
+the Combined panel only ever reflects \code{result}'s own flagging (its
+"F"/"U" split can't be recomputed after the fact from this argument).
+Defaults to \code{result$params$ld_w_threshold}; falls back to \code{0.2} if
+\code{result} has no \code{params}. Passing a value that disagrees with
+\code{result$params$ld_w_threshold} warns, since the two panels would then
+silently stop being a like-for-like comparison -- typically the Stage 1
+panel shows more/fewer flagged markers than the Combined panel actually
+consolidated, up to Combined appearing empty if nothing cleared
+\code{result}'s own (higher) threshold at all.}
 
 \item{min_n_loci_flag}{Must match whatever \code{min_n_loci_flag} was passed
-to the \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}} call that produced \code{result} (default
-\code{Inf}, i.e. off). Without this, the Stage 1 panel (pure \code{ld_w_col > ld_w_threshold}) and the Combined panel (\code{result$groups}' "F"/"U"
-prefixes, which also reflect \code{min_n_loci_flag}) fall out of sync:
-clusters pulled into the flagged/merge pathway purely by size, not
-ld_w, show up in the Combined "high" panel and vanish from Combined
-"low" with no Stage-1-side counterpart -- checked directly on real
-data (ld_w_threshold=0.025, min_n_loci_flag=5): ~1.5\% of markers landed
-in Combined "F" this way, missing from Combined "U", before this
-parameter was added.}
+to the \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}} call that produced \code{result} -- same
+defaulting/mismatch-warning behaviour as \code{ld_w_threshold} above, falling
+back to \code{Inf} (off) if \code{result} has no \code{params}. Without this, the
+Stage 1 panel (pure \code{ld_w_col > ld_w_threshold}) and the Combined panel
+(\code{result$groups}' "F"/"U" prefixes, which also reflect
+\code{min_n_loci_flag}) fall out of sync: clusters pulled into the
+flagged/merge pathway purely by size, not ld_w, show up in the Combined
+"high" panel and vanish from Combined "low" with no Stage-1-side
+counterpart -- checked directly on real data (ld_w_threshold=0.025,
+min_n_loci_flag=5): ~1.5\% of markers landed in Combined "F" this way,
+missing from Combined "U", before this parameter was added.}
 
 \item{direction}{"high" (default) shows the FLAGGED clusters/groups
 (\code{ld_w_col > threshold} OR \code{n_snps >= min_n_loci_flag}, group_id prefix
@@ -78,7 +92,9 @@ stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5)
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.2
 )
-plot_pruning_comparison("Chr1", stage1, result, map, ld_w_threshold = 0.2)
+# ld_w_col/ld_w_threshold/min_n_loci_flag default to result$params, so
+# they can't drift out of sync with the flagging that produced `result`
+plot_pruning_comparison("Chr1", stage1, result, map)
 }
 
 }

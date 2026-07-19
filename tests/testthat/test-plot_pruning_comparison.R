@@ -60,3 +60,99 @@ test_that("plot_pruning_comparison() handles zero matching clusters without erro
   expect_s3_class(p, "patchwork")
   expect_true(file.exists(file.path(out_dir, "Chr1_stage1_vs_combined_high.png")))
 })
+
+test_that("plot_pruning_comparison() defaults ld_w_col/ld_w_threshold/min_n_loci_flag from result$params", {
+  d <- build_stage1_single_cluster()
+
+  res <- ld_prune_and_eMLG(
+    GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+  )
+  expect_identical(res$params, list(ld_w_col = "ld_w_095", ld_w_threshold = 0.5, min_n_loci_flag = Inf))
+
+  out_dir <- tempfile("plot_pruning_comparison_")
+  dir.create(out_dir)
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  ## no ld_w_col/ld_w_threshold/min_n_loci_flag passed at all -- should
+  ## behave identically to passing them explicitly at their result$params
+  ## values (0.5 flags nothing on Chr1, same as the zero-clusters test above)
+  p <- plot_pruning_comparison(
+    "Chr1", d$stage1, res, d$stage1$map_snp,
+    direction = "high", out_folder = paste0(out_dir, "/")
+  )
+
+  expect_s3_class(p, "patchwork")
+  expect_true(file.exists(file.path(out_dir, "Chr1_stage1_vs_combined_high.png")))
+})
+
+test_that("plot_pruning_comparison() warns when ld_w_threshold disagrees with result$params", {
+  d <- build_stage1_single_cluster()
+
+  res <- ld_prune_and_eMLG(
+    GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+  )
+
+  out_dir <- tempfile("plot_pruning_comparison_")
+  dir.create(out_dir)
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  ## 0.01 flags every marker on Chr1 (all have ld_w_095 = 0.05), unlike the
+  ## 0.5 result was actually built with -- Stage 1 and Combined then reflect
+  ## different flagging, which should warn
+  expect_warning(
+    plot_pruning_comparison(
+      "Chr1", d$stage1, res, d$stage1$map_snp,
+      ld_w_threshold = 0.01, direction = "high", out_folder = paste0(out_dir, "/")
+    ),
+    "does not match"
+  )
+})
+
+test_that("plot_pruning_comparison() falls back to historical defaults when result has no params", {
+  d <- build_stage1_single_cluster()
+
+  res <- ld_prune_and_eMLG(
+    GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+  )
+  res$params <- NULL  # simulate a result predating the params field
+
+  out_dir <- tempfile("plot_pruning_comparison_")
+  dir.create(out_dir)
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  ## no explicit args, no result$params -- should use the historical
+  ## hardcoded defaults (ld_w_col = "ld_w_095", ld_w_threshold = 0.2) without
+  ## erroring or warning
+  expect_no_warning(
+    p <- plot_pruning_comparison(
+      "Chr1", d$stage1, res, d$stage1$map_snp,
+      direction = "low", out_folder = paste0(out_dir, "/")
+    )
+  )
+  expect_s3_class(p, "patchwork")
+})
+
+test_that("plot_pruning_comparison() still works normally when clusters match (low direction)", {
+  d <- build_stage1_single_cluster()
+
+  res <- ld_prune_and_eMLG(
+    GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+  )
+
+  out_dir <- tempfile("plot_pruning_comparison_")
+  dir.create(out_dir)
+  on.exit(unlink(out_dir, recursive = TRUE), add = TRUE)
+
+  p <- plot_pruning_comparison(
+    "Chr1", d$stage1, res, d$stage1$map_snp,
+    ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+    direction = "low", out_folder = paste0(out_dir, "/")
+  )
+
+  expect_s3_class(p, "patchwork")
+  expect_true(file.exists(file.path(out_dir, "Chr1_stage1_vs_combined_low.png")))
+})

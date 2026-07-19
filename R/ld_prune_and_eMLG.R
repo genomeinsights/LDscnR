@@ -175,7 +175,10 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'   group_id, Chr, representative, n_loci, score, has_eMLG, members --
 #'   always lists EVERY group regardless of eMLG filtering), `pruned`
 #'   (character vector of representative markers, one per group -- for
-#'   LD-pruning use, unaffected by eMLG filtering).
+#'   LD-pruning use, unaffected by eMLG filtering), `params` (the
+#'   `ld_w_col`/`ld_w_threshold`/`min_n_loci_flag` this call actually used --
+#'   [plot_pruning_comparison()] defaults to these so a Stage 1 vs Combined
+#'   comparison can't silently use a different threshold on each side).
 #'
 #' @examples
 #' \dontrun{
@@ -266,11 +269,14 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
     )
   }
 
+  params <- list(ld_w_col = ld_w_col, ld_w_threshold = ld_w_threshold, min_n_loci_flag = min_n_loci_flag)
+
   if (nrow(flagged) == 0) {
     return(list(
       eMLG = unflagged_eMLG,
       groups = unflagged_groups,
-      pruned = unflagged_groups$representative
+      pruned = unflagged_groups$representative,
+      params = params
     ))
   }
 
@@ -378,6 +384,7 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
   list(
     eMLG = cbind(unflagged_eMLG, flagged_eMLG_final),
     groups = groups,
-    pruned = groups$representative
+    pruned = groups$representative,
+    params = params
   )
 }

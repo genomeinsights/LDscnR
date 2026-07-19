@@ -92,8 +92,8 @@ plot(ld_decay, type = "chr", chr = "Chr2")
 
 Two helpers convert between a relative threshold $\rho$, physical distance, and expected $r^2$:
 
--   `d_from_rho(a, rho)` -- physical distance (bp) at which $\rho$ is reached, for a chromosome with decay rate `a`.
--   `ld_from_rho(b, c, rho)` -- expected $r^2$ at $\rho$.
+- `d_from_rho(a, rho)` -- physical distance (bp) at which $\rho$ is reached, for a chromosome with decay rate `a`.
+- `ld_from_rho(b, c, rho)` -- expected $r^2$ at $\rho$.
 
 ```{r rho-helpers}
 chr1 <- ld_decay$decay_sum[1]
@@ -153,12 +153,14 @@ dim(result$eMLG)
 
 `ld_prune_and_eMLG()`'s cost is dominated by an all-pairs correlation among the *flagged* clusters, which scales roughly quadratically with how many clusters get flagged. While exploring parameters on a new dataset:
 
--   **raise `ld_w_threshold`** to flag fewer clusters -- the single biggest lever on runtime;
--   **set `compute_unflagged_eMLG = FALSE`** if only the pruned marker set is needed, skipping eMLG computation for the (usually large) unflagged majority entirely.
+- **raise `ld_w_threshold`** to flag fewer clusters -- the single biggest lever on runtime;
+- **set `compute_unflagged_eMLG = FALSE`** if only the pruned marker set is needed, skipping eMLG computation for the (usually large) unflagged majority entirely.
 
 ## Comparing Stage 1 and Stage 2
 
-`plot_pruning_comparison()` stacks Stage 1's raw clusters (top panel) against Stage 2's consolidated groups (bottom panel) for one chromosome, so fragmented blocks and their reunited counterparts can be compared directly. `out_folder` is set to a temporary directory here purely for this vignette; omit it to use the default (`"./Figures/"`).
+`plot_pruning_comparison()` stacks Stage 1's raw clusters (top panel) against Stage 2's consolidated groups (bottom panel) for one chromosome, so fragmented blocks and their reunited counterparts can be compared directly -- both panels plot the same underlying markers, just grouped (and thus coloured) differently.
+
+`ld_w_col`/`ld_w_threshold`/`min_n_loci_flag` default to `result$params`, i.e. whatever `ld_prune_and_eMLG()` was actually called with above, so the two panels can't silently end up comparing different flagging criteria (passing a value that disagrees with `result$params` warns -- the Combined panel only ever reflects `result`'s own flagging, so an inconsistent threshold typically makes it look empty rather than erroring). `out_folder` is set to a temporary directory here purely for this vignette; omit it to use the default (`"./Figures/"`).
 
 ```{r comparison-plot}
 # plot_pruning_comparison() returns its plot invisibly (it also saves the
@@ -166,7 +168,7 @@ dim(result$eMLG)
 # up here.
 p_comparison <- plot_pruning_comparison(
   chr = "Chr3", pruned_stage1 = stage1, result = result, map = map,
-  ld_w_col = "ld_w_095", ld_w_threshold = 0.2, out_folder = tempdir()
+  out_folder = tempdir()
 )
 p_comparison
 ```
@@ -175,11 +177,11 @@ p_comparison
 
 Starting from genotype and SNP metadata, this vignette:
 
--   created a GDS object and estimated chromosome-wise LD decay,
--   converted between relative LD thresholds, physical distance, and expected $r^2$,
--   computed per-marker local LD support across several $\rho$ values in one pass,
--   reduced markers to LD-independent representatives (Stage 1), and
--   consolidated flagged clusters into a refined pruned marker set and an eMLG matrix (Stage 2), with a diagnostic plot comparing the two stages.
+- created a GDS object and estimated chromosome-wise LD decay,
+- converted between relative LD thresholds, physical distance, and expected $r^2$,
+- computed per-marker local LD support across several $\rho$ values in one pass,
+- reduced markers to LD-independent representatives (Stage 1), and
+- consolidated flagged clusters into a refined pruned marker set and an eMLG matrix (Stage 2), with a diagnostic plot comparing the two stages.
 
 For empirical data, the same workflow applies; only the tuning parameters (`slide`, `rho`, `ld_w_threshold`, ...) need adjusting to the dataset's scale.
 

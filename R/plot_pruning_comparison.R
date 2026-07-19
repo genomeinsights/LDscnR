@@ -12,19 +12,32 @@
 #' @param result Output of [ld_prune_and_eMLG()] (whole-genome).
 #' @param map Map data.table with Chr, Pos, marker, and `ld_w_col`.
 #' @param ld_w_col Name of the ld_w column in `map`/`pruned_stage1$map_snp`.
+#'   Defaults to whatever `result$params$ld_w_col` says [ld_prune_and_eMLG()]
+#'   was actually called with; falls back to `"ld_w_095"` if `result` has no
+#'   `params` (e.g. a hand-built `result` predating this field).
 #' @param ld_w_threshold Threshold used to flag clusters for the Stage-1
-#'   comparison view -- should match what was used to build `result`.
+#'   comparison view -- MUST match what was used to build `result`, since
+#'   the Combined panel only ever reflects `result`'s own flagging (its
+#'   "F"/"U" split can't be recomputed after the fact from this argument).
+#'   Defaults to `result$params$ld_w_threshold`; falls back to `0.2` if
+#'   `result` has no `params`. Passing a value that disagrees with
+#'   `result$params$ld_w_threshold` warns, since the two panels would then
+#'   silently stop being a like-for-like comparison -- typically the Stage 1
+#'   panel shows more/fewer flagged markers than the Combined panel actually
+#'   consolidated, up to Combined appearing empty if nothing cleared
+#'   `result`'s own (higher) threshold at all.
 #' @param min_n_loci_flag Must match whatever `min_n_loci_flag` was passed
-#'   to the [ld_prune_and_eMLG()] call that produced `result` (default
-#'   `Inf`, i.e. off). Without this, the Stage 1 panel (pure `ld_w_col >
-#'   ld_w_threshold`) and the Combined panel (`result$groups`' "F"/"U"
-#'   prefixes, which also reflect `min_n_loci_flag`) fall out of sync:
-#'   clusters pulled into the flagged/merge pathway purely by size, not
-#'   ld_w, show up in the Combined "high" panel and vanish from Combined
-#'   "low" with no Stage-1-side counterpart -- checked directly on real
-#'   data (ld_w_threshold=0.025, min_n_loci_flag=5): ~1.5% of markers landed
-#'   in Combined "F" this way, missing from Combined "U", before this
-#'   parameter was added.
+#'   to the [ld_prune_and_eMLG()] call that produced `result` -- same
+#'   defaulting/mismatch-warning behaviour as `ld_w_threshold` above, falling
+#'   back to `Inf` (off) if `result` has no `params`. Without this, the
+#'   Stage 1 panel (pure `ld_w_col > ld_w_threshold`) and the Combined panel
+#'   (`result$groups`' "F"/"U" prefixes, which also reflect
+#'   `min_n_loci_flag`) fall out of sync: clusters pulled into the
+#'   flagged/merge pathway purely by size, not ld_w, show up in the Combined
+#'   "high" panel and vanish from Combined "low" with no Stage-1-side
+#'   counterpart -- checked directly on real data (ld_w_threshold=0.025,
+#'   min_n_loci_flag=5): ~1.5% of markers landed in Combined "F" this way,
+#'   missing from Combined "U", before this parameter was added.
 #' @param direction "high" (default) shows the FLAGGED clusters/groups
 #'   (`ld_w_col > threshold` OR `n_snps >= min_n_loci_flag`, group_id prefix
 #'   "F") -- the main diagnostic view. "low" shows the UNFLAGGED side (the
@@ -49,16 +62,47 @@
 #' result <- ld_prune_and_eMLG(
 #'   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.2
 #' )
-#' plot_pruning_comparison("Chr1", stage1, result, map, ld_w_threshold = 0.2)
+#' # ld_w_col/ld_w_threshold/min_n_loci_flag default to result$params, so
+#' # they can't drift out of sync with the flagging that produced `result`
+#' plot_pruning_comparison("Chr1", stage1, result, map)
 #' }
 #'
 #' @export
 plot_pruning_comparison <- function(chr, pruned_stage1, result, map,
-                                     ld_w_col = "ld_w_095", ld_w_threshold = 0.2,
-                                     min_n_loci_flag = Inf,
+                                     ld_w_col = NULL, ld_w_threshold = NULL,
+                                     min_n_loci_flag = NULL,
                                      direction = c("high", "low"),
                                      out_folder = "./Figures/", width = 10, height = 9) {
   direction <- match.arg(direction)
+
+  ## Default ld_w_col/ld_w_threshold/min_n_loci_flag from result$params (the
+  ## values ld_prune_and_eMLG() actually used to build `result`), rather
+  ## than hardcoding fresh defaults here -- the Combined panel's "F"/"U"
+  ## split is fixed by whatever flagging built `result` and can't be
+  ## recomputed from an argument passed here, so an explicit value that
+  ## disagrees with result$params silently produces a mismatched, not
+  ## like-for-like comparison (see @param ld_w_threshold). Falls back to
+  ## the historical hardcoded defaults if `result` predates `params`.
+  rp <- result$params
+  resolve_param <- function(arg, name, fallback) {
+    if (!is.null(arg)) {
+      if (!is.null(rp) && !identical(arg, rp[[name]])) {
+        warning(
+          name, " = ", arg, " does not match the value ", rp[[name]],
+          " that `result` was actually built with. The Combined panel ",
+          "reflects result's own flagging, not this argument -- the two ",
+          "panels will not be a like-for-like comparison.",
+          call. = FALSE
+        )
+      }
+      return(arg)
+    }
+    if (!is.null(rp)) rp[[name]] else fallback
+  }
+  ld_w_col        <- resolve_param(ld_w_col, "ld_w_col", "ld_w_095")
+  ld_w_threshold  <- resolve_param(ld_w_threshold, "ld_w_threshold", 0.2)
+  min_n_loci_flag <- resolve_param(min_n_loci_flag, "min_n_loci_flag", Inf)
+
   dir.create(out_folder, showWarnings = FALSE, recursive = TRUE)
 
   pal_cluster <- c("#E41A1C","#377EB8","#4DAF4A","#984EA3","#FF7F00","#FFFF33",

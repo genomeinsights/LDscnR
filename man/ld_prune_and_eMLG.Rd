@@ -81,7 +81,10 @@ see \code{compute_unflagged_eMLG}/\code{min_n_loci_eMLG}), \code{groups} (data.t
 group_id, Chr, representative, n_loci, score, has_eMLG, members --
 always lists EVERY group regardless of eMLG filtering), \code{pruned}
 (character vector of representative markers, one per group -- for
-LD-pruning use, unaffected by eMLG filtering).
+LD-pruning use, unaffected by eMLG filtering), \code{params} (the
+\code{ld_w_col}/\code{ld_w_threshold}/\code{min_n_loci_flag} this call actually used --
+\code{\link[=plot_pruning_comparison]{plot_pruning_comparison()}} defaults to these so a Stage 1 vs Combined
+comparison can't silently use a different threshold on each side).
 }
 \description{
 Second-stage clustering on top of \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}}'s output,
