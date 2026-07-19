@@ -1,14 +1,10 @@
 ---
 title: "A quick introduction to LDscnR"
-output:
-  pdf_document:
-    toc: true
-    number_sections: true
-latex_engine: xelatex
+output: rmarkdown::html_vignette
 vignette: >
   %\VignetteIndexEntry{A quick introduction to LDscnR}
   %\VignetteEngine{knitr::rmarkdown}
-  \usepackage[utf8]{inputenc}
+  %\VignetteEncoding{UTF-8}
 ---
 
 ```{r setup, include = FALSE}
@@ -17,188 +13,177 @@ knitr::opts_chunk$set(
   comment = "#>",
   message = FALSE,
   warning = FALSE,
-  cache = TRUE
+  fig.width = 7,
+  fig.height = 5
 )
-
 ```
 
 ```{r packages}
 library(LDscnR)
 library(data.table)
-library(SNPRelate)
 ```
 
 ## Overview
 
-`LDscnR` provides tools for estimating chromosome-specific linkage disequilibrium (LD) decay from genotype data. It fits per-chromosome decay curves, relates decay rate to chromosome size, and derives recommended LD window sizes for user-defined relative LD thresholds ($\rho$).
+`LDscnR` estimates chromosome-specific linkage disequilibrium (LD) decay from genotype data, and uses that decay model to reduce a marker set to LD-independent representatives. The same clustering step can be used either to produce a pruned marker set (for a kinship/relatedness matrix, EMMAX's `K`, BayPass's `OMEGA`), or, from that same clustering, one consensus genotype per LD block (an "eMLG" -- expected multi-locus genotype -- for block-level analyses such as long-range LD or Ohta's D statistics).
 
-This vignette gives a compact end-to-end example using the bundled simulated dataset `sim_ex`. The workflow covers:
+This vignette walks through the full workflow on the bundled simulated dataset `sim_ex` (3 chromosomes, 900 markers, 125 individuals -- small enough that every step below runs in well under a second):
 
--   creation of a GDS object from genotype data,
--   estimation of LD decay,
--   visualization of decay summaries and window recommendations,
--   converting between relative LD thresholds, physical distance, and expected $r^2$.
+1.  estimating LD decay,
+2.  converting between relative LD thresholds, physical distance, and expected $r^2$,
+3.  per-marker local LD support (`ld_w`),
+4.  reducing markers to LD-independent representatives (Stage 1),
+5.  consolidating into pruned markers and/or eMLGs (Stage 2), and
+6.  a diagnostic plot comparing the two stages.
+
+```{r cores}
+# Kept small and explicit throughout this vignette -- sim_ex is tiny, so
+# parallelism buys nothing here. Scale this up for real data.
+cores <- 2
+```
 
 ## Example data
-
-The example dataset contains:
-
--   `GTs`: a genotype matrix,
--   `map`: a SNP annotation table including genomic positions and simulation-specific metadata.
 
 ```{r data}
 data("sim_ex")
 
 map <- sim_ex$map
+GTs <- sim_ex$GTs
+
+# sim_ex's GTs columns and map$marker refer to the same markers in the same
+# order, just under different naming conventions -- align them once, up front.
+colnames(GTs) <- map$marker
 ```
 
-To use the genotype data throughout the workflow, we first create a temporary GDS file.
+`LDscnR` reads genotypes from a GDS file (via `SNPRelate`), so the first step is to create one from the genotype matrix:
 
 ```{r gds}
 gds_path <- tempfile(fileext = ".gds")
-gds <- create_gds_from_geno(geno = sim_ex$GTs, map, gds_path)
+gds <- create_gds_from_geno(geno = GTs, map, gds_path)
 ```
 
 ## Estimating LD decay
 
-The first step is to estimate chromosome-wise LD decay. This is done in two stages.
+`compute_LD_decay()` fits a per-chromosome decay curve $r^2(d) = b + (c-b)/(1+ad)$, where $a$ controls the rate of decay, $b$ is background LD, $c$ is short-range LD, and $d$ is physical distance. `keep_el = TRUE` retains the pairwise LD edge list each chromosome was fit from, which later steps (`compute_ld_w()`, `ld_complexity_reduction()`) reuse rather than recomputing.
 
-We first run a preliminary analysis on a subset of markers to obtain a rough estimate of the sliding window size needed for downstream LD calculations.
+`n_win_decay` and `slide` are set below for this toy dataset's very short simulated chromosomes; for real data, the defaults are usually appropriate, or can be tuned via a cheap preliminary run on a marker subset (`max_SNPs_decay`) -- see `?compute_LD_decay`.
 
-```{r ld-decay-pre-load,include=FALSE,cache=FALSE}
-cores <- 8
-dir.create("vignette_cache", showWarnings = FALSE)
-ld_file_pre <- "vignette_cache/ld_decay_pre.rds"
-
-if (file.exists(ld_file_pre)) {
-  ld_decay_pre <- readRDS(ld_file_pre)
-} else {
-
-ld_decay_pre <- compute_LD_decay(
-  gds,
-  n_win_decay = 5,
-  max_SNPs_decay = 5000,
-  keep_el = FALSE,
-  slide = 1000,
-  cores = cores
-)
-  saveRDS(ld_decay_pre, ld_file_pre)
-}
-```
-
-```{r ld-decay-pre, eval=FALSE}
-
-
-ld_decay_pre <- compute_LD_decay(
-  gds,
-  n_win_decay = 5,
-  max_SNPs_decay = 5000,
-  slide = 1000,
-  cores = cores
-)
-```
-
-This gives a summary of LD-decay based on the subset of the data.
-
-```{r ld-decay-pre-show}
-ld_decay_pre
-```
-
-In this simulated example, chromosomes are relatively short, so only five decay windows per chromosome are used. For empirical data sets, the default settings are usually more appropriate.
-
-The preliminary LD-decay fit can be used to select a more suitable sliding window for the full analysis. We can visualize LD-decay, and use the recommended new slide window for estimating LD.
-
-```{r ld-decay-plot,fig.width=8, fig.height=6}
-plot(ld_decay_pre, type = "summary")
-plot(ld_decay_pre, type = "recommendation")
-plot(ld_decay_pre, type = "recommendation", rho = 0.99)
-plot(ld_decay_pre, type = "chr", chr = "Chr2")
-```
-
-Here we use the mean recommended SNP window corresponding to `rho = 0.99`.
-
-```{r ld-decay-full-load, include=FALSE, cache=FALSE}
-
-new_slide_window <- mean(ld_decay_pre$decay_sum$slide_snp_rho_0.99)
-
-dir.create("vignette_cache", showWarnings = FALSE)
-ld_file <- "vignette_cache/ld_decay.rds"
-
-if (file.exists(ld_file)) {
-  ld_decay <- readRDS(ld_file)
-} else {
-
+```{r ld-decay, results = "hide"}
 ld_decay <- compute_LD_decay(
   gds,
   n_win_decay = 5,
-  max_SNPs_decay = Inf,
   keep_el = TRUE,
-  slide = new_slide_window,
+  slide = 200,
   cores = cores
 )
-  saveRDS(ld_decay, ld_file)
-}
-
 ```
 
-```{r ld-decay-full, eval=FALSE}
-
-new_slide_window <- mean(ld_decay_pre$decay_sum$slide_snp_rho_0.99)
-
-ld_decay <- compute_LD_decay(
-  gds,
-  n_win_decay = 5,
-  max_SNPs_decay = Inf,
-  keep_el = TRUE,
-  slide = new_slide_window,
-  cores = cores
-)
-
+```{r ld-decay-show}
+ld_decay
 ```
 
-The second run uses all SNPs and stores LD edge lists (`keep_el = TRUE`). Note that the edge list of pairwise $r^2$ values can be written to files (using `fwrite`/`fread`) instead, to save RAM, by specifying e.g. `el_data_folder = "./el/"`.
-
-## Inspecting the decay parameters
-
-The chromosome-wise decay parameters are stored in `decay_sum`. Each chromosome has an estimated decay rate `a`, background LD `b`, and short-range LD `c`.
-
-```{r decay-sum}
-ld_decay$decay_sum
+```{r ld-decay-plot}
+plot(ld_decay, type = "summary")
+plot(ld_decay, type = "recommendation", rho = 0.99)
+plot(ld_decay, type = "chr", chr = "Chr2")
 ```
 
 ## Relative LD thresholds, distance, and expected LD
 
-Decay is summarised on a relative scale via the threshold $\rho$. Two helper functions convert between $\rho$, physical distance, and expected $r^2$:
+Two helpers convert between a relative threshold $\rho$, physical distance, and expected $r^2$:
 
--   `d_from_rho(a, rho)` returns the physical distance (bp) at which a given relative threshold $\rho$ is reached, for a chromosome with decay rate `a`.
--   `ld_from_rho(b, c, rho)` returns the expected $r^2$ corresponding to $\rho$.
-
-For example, using the parameters of the first chromosome:
+-   `d_from_rho(a, rho)` -- physical distance (bp) at which $\rho$ is reached, for a chromosome with decay rate `a`.
+-   `ld_from_rho(b, c, rho)` -- expected $r^2$ at $\rho$.
 
 ```{r rho-helpers}
 chr1 <- ld_decay$decay_sum[1]
 
-# physical distance (bp) at which rho = 0.99 is reached
 d_from_rho(a = chr1$a, rho = 0.99)
-
-# expected r^2 at rho = 0.99
 ld_from_rho(b = chr1$b, c = chr1$c, rho = 0.99)
 ```
 
-These conversions underpin the recommended window sizes reported in `ld_decay$recommendation`, which are expressed in SNP units for a range of target $\rho$ values.
+These conversions underpin `ld_decay$recommendation`'s suggested window sizes, and the per-chromosome clustering thresholds `ld_complexity_reduction()` derives below.
+
+## Per-marker local LD support
+
+`compute_ld_w()` summarises, for each marker, how much LD support it has from nearby markers within the physical window implied by $\rho$. It accepts a vector of $\rho$ values and computes all of them in one pass per chromosome -- each chromosome's edge list is read/symmetrised once and reused, not re-read once per threshold.
+
+```{r ld-w}
+ld_w <- compute_ld_w(ld_decay, rho = c(0.90, 0.95, 0.99), cores = cores)
+map[, ld_w_095 := ld_w[, "rho_0.95"]]
+```
+
+## Stage 1: reduce markers to LD-independent representatives
+
+`ld_complexity_reduction()` clusters markers within each chromosome (connected components, then complete-linkage refinement within each) and picks one representative marker per cluster, at a chromosome-specific threshold derived from the decay model at the target pruning $\rho$. This single call is the shared starting point for both a pruning-only workflow and an eMLG workflow -- see below.
+
+```{r stage1, results = "hide"}
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cores = cores)
+```
+
+```{r stage1-show}
+stage1
+```
+
+If only a pruned marker set is needed (a GRM, EMMAX's `K`, BayPass's `OMEGA`), `stage1$pruned` is already a ready-to-use character vector of representative markers -- nothing further is required.
+
+## Stage 2 (optional): consolidate and summarise as eMLGs
+
+Stage 1's edge list is built from a sliding window, so a genuinely correlated, low-recombination block can still come out fragmented into several adjacent clusters (pairs farther apart than the window were never evaluated at all). `ld_prune_and_eMLG()` fixes this after the fact, but only for the clusters that need it: those flagged by high local LD support (`ld_w_col`/`ld_w_threshold`) are re-compared directly from genotypes -- with no window restriction -- and consolidated via a distance-restricted, quality-gated dynamic cut. This produces a refined pruned marker set and an eMLG matrix (one consensus genotype per block, useful where a single representative SNP would throw away most of a correlated block's information -- e.g. long-range LD or Ohta's D statistics) from the same pass. Unflagged clusters (usually the large majority) pass straight through unchanged.
+
+```{r stage2, results = "hide"}
+result <- ld_prune_and_eMLG(
+  GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.2,
+  score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 5e5, cores = cores
+)
+```
+
+```{r stage2-show}
+# one row per final group (flagged clusters consolidated, unflagged passed through)
+nrow(result$groups)
+
+# refined pruned marker set
+length(result$pruned)
+
+# individuals x blocks consensus-genotype matrix
+dim(result$eMLG)
+```
+
+### Speed tip: exploring vs. final runs
+
+`ld_prune_and_eMLG()`'s cost is dominated by an all-pairs correlation among the *flagged* clusters, which scales roughly quadratically with how many clusters get flagged. While exploring parameters on a new dataset:
+
+-   **raise `ld_w_threshold`** to flag fewer clusters -- the single biggest lever on runtime;
+-   **set `compute_unflagged_eMLG = FALSE`** if only the pruned marker set is needed, skipping eMLG computation for the (usually large) unflagged majority entirely.
+
+## Comparing Stage 1 and Stage 2
+
+`plot_pruning_comparison()` stacks Stage 1's raw clusters (top panel) against Stage 2's consolidated groups (bottom panel) for one chromosome, so fragmented blocks and their reunited counterparts can be compared directly. `out_folder` is set to a temporary directory here purely for this vignette; omit it to use the default (`"./Figures/"`).
+
+```{r comparison-plot}
+# plot_pruning_comparison() returns its plot invisibly (it also saves the
+# figure to out_folder), so it needs to be assigned and re-printed to show
+# up here.
+p_comparison <- plot_pruning_comparison(
+  chr = "Chr3", pruned_stage1 = stage1, result = result, map = map,
+  ld_w_col = "ld_w_095", ld_w_threshold = 0.2, out_folder = tempdir()
+)
+p_comparison
+```
 
 ## Summary
 
-This vignette illustrated the core `LDscnR` workflow using simulated data. Starting from genotype and SNP metadata, we:
+Starting from genotype and SNP metadata, this vignette:
 
--   created a GDS object,
--   estimated chromosome-wise LD decay in two stages,
--   visualized decay summaries, per-chromosome fits, and window recommendations,
--   converted between relative LD thresholds, physical distance, and expected $r^2$.
+-   created a GDS object and estimated chromosome-wise LD decay,
+-   converted between relative LD thresholds, physical distance, and expected $r^2$,
+-   computed per-marker local LD support across several $\rho$ values in one pass,
+-   reduced markers to LD-independent representatives (Stage 1), and
+-   consolidated flagged clusters into a refined pruned marker set and an eMLG matrix (Stage 2), with a diagnostic plot comparing the two stages.
 
-For empirical data, the same general workflow applies.
+For empirical data, the same workflow applies; only the tuning parameters (`slide`, `rho`, `ld_w_threshold`, ...) need adjusting to the dataset's scale.
 
-```{r cleanup, include=FALSE}
+```{r cleanup, include = FALSE}
 SNPRelate::snpgdsClose(gds)
 unlink(gds_path)
 ```

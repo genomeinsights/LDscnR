@@ -17,10 +17,13 @@ Imports:
     SNPRelate,
     stats,
     utils
-Depends: 
+Depends:
     R (>= 3.5)
 LazyData: true
 Config/roxygen2/version: 8.0.0
-Suggests: 
-    testthat (>= 3.0.0)
+Suggests:
+    testthat (>= 3.0.0),
+    knitr,
+    rmarkdown
 Config/testthat/edition: 3
+VignetteBuilder: knitr

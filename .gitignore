@@ -8,6 +8,7 @@
 .DS_Store
 .quarto
 vignettes/*cache
+vignettes/*.html
 el_3sp/
 el/
 .positai
