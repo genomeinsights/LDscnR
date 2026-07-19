@@ -112,11 +112,10 @@ but centromeres/inversions decay far slower than that average, so this
 is where fragmentation is most likely. Fixing it would mean recomputing
 r2 directly from genotypes (unlimited by any window) for markers whose
 pairwise LD isn't in \code{el}, which this function does not currently do.
-\code{\link[=merge_ld_clusters]{merge_ld_clusters()}} fixes it after the fact instead, by comparing
+\code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}} fixes it after the fact instead, by comparing
 clusters (not raw markers) directly from genotypes with no window
-restriction; its \verb{@examples} document the recommended way to run it only
-on the clusters that actually need it (flagged post hoc, using this
+restriction, restricted to clusters flagged post hoc using this
 function's own cluster boundaries -- not by pre-splitting markers before
 clustering, which can sever a real block right at the flagging
-threshold).
+threshold.
 }

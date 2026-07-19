@@ -85,8 +85,9 @@ LD-pruning use, unaffected by eMLG filtering).
 }
 \description{
 Second-stage clustering on top of \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}}'s output,
-combining what \code{\link[=merge_ld_clusters]{merge_ld_clusters()}} and \code{\link[=dynamic_cut_eMLG]{dynamic_cut_eMLG()}} would
-otherwise do as two separate passes into one: Stage-1 clusters flagged by
+combining what a prior two-pass approach (complete-linkage re-merging of
+flagged clusters, then a separate \code{\link[=dynamic_cut_eMLG]{dynamic_cut_eMLG()}} pass) used to do
+as two separate passes into one: Stage-1 clusters flagged by
 local LD support (\code{ld_w}) are consolidated via a single distance-
 restricted, quality-gated average-linkage dynamic cut (see
 \code{dynamic_cut_eMLG.R}'s file header for the linkage comparison and the two

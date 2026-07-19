@@ -110,8 +110,9 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #' Combined LD-pruning + eMLG generation via distance-restricted dynamic cut
 #'
 #' Second-stage clustering on top of [ld_complexity_reduction()]'s output,
-#' combining what [merge_ld_clusters()] and [dynamic_cut_eMLG()] would
-#' otherwise do as two separate passes into one: Stage-1 clusters flagged by
+#' combining what a prior two-pass approach (complete-linkage re-merging of
+#' flagged clusters, then a separate [dynamic_cut_eMLG()] pass) used to do
+#' as two separate passes into one: Stage-1 clusters flagged by
 #' local LD support (`ld_w`) are consolidated via a single distance-
 #' restricted, quality-gated average-linkage dynamic cut (see
 #' `dynamic_cut_eMLG.R`'s file header for the linkage comparison and the two

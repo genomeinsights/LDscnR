@@ -68,13 +68,12 @@
 #' is where fragmentation is most likely. Fixing it would mean recomputing
 #' r2 directly from genotypes (unlimited by any window) for markers whose
 #' pairwise LD isn't in `el`, which this function does not currently do.
-#' [merge_ld_clusters()] fixes it after the fact instead, by comparing
+#' [ld_prune_and_eMLG()] fixes it after the fact instead, by comparing
 #' clusters (not raw markers) directly from genotypes with no window
-#' restriction; its `@examples` document the recommended way to run it only
-#' on the clusters that actually need it (flagged post hoc, using this
+#' restriction, restricted to clusters flagged post hoc using this
 #' function's own cluster boundaries -- not by pre-splitting markers before
 #' clustering, which can sever a real block right at the flagging
-#' threshold).
+#' threshold.
 #'
 #' @param map A `data.table` with at least `Chr` and `marker` columns.
 #' @param LD_decay An `ld_decay` object from [compute_LD_decay()], built with

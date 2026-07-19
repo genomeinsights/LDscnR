@@ -1,11 +1,11 @@
 # Dynamically consolidate cluster-level eMLGs into coarser groups.
 #
-# ld_complexity_reduction() and merge_ld_clusters() reduce a chromosome's
-# raw markers to a much smaller set of within-chromosome LD clusters, using
-# complete linkage throughout -- appropriate for LD-pruning, where a strict
-# "every pairwise r2 must clear the threshold" guarantee matters. But
-# complete linkage is the wrong tool for the different question this file
-# answers: which of THOSE clusters' consensus genotypes (eMLGs) still belong
+# ld_complexity_reduction() reduces a chromosome's raw markers to a much
+# smaller set of within-chromosome LD clusters, using complete linkage
+# throughout -- appropriate for LD-pruning, where a strict "every pairwise
+# r2 must clear the threshold" guarantee matters. But complete linkage is
+# the wrong tool for the different question this file answers: which of
+# THOSE clusters' consensus genotypes (eMLGs) still belong
 # together as one coherent, hard-callable unit, even if their internal
 # correlation is diffuse/moderate rather than uniformly high (the signature
 # of a polygenic or epistatically-linked complex, not a single strongly-
