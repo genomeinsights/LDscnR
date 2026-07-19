@@ -108,8 +108,13 @@ plot_pruning_comparison <- function(chr, pruned_stage1, result, map,
   ## otherwise includes both buckets genome-wide, making the comparison
   ## apples-to-oranges
   groups_chr <- result$groups[Chr == chr & startsWith(group_id, group_prefix)]
-  final_snp <- groups_chr[, .(marker = unlist(members)), by = group_id]
-  data.table::setnames(final_snp, "group_id", "CL_id")
+  final_snp <- if (nrow(groups_chr) == 0) {
+    data.table::data.table(CL_id = character(0), marker = character(0))
+  } else {
+    dt <- groups_chr[, .(marker = unlist(members)), by = group_id]
+    data.table::setnames(dt, "group_id", "CL_id")
+    dt
+  }
   final_snp <- map[Chr == chr, c("marker", "Pos", ld_w_col), with = FALSE][final_snp, on = "marker"]
   message(chr, " combined (", direction, "): ", data.table::uniqueN(final_snp$CL_id), " groups")
   p_combined <- plot_clusters(
