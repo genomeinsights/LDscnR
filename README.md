@@ -1,8 +1,8 @@
 # LDscnR
 
-**Chromosome-wise LD-decay estimation**
+**Chromosome-wise LD-decay estimation, LD-based marker pruning, and eMLG generation**
 
-`LDscnR` provides tools for estimating linkage disequilibrium (LD) decay from genotype data. It fits chromosome-specific decay curves, relates decay rate to chromosome size, and derives recommended LD window sizes for user-defined relative LD thresholds ($\rho$). A tutorial PDF can be found in vignettes.
+`LDscnR` provides tools for estimating linkage disequilibrium (LD) decay from genotype data, and for using that decay model to reduce a marker set to LD-independent representatives. The same clustering step can be used either to produce a pruned marker set (for a kinship/relatedness matrix, EMMAX's `K`, BayPass's `OMEGA`) or, from that same clustering, one consensus genotype per LD block (an "eMLG" -- expected multi-locus genotype -- for block-level analyses such as long-range LD or Ohta's D statistics). A tutorial PDF can be found in vignettes.
 
 ------------------------------------------------------------------------
 
@@ -17,6 +17,10 @@
 - 🎯 **Recommended sliding-window sizes** for target LD thresholds ($\rho$)
 
 - 📊 **Built-in plotting** of decay summaries, per-chromosome fits, and window recommendations
+
+- 🧩 **Two-stage LD complexity reduction** to LD-independent representatives -- the same clustering feeds either a pruned marker set or, optionally, one consensus genotype per block (an eMLG)
+
+- 🔎 **Diagnostic plotting** comparing raw vs. consolidated clusters chromosome-by-chromosome
 
 ------------------------------------------------------------------------
 
@@ -103,6 +107,64 @@ For each target LD threshold $\rho$, `LDscnR` derives a recommended sliding-wind
 
 ------------------------------------------------------------------------
 
+## 🧩 From LD decay to pruned markers and eMLGs
+
+Once you have an `ld_decay` object (built with `keep_el = TRUE`), the workflow branches into two related but distinct end uses -- pruning, and eMLG generation -- built on the **same** clustering step.
+
+### 1. Per-marker local LD support
+
+`compute_ld_w()` summarises, for each marker, how much LD support it has from nearby markers within the physical window implied by a relative threshold $\rho$. It accepts a vector of $\rho$ values and computes all of them in one pass per chromosome -- each chromosome's edge list is read/symmetrised once and reused, not re-read once per threshold:
+
+```         
+ld_w <- compute_ld_w(ld_decay, rho = c(0.90, 0.95, 0.99), cores = 4)
+map[, ld_w_095 := ld_w[, "rho_0.95"]]
+```
+
+### 2. Stage 1 -- reduce markers to LD-independent representatives
+
+`ld_complexity_reduction()` clusters markers within each chromosome (connected components, then complete-linkage refinement within each) and picks one representative marker per cluster. This single call is the shared starting point for **both** downstream uses:
+
+```         
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cores = 4)
+```
+
+- **Pruning only** (a GRM, EMMAX's `K`, BayPass's `OMEGA`): `stage1$pruned` is already a ready-to-use character vector of representative markers -- nothing further is needed.
+- **Block consensus genotypes** (eMLGs, for long-range LD/Ohta's D or other analyses where a single representative SNP would throw away most of a correlated block's information): feed `stage1` into `ld_prune_and_eMLG()` (below). It's the same Stage-1 clusters either way -- the choice is only what you do with their output.
+
+### 3. Stage 2 (optional) -- consolidate and summarise as eMLGs
+
+Stage 1's edge list is built from a sliding window, so a genuinely correlated, low-recombination block can still come out fragmented into several adjacent clusters (pairs farther apart than the window were never evaluated at all). `ld_prune_and_eMLG()` fixes this after the fact, but only for the clusters that need it: those flagged by high local LD support (`ld_w_col`/`ld_w_threshold`) are re-compared directly from genotypes -- with no window restriction -- and consolidated via a distance-restricted, quality-gated dynamic cut. This produces a refined pruned marker set and an eMLG matrix from the same pass; unflagged clusters (usually the large majority) pass straight through unchanged:
+
+```         
+result <- ld_prune_and_eMLG(
+  GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.2,
+  score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 5e5, cores = 4
+)
+
+pruned_markers <- result$pruned   # refined pruned marker set
+eMLG           <- result$eMLG     # individuals x blocks consensus-genotype matrix
+```
+
+### 4. Visual diagnostic
+
+`plot_pruning_comparison()` stacks Stage 1's raw clusters (top panel) against Stage 2's consolidated groups (bottom panel) for one chromosome, so fragmented blocks and their reunited counterparts can be compared directly:
+
+```         
+plot_pruning_comparison(
+  chr = "Chr3", pruned_stage1 = stage1, result = result, map = map,
+  ld_w_col = "ld_w_095", ld_w_threshold = 0.2
+)
+```
+
+### ⚡ Speed tip: exploring vs. final runs
+
+`ld_prune_and_eMLG()`'s cost is dominated by an all-pairs correlation among the *flagged* clusters, which scales roughly quadratically with how many clusters get flagged (on real data: ~0.01s at 292 flagged clusters, ~31s at 15,000). While exploring:
+
+- **Raise `ld_w_threshold`** to flag fewer clusters -- the single biggest lever on runtime, and the natural one to relax first for a quick look before committing to a slower, more permissive final run.
+- **Set `compute_unflagged_eMLG = FALSE`** if you only need the pruned marker set -- this skips eMLG computation for the unflagged clusters entirely, which are usually the large majority.
+
+------------------------------------------------------------------------
+
 ## 📚 Documentation
 
 See the vignette for a full workflow:
@@ -121,6 +183,8 @@ vignette("LDscnR_quick_introduction")
 
 - Parallelization is supported via the `cores` argument (`mclapply`).
 
+- For LD-pruning/eMLG generation (`ld_prune_and_eMLG()`), raise `ld_w_threshold` to flag fewer clusters during exploratory runs -- see the "🧩 From LD decay to pruned markers and eMLGs" section above.
+
 ------------------------------------------------------------------------
 
 ## 🔧 Dependencies
@@ -128,6 +192,10 @@ vignette("LDscnR_quick_introduction")
 - `data.table`
 
 - `SNPRelate`
+
+- `igraph` (Stage-1 complexity reduction)
+
+- `ggplot2`, `patchwork` (`plot_pruning_comparison()`)
 
 ------------------------------------------------------------------------
 
