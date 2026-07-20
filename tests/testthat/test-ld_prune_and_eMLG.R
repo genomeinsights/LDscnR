@@ -165,6 +165,68 @@ test_that("a rho-derived distance_threshold can differ per chromosome", {
   expect_equal(nrow(fg_chr2), 2)
 })
 
+test_that("cM-based run splitting merges clusters with a large bp gap but negligible cM distance (a recombination cold spot)", {
+  d <- build_stage1()
+
+  ## genetic map: CL1/CL2's already-short span (Pos 1000-1012) covers
+  ## barely any genetic distance, and -- the point of this test -- neither
+  ## does the much larger Pos 1012-5002 gap to CL3: a recombination cold
+  ## spot, unlike bp distance alone would suggest
+  genetic_map <- data.table::data.table(
+    Chr = "Chr1", Pos = c(1000, 1012, 5002), cM = c(0, 0.01, 0.02)
+  )
+
+  res <- ld_prune_and_eMLG(
+    GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+    score_threshold = 0.80, min_r2 = 0.2,
+    genetic_map = genetic_map, cM_threshold = 1, cores = 1
+  )
+
+  fg <- res$groups[startsWith(group_id, "F")]
+  ## all three flagged clusters (CL1, CL2, CL3) now merge into ONE group --
+  ## unlike the bp-based distance_threshold=100 test above, where CL3
+  ## stayed separate despite being just as correlated
+  expect_equal(nrow(fg), 1)
+  expect_equal(fg$n_loci, 9)
+  expect_setequal(fg$members[[1]], colnames(d$GTs)[1:9])
+
+  expect_true(res$params$use_cM)
+  expect_equal(res$params$cM_threshold, 1)
+})
+
+test_that("genetic_map + cM_threshold take precedence over distance_threshold when both are supplied", {
+  d <- build_stage1()
+  genetic_map <- data.table::data.table(
+    Chr = "Chr1", Pos = c(1000, 1012, 5002), cM = c(0, 0.01, 0.02)
+  )
+
+  ## distance_threshold = 100 alone would keep CL3 separate (see the first
+  ## test above); genetic_map/cM_threshold = 1 should still win and merge
+  ## all three, confirming genetic_map isn't silently ignored when a bp
+  ## threshold is also present
+  res <- ld_prune_and_eMLG(
+    GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100,
+    genetic_map = genetic_map, cM_threshold = 1, cores = 1
+  )
+
+  fg <- res$groups[startsWith(group_id, "F")]
+  expect_equal(nrow(fg), 1)
+})
+
+test_that("ld_prune_and_eMLG() errors when genetic_map is supplied without cM_threshold", {
+  d <- build_stage1()
+  genetic_map <- data.table::data.table(Chr = "Chr1", Pos = c(1000, 5002), cM = c(0, 0.02))
+
+  expect_error(
+    ld_prune_and_eMLG(
+      GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+      score_threshold = 0.80, min_r2 = 0.2, genetic_map = genetic_map, cores = 1
+    ),
+    "cM_threshold"
+  )
+})
+
 test_that("unflagged clusters pass straight through unchanged", {
   d <- build_stage1()
 

@@ -685,6 +685,61 @@ ld_from_rho <- function(b, c = 1, rho){
   b + (c - b) * (1 - rho)
 }
 
+#' Interpolate Genetic Map Position (cM)
+#'
+#' Linearly interpolates centimorgan (cM) position from a genetic map, for
+#' arbitrary physical positions. Converts physical (bp) distance between
+#' markers into genetic (cM) distance -- a much more direct measure of
+#' recombination probability than physical distance, which can be
+#' misleading wherever recombination rate itself varies (e.g. across a
+#' low-recombination block like a centromere or inversion versus the
+#' surrounding chromosome). Checked directly on real data: some marker
+#' pairs over 1 Mb apart physically sat at cM distance 0 (fully linked, no
+#' measurable recombination between them), while others only a few hundred
+#' kb apart already spanned several cM.
+#'
+#' @param genetic_map A data.table/data.frame with `Chr`, `Pos`, and `cM`
+#'   columns (at least 2 rows per chromosome to interpolate). Any
+#'   chromosome-naming differences from `Chr` below (e.g. a genetic map
+#'   using `"chromosome_1"` instead of `"Chr1"`) must be reconciled by the
+#'   caller before calling this function.
+#' @param Chr Character vector of chromosome names to query.
+#' @param Pos Numeric vector of physical positions to query, same length
+#'   and order as `Chr`.
+#'
+#' @return Numeric vector of interpolated cM positions, same length/order
+#'   as `Chr`/`Pos`. Positions outside a chromosome's mapped range are
+#'   clamped to the nearest endpoint's cM value (`rule = 2` in
+#'   [stats::approx()]) -- fine for markers just past the map's first/last
+#'   point, but a chromosome entirely absent from `genetic_map`, or with
+#'   fewer than 2 points, returns `NA` for all its positions.
+#'
+#' @examples
+#' \dontrun{
+#' genetic_map <- data.table::data.table(
+#'   Chr = "Chr1", Pos = c(0, 1e6, 2e6), cM = c(0, 5, 20)
+#' )
+#' interpolate_cM(genetic_map, Chr = "Chr1", Pos = c(5e5, 1.5e6))
+#' }
+#'
+#' @export
+interpolate_cM <- function(genetic_map, Chr, Pos) {
+  genetic_map <- data.table::as.data.table(genetic_map)
+  stopifnot(all(c("Chr", "Pos", "cM") %in% names(genetic_map)))
+
+  by_chr <- split(genetic_map, by = "Chr")
+  out <- rep(NA_real_, length(Pos))
+
+  for (ch in unique(Chr)) {
+    idx <- which(Chr == ch)
+    m <- by_chr[[ch]]
+    if (is.null(m) || nrow(m) < 2L) next
+    out[idx] <- stats::approx(m$Pos, m$cM, xout = Pos[idx], rule = 2)$y
+  }
+
+  out
+}
+
 parallel_apply <- function(X, FUN, cores = 1) {
 
   if (cores > 1 && .Platform$OS.type != "windows") {

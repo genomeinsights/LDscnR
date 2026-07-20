@@ -70,7 +70,10 @@ test_that("plot_pruning_comparison() defaults ld_w_col/ld_w_threshold/min_n_loci
   )
   expect_identical(
     res$params,
-    list(ld_w_col = "ld_w_095", ld_w_threshold = 0.5, min_n_loci_flag = Inf, rho = 0.95, distance_threshold = 100)
+    list(
+      ld_w_col = "ld_w_095", ld_w_threshold = 0.5, min_n_loci_flag = Inf, rho = 0.95, distance_threshold = 100,
+      use_cM = FALSE, cM_threshold = NULL
+    )
   )
 
   out_dir <- tempfile("plot_pruning_comparison_")

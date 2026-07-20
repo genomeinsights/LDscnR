@@ -182,7 +182,28 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'   run regardless of its real local structure. Supplying a single numeric
 #'   value here still works as before (e.g. for hand-built test fixtures
 #'   with no matching decay object) and skips the `rho`-based derivation
-#'   entirely.
+#'   entirely. Ignored entirely if `genetic_map` is supplied.
+#' @param genetic_map If supplied (together with `cM_threshold`), run
+#'   splitting is done in genetic (cM) distance instead of physical (bp)
+#'   distance -- `distance_threshold`/`rho`/`LD_decay` are not consulted at
+#'   all in that case. A data.table/data.frame with `Chr`, `Pos`, `cM`
+#'   columns (see [interpolate_cM()]; any chromosome-naming differences
+#'   from `stage1`/`map_snp` must be reconciled by the caller first).
+#'   Physical distance is a poor, sometimes wildly misleading proxy for
+#'   recombination distance: checked directly on real data, some flagged
+#'   cluster pairs over 1 Mb apart physically sat at cM distance 0 (fully
+#'   linked -- no measurable recombination between them at all), while
+#'   others only a few hundred kb apart already spanned several cM. Use
+#'   this whenever a genetic map for the study system is available.
+#'   Default `NULL` (bp-based `distance_threshold` behaviour).
+#' @param cM_threshold Max consecutive-gap in cM allowed within one
+#'   genetically-contiguous run, analogous to `distance_threshold` but in
+#'   cM units -- required if `genetic_map` is supplied. Unlike
+#'   `distance_threshold`'s per-chromosome bp derivation, a single
+#'   `cM_threshold` is used for every chromosome: recombination distance is
+#'   already the thing that varies by chromosome/region, so there is
+#'   nothing left for a physical unit to further correct for once
+#'   distances are measured in cM.
 #' @param compute_unflagged_eMLG If `FALSE`, skip eMLG computation for
 #'   unflagged clusters entirely (usually the large majority) -- for
 #'   callers who only need the pruned marker set, not eMLGs. Default `TRUE`.
@@ -222,8 +243,8 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'   always lists EVERY group regardless of eMLG filtering), `pruned`
 #'   (character vector of representative markers, one per group -- for
 #'   LD-pruning use, unaffected by eMLG filtering), `params` (the
-#'   `ld_w_col`/`ld_w_threshold`/`min_n_loci_flag`/`rho`/`distance_threshold`
-#'   this call actually used -- [plot_pruning_comparison()] defaults to
+#'   `ld_w_col`/`ld_w_threshold`/`min_n_loci_flag`/`rho`/`distance_threshold`/
+#'   `use_cM`/`cM_threshold` this call actually used -- [plot_pruning_comparison()] defaults to
 #'   these so a Stage 1 vs Combined comparison can't silently use a
 #'   different threshold on each side).
 #'
@@ -244,6 +265,7 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
                                LD_decay = NULL, rho = 0.95,
                                score_threshold = 0.80, min_r2 = 0.2,
                                distance_threshold = NULL,
+                               genetic_map = NULL, cM_threshold = NULL,
                                compute_unflagged_eMLG = TRUE,
                                min_n_loci_eMLG = 1,
                                min_n_loci_flag = Inf,
@@ -251,6 +273,23 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
 
   map_snp  <- stage1$map_snp
   clusters <- stage1$clusters
+
+  ## genetic_map/cM_threshold, when supplied, take over run-splitting
+  ## entirely (bp-based distance_threshold/rho/LD_decay is not consulted at
+  ## all in that case) -- physical distance is a poor, sometimes wildly
+  ## misleading proxy for recombination distance: checked directly on real
+  ## data, some marker-cluster pairs over 1 Mb apart physically sat at
+  ## cM distance 0 (fully linked -- no measurable recombination between
+  ## them at all), while others only a few hundred kb apart already spanned
+  ## several cM. A single cM_threshold (not per-chromosome, unlike the
+  ## bp-based default) is appropriate here precisely because recombination
+  ## distance is already the thing that varies by chromosome/region --
+  ## physical units have nothing further to correct for once you're
+  ## measuring in cM.
+  use_cM <- !is.null(genetic_map)
+  if (use_cM && is.null(cM_threshold)) {
+    stop("`cM_threshold` must be supplied when `genetic_map` is supplied.")
+  }
 
   ## distance_threshold defaults to a per-chromosome, rho-derived value
   ## (d_from_rho(a_pred, rho)) rather than one fixed bp constant, reusing
@@ -271,11 +310,12 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
   ## construction doesn't get a free pass just because its own decay is
   ## anomalous.
   dist_threshold_by_chr <- NULL
-  if (is.null(distance_threshold)) {
+  if (!use_cM && is.null(distance_threshold)) {
     if (is.null(LD_decay)) {
       stop(
-        "Either `distance_threshold` or `LD_decay` (to derive a per-chromosome ",
-        "threshold from `rho` via d_from_rho(a_pred, rho)) must be supplied."
+        "Either `distance_threshold`, `LD_decay` (to derive a per-chromosome ",
+        "threshold from `rho` via d_from_rho(a_pred, rho)), or `genetic_map` + ",
+        "`cM_threshold` must be supplied."
       )
     }
     dsum <- LD_decay$decay_sum
@@ -349,7 +389,8 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
 
   params <- list(
     ld_w_col = ld_w_col, ld_w_threshold = ld_w_threshold, min_n_loci_flag = min_n_loci_flag,
-    rho = rho, distance_threshold = distance_threshold
+    rho = rho, distance_threshold = distance_threshold,
+    use_cM = use_cM, cM_threshold = cM_threshold
   )
 
   if (nrow(flagged) == 0) {
@@ -389,6 +430,20 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
     flagged$CL_id
   )
 
+  ## when using a genetic map, run-splitting works in cM space instead of
+  ## bp: convert each flagged cluster's physical span to genetic position
+  ## once here, so split_by_distance() below (unchanged, unit-agnostic)
+  ## just compares cM gaps against cM_threshold. A cluster on a chromosome
+  ## genetic_map doesn't cover (or covers with <2 points) gets NA cM
+  ## positions, which split_by_distance() already treats as "start a new
+  ## run" -- i.e. it conservatively never merges across an unmapped region
+  ## rather than erroring.
+  if (use_cM) {
+    chr_by_cl <- setNames(flagged$Chr, flagged$CL_id)
+    pos_min <- setNames(interpolate_cM(genetic_map, chr_by_cl[names(pos_min)], pos_min), names(pos_min))
+    pos_max <- setNames(interpolate_cM(genetic_map, chr_by_cl[names(pos_max)], pos_max), names(pos_max))
+  }
+
   flagged_group_list <- list()
 
   ## restricted to same chromosome AND same physically-contiguous run --
@@ -406,7 +461,13 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
   for (chr_i in seq_along(chr_levels)) {
     ch <- chr_levels[chr_i]
     ids_ch <- as.character(flagged$CL_id[flagged$Chr == ch])
-    dt_ch <- if (is.null(dist_threshold_by_chr)) distance_threshold else dist_threshold_by_chr[[ch]]
+    dt_ch <- if (use_cM) {
+      cM_threshold
+    } else if (is.null(dist_threshold_by_chr)) {
+      distance_threshold
+    } else {
+      dist_threshold_by_chr[[ch]]
+    }
     runs <- split_by_distance(pos_min[ids_ch], pos_max[ids_ch], dt_ch)
     run_sizes <- table(runs)
     message(

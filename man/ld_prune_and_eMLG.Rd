@@ -14,6 +14,8 @@ ld_prune_and_eMLG(
   score_threshold = 0.8,
   min_r2 = 0.2,
   distance_threshold = NULL,
+  genetic_map = NULL,
+  cM_threshold = NULL,
   compute_unflagged_eMLG = TRUE,
   min_n_loci_eMLG = 1,
   min_n_loci_flag = Inf,
@@ -68,7 +70,30 @@ it, i.e. license to bridge essentially the whole chromosome into one
 run regardless of its real local structure. Supplying a single numeric
 value here still works as before (e.g. for hand-built test fixtures
 with no matching decay object) and skips the \code{rho}-based derivation
-entirely.}
+entirely. Ignored entirely if \code{genetic_map} is supplied.}
+
+\item{genetic_map}{If supplied (together with \code{cM_threshold}), run
+splitting is done in genetic (cM) distance instead of physical (bp)
+distance -- \code{distance_threshold}/\code{rho}/\code{LD_decay} are not consulted at
+all in that case. A data.table/data.frame with \code{Chr}, \code{Pos}, \code{cM}
+columns (see \code{\link[=interpolate_cM]{interpolate_cM()}}; any chromosome-naming differences
+from \code{stage1}/\code{map_snp} must be reconciled by the caller first).
+Physical distance is a poor, sometimes wildly misleading proxy for
+recombination distance: checked directly on real data, some flagged
+cluster pairs over 1 Mb apart physically sat at cM distance 0 (fully
+linked -- no measurable recombination between them at all), while
+others only a few hundred kb apart already spanned several cM. Use
+this whenever a genetic map for the study system is available.
+Default \code{NULL} (bp-based \code{distance_threshold} behaviour).}
+
+\item{cM_threshold}{Max consecutive-gap in cM allowed within one
+genetically-contiguous run, analogous to \code{distance_threshold} but in
+cM units -- required if \code{genetic_map} is supplied. Unlike
+\code{distance_threshold}'s per-chromosome bp derivation, a single
+\code{cM_threshold} is used for every chromosome: recombination distance is
+already the thing that varies by chromosome/region, so there is
+nothing left for a physical unit to further correct for once
+distances are measured in cM.}
 
 \item{compute_unflagged_eMLG}{If \code{FALSE}, skip eMLG computation for
 unflagged clusters entirely (usually the large majority) -- for
@@ -113,8 +138,8 @@ group_id, Chr, representative, n_loci, score, has_eMLG, members --
 always lists EVERY group regardless of eMLG filtering), \code{pruned}
 (character vector of representative markers, one per group -- for
 LD-pruning use, unaffected by eMLG filtering), \code{params} (the
-\code{ld_w_col}/\code{ld_w_threshold}/\code{min_n_loci_flag}/\code{rho}/\code{distance_threshold}
-this call actually used -- \code{\link[=plot_pruning_comparison]{plot_pruning_comparison()}} defaults to
+\code{ld_w_col}/\code{ld_w_threshold}/\code{min_n_loci_flag}/\code{rho}/\code{distance_threshold}/
+\code{use_cM}/\code{cM_threshold} this call actually used -- \code{\link[=plot_pruning_comparison]{plot_pruning_comparison()}} defaults to
 these so a Stage 1 vs Combined comparison can't silently use a
 different threshold on each side).
 }
