@@ -68,6 +68,28 @@ test_that("plot_genotype_heatmap() saves a PNG when out_file is given", {
   expect_true(file.exists(out_file))
 })
 
+test_that("plot_genotype_heatmap() col_annotation_legend/row_annotation_legend suppress their legends", {
+  skip_if_not_installed("ComplexHeatmap")
+  skip_if_not_installed("circlize")
+
+  GTs <- build_gt_matrix()
+  col_anno <- setNames(rep(c("A", "B"), each = 3), colnames(GTs))
+  row_anno <- setNames(rep(c("pop1", "pop2"), each = 10), rownames(GTs))
+
+  ht <- plot_genotype_heatmap(
+    GTs,
+    col_annotation = col_anno, col_annotation_legend = FALSE,
+    row_annotation = row_anno, row_annotation_legend = FALSE
+  )
+
+  expect_false(ht@top_annotation@anno_list[[1]]@show_legend)
+  expect_false(ht@left_annotation@anno_list[[1]]@show_legend)
+
+  ht_default <- plot_genotype_heatmap(GTs, col_annotation = col_anno, row_annotation = row_anno)
+  expect_true(ht_default@top_annotation@anno_list[[1]]@show_legend)
+  expect_true(ht_default@left_annotation@anno_list[[1]]@show_legend)
+})
+
 test_that("plot_genotype_heatmap() polarize=TRUE flips negatively-correlated markers for display only", {
   skip_if_not_installed("ComplexHeatmap")
   skip_if_not_installed("circlize")

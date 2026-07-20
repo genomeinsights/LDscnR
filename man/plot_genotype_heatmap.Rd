@@ -15,9 +15,11 @@ plot_genotype_heatmap(
   col_annotation = NULL,
   col_annotation_colors = NULL,
   col_annotation_name = "annotation",
+  col_annotation_legend = TRUE,
   row_annotation = NULL,
   row_annotation_colors = NULL,
   row_annotation_name = "annotation",
+  row_annotation_legend = TRUE,
   geno_colors = c("#2166AC", "#F7F7F7", "#B2182B"),
   legend_name = if (polarize) "genotype (polarized)" else "genotype",
   title = NULL,
@@ -71,6 +73,13 @@ from \code{grDevices::hcl.colors()} if not supplied.}
 
 \item{col_annotation_name, row_annotation_name}{Legend/axis label for the
 respective annotation. Default \code{"annotation"}.}
+
+\item{col_annotation_legend, row_annotation_legend}{Logical; whether to draw
+a legend for the respective annotation. Default \code{TRUE}. Set to \code{FALSE}
+for annotations with many levels (e.g. Stage-1 \code{CL_id} over a large
+block, one colour per cluster) where the legend itself becomes an
+unreadable wall of swatches -- the colour bar is still drawn, just
+without a legend explaining every individual level.}
 
 \item{geno_colors}{Length-3 colour vector for dosage 0/1/2, passed to
 \code{circlize::colorRamp2()}. Default low-mid-high diverging blue/white/red.}

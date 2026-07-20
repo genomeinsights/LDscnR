@@ -42,6 +42,12 @@
 #'   from `grDevices::hcl.colors()` if not supplied.
 #' @param col_annotation_name,row_annotation_name Legend/axis label for the
 #'   respective annotation. Default `"annotation"`.
+#' @param col_annotation_legend,row_annotation_legend Logical; whether to draw
+#'   a legend for the respective annotation. Default `TRUE`. Set to `FALSE`
+#'   for annotations with many levels (e.g. Stage-1 `CL_id` over a large
+#'   block, one colour per cluster) where the legend itself becomes an
+#'   unreadable wall of swatches -- the colour bar is still drawn, just
+#'   without a legend explaining every individual level.
 #' @param geno_colors Length-3 colour vector for dosage 0/1/2, passed to
 #'   `circlize::colorRamp2()`. Default low-mid-high diverging blue/white/red.
 #' @param legend_name Heatmap legend title. Defaults to
@@ -81,9 +87,9 @@ plot_genotype_heatmap <- function(GTs, polarize = TRUE, cor_threshold = 0,
                                    cluster_columns = TRUE, col_cluster_method = "single",
                                    row_order = NULL, cluster_rows = is.null(row_order),
                                    col_annotation = NULL, col_annotation_colors = NULL,
-                                   col_annotation_name = "annotation",
+                                   col_annotation_name = "annotation", col_annotation_legend = TRUE,
                                    row_annotation = NULL, row_annotation_colors = NULL,
-                                   row_annotation_name = "annotation",
+                                   row_annotation_name = "annotation", row_annotation_legend = TRUE,
                                    geno_colors = c("#2166AC", "#F7F7F7", "#B2182B"),
                                    legend_name = if (polarize) "genotype (polarized)" else "genotype",
                                    title = NULL, out_file = NULL, width = 10, height = 7, ...) {
@@ -148,7 +154,7 @@ plot_genotype_heatmap <- function(GTs, polarize = TRUE, cor_threshold = 0,
     col_args <- stats::setNames(list(col_anno_r$colors), col_annotation_name)
     top_annotation <- do.call(
       ComplexHeatmap::HeatmapAnnotation,
-      c(anno_args, list(col = col_args, annotation_name_side = "left"))
+      c(anno_args, list(col = col_args, annotation_name_side = "left", show_legend = col_annotation_legend))
     )
   }
 
@@ -158,7 +164,7 @@ plot_genotype_heatmap <- function(GTs, polarize = TRUE, cor_threshold = 0,
     col_args <- stats::setNames(list(row_anno_r$colors), row_annotation_name)
     left_annotation <- do.call(
       ComplexHeatmap::rowAnnotation,
-      c(anno_args, list(col = col_args, annotation_name_side = "top"))
+      c(anno_args, list(col = col_args, annotation_name_side = "top", show_legend = row_annotation_legend))
     )
   }
 
