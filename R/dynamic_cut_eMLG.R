@@ -89,7 +89,16 @@
 #'   Validated around 0.80-0.85 on real data; higher is stricter (less
 #'   merging).
 #' @param min_r2 Minimum r2 required directly between the two sides being
-#'   merged, checked in addition to `threshold`. Default `0.2`.
+#'   merged, checked in addition to `threshold`. Default `0.2`. This is NOT
+#'   redundant with `threshold`, and the reason is worth stating: `score_eMLG`
+#'   is a property of the RESULTING consensus, so once a cluster is large that
+#'   consensus is dominated by the markers already in it, and appending a few
+#'   more changes the score very little whether or not they belong to the same
+#'   correlated set. The fidelity criterion is therefore least discriminating
+#'   exactly where clusters are largest -- observed directly on real data,
+#'   merges with pairwise r2 as low as 1.8e-05 still cleared
+#'   `score_eMLG >= 0.80` -- and this check is what prevents an essentially
+#'   uncorrelated cluster from being absorbed there.
 #'
 #' @return A list of final groups, each `list(members = <cluster IDs>,
 #'   emlg = <consensus genotype vector>, score = <score_eMLG of that
