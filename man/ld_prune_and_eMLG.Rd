@@ -51,7 +51,10 @@ it isn't supplied directly. Reuses the same \code{rho} already implied by
 must clear (see \code{\link[=dynamic_cut_eMLG]{dynamic_cut_eMLG()}}).}
 
 \item{min_r2}{Minimum r2 required directly between the two sides being
-merged (see \code{\link[=dynamic_cut_eMLG]{dynamic_cut_eMLG()}}).}
+merged (see \code{\link[=dynamic_cut_eMLG]{dynamic_cut_eMLG()}}). A genuine merge/independence gate: it
+bounds the residual correlation between distinct final clusters (~ the
+fixed floor conventional LD pruning applies), not a device to shrink the
+pairwise edge list. Default \code{0.2}.}
 
 \item{distance_threshold}{Max consecutive-gap in bp allowed within one
 physically-contiguous run (see \code{split_by_distance()}). Clusters more

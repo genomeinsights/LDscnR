@@ -164,7 +164,10 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #' @param score_threshold Minimum `score_eMLG` a candidate merge's result
 #'   must clear (see [dynamic_cut_eMLG()]).
 #' @param min_r2 Minimum r2 required directly between the two sides being
-#'   merged (see [dynamic_cut_eMLG()]).
+#'   merged (see [dynamic_cut_eMLG()]). A genuine merge/independence gate: it
+#'   bounds the residual correlation between distinct final clusters (~ the
+#'   fixed floor conventional LD pruning applies), not a device to shrink the
+#'   pairwise edge list. Default `0.2`.
 #' @param distance_threshold Max consecutive-gap in bp allowed within one
 #'   physically-contiguous run (see `split_by_distance()`). Clusters more
 #'   than this apart are never merged, regardless of correlation. Default
@@ -326,6 +329,7 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
   if (is.finite(min_n_loci_flag)) {
     needs_merge_ids <- union(needs_merge_ids, clusters[n_snps >= min_n_loci_flag, CL_id])
   }
+
   flagged   <- clusters[CL_id %in% needs_merge_ids]
   unflagged <- clusters[!CL_id %in% needs_merge_ids]
 

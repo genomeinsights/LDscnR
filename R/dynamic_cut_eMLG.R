@@ -98,7 +98,13 @@
 #'   exactly where clusters are largest -- observed directly on real data,
 #'   merges with pairwise r2 as low as 1.8e-05 still cleared
 #'   `score_eMLG >= 0.80` -- and this check is what prevents an essentially
-#'   uncorrelated cluster from being absorbed there.
+#'   uncorrelated cluster from being absorbed there. Beyond stopping bad merges,
+#'   the pairwise floor also bounds the residual correlation that can survive
+#'   between distinct final clusters, and hence the independence of the resulting
+#'   units: the default `0.2` matches the fixed r2 threshold conventional LD
+#'   pruning applies uniformly (here obtained on a relatedness-corrected scale
+#'   between consensus genotypes). It is thus a genuine merge/independence
+#'   criterion, not a device to shrink the pairwise edge list.
 #'
 #' @return A list of final groups, each `list(members = <cluster IDs>,
 #'   emlg = <consensus genotype vector>, score = <score_eMLG of that
