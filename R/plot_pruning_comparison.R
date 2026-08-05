@@ -143,7 +143,7 @@ plot_pruning_comparison <- function(chr, pruned_stage1, result, map,
   message(chr, " Stage 1 (", direction, "): ", data.table::uniqueN(stage1_snp$CL_id), " clusters")
   p_stage1 <- plot_clusters(
     stage1_snp,
-    sprintf("Stage 1: ld_complexity_reduction() -- %d clusters (%s)", data.table::uniqueN(stage1_snp$CL_id), direction)
+    sprintf("Stage 1: %d clusters", data.table::uniqueN(stage1_snp$CL_id))
   )
 
   ## combined result restricted to this chromosome's matching-direction
@@ -163,7 +163,7 @@ plot_pruning_comparison <- function(chr, pruned_stage1, result, map,
   message(chr, " combined (", direction, "): ", data.table::uniqueN(final_snp$CL_id), " groups")
   p_combined <- plot_clusters(
     final_snp,
-    sprintf("ld_prune_and_eMLG() -- %d groups (%s)", data.table::uniqueN(final_snp$CL_id), direction)
+    sprintf("Combined (Stage 1 + 2): %d groups", data.table::uniqueN(final_snp$CL_id))
   )
 
   ## patchwork's `/` stacking operator dispatches via an S7 method that only
