@@ -382,32 +382,79 @@ sharp per-SNP measures, while the consensus is preferable for diffuse, block-wid
 association -- and having all three on hand from one clustering lets you choose per
 analysis.
 
-### Single-SNP vs cluster-based significance
+### Sharper scans: LOCO GRM and ld_w prioritization
 
-A cluster-based scan runs far fewer tests than a per-SNP one, so its FDR
-correction is much less stringent -- the power argument for LD clustering (Li et
-al. 2018). We can see it directly: run a single-SNP EMMAX genome scan, FDR-correct
-to \eqn{-\log_{10}(q)}, and on that Manhattan colour the SNPs that belong to a
-**consensus cluster significant at the cluster level** (FDR over all clusters).
-The colours reuse `plot_pruning_comparison()`'s palette and rule, so a coloured
-cluster carries the same colour it has there.
+Two refinements make the single-SNP versus cluster comparison fairer and more
+powerful.
+
+**Leave-one-chromosome-out (LOCO) GRM.** The GRM above includes the chromosome
+being tested, so it partly corrects away the signal it should detect. A LOCO GRM
+tests each chromosome against relatedness estimated from the *other* chromosomes'
+representatives, removing that proximal over-correction.
+
+**`ld_w` prioritization.** If selection leaves a local-LD footprint, high-`ld_w`
+markers are enriched for real signal. Restricting the single-SNP scan to the top
+5% of `ld_w` (~800 of ~16,000 markers) concentrates testing on candidate regions
+*and* greatly relaxes the FDR correction.
+
+```{r loco, results = "hide"}
+# LOCO GRMs: each chromosome vs relatedness estimated from the OTHER chromosomes
+pruned_chr <- map$Chr[match(result$pruned, map$marker)]
+chrs  <- unique(map$Chr)
+Kloco <- setNames(lapply(chrs, function(ch)
+  SNPRelate::snpgdsGRM(gds, snp.id = result$pruned[pruned_chr != ch],
+                       method = "GCTA", autosome.only = FALSE, verbose = FALSE)$grm), chrs)
+
+# (1) single-SNP LOCO scan, all markers
+p_snp <- setNames(rep(NA_real_, nrow(map)), map$marker)
+for (ch in chrs) { mk <- map[Chr == ch, marker]; p_snp[mk] <- emmax(eco, GTs[, mk], Kloco[[ch]])$pval }
+map[, q_all := p.adjust(p_snp, "fdr")]
+
+# (2) ld_w-prioritized: top 5% of ld_w only (FDR over that reduced set)
+map[, top5 := ld_w_095 >= quantile(ld_w_095, 0.95, na.rm = TRUE)]
+map[top5 == TRUE, q_top := p.adjust(p_snp[marker], "fdr")]
+
+# (3) cluster-consensus LOCO scan
+g[, p_clust := NA_real_]
+for (ch in chrs) { gi <- g$Chr == ch
+  if (any(gi)) g$p_clust[gi] <- emmax(eco, result$eMLG[, g$group_id[gi]], Kloco[[ch]])$pval }
+g[, q_clust := p.adjust(p_clust, "fdr")]
+```
+
+```{r loco-compare}
+data.frame(
+  strategy      = c("all SNPs", "top 5% ld_w", "consensus clusters"),
+  n_tests       = c(nrow(map), sum(map$top5), nrow(g)),
+  n_significant = c(sum(map$q_all < 0.05, na.rm = TRUE),
+                    sum(map$q_top < 0.05, na.rm = TRUE),
+                    sum(g$q_clust < 0.05))
+)
+```
+
+LOCO alone sharpens the single-SNP scan: the Chr4 *Eda* peak now clears
+significance where the whole-genome GRM had masked it. The `ld_w`-prioritized scan
+gains the most hits, because the top-5% `ld_w` set is dominated by the large,
+high-LD Chr1 inversion -- a coherent ecotype-differentiated block -- so relaxing
+the FDR over that enriched subset lets most of it through. That is also the honest
+caveat: high `ld_w` in an inversion reflects suppressed recombination as much as
+selection, so the prioritized set concentrates on *candidate* regions rather than
+proving selection at each marker.
+
+The Manhattan below is the LOCO single-SNP scan, with SNPs in FDR-significant
+consensus clusters coloured by `plot_pruning_comparison()`'s palette and rule (so
+a coloured cluster carries the colour it has there):
 
 ```{r manh, fig.height = 3.2, fig.width = 8}
-# single-SNP scan (all markers) and cluster scan (consensus), same GRM
-qs <- p.adjust(emmax(eco, GTs, K)$pval, "fdr")
-map[, neglogq := -log10(qs[marker])]
-g[, q_clust := p.adjust(emmax(eco, result$eMLG[, group_id], K)$pval, "fdr")]
-
-# colour significant consensus clusters with plot_pruning_comparison()'s palette
 pal <- c("#E41A1C","#377EB8","#4DAF4A","#984EA3","#FF7F00","#FFFF33",
          "#A65628","#F781BF","#1B9E77","#D95F02","#7570B3","#66A61E")
 allg <- as.data.table(result$groups)[startsWith(group_id, "F")]
-allg[, col := pal[(rowid(Chr) - 1) %% length(pal) + 1]]      # same rule as the Combined panel
+allg[, col := pal[(rowid(Chr) - 1) %% length(pal) + 1]]
 sig  <- allg[group_id %in% g[q_clust < 0.05, group_id]]
 snp2col <- rbindlist(lapply(seq_len(nrow(sig)),
                             function(i) data.table(marker = sig$members[[i]], col = sig$col[i])))
 map[, sig_col := snp2col$col[match(marker, snp2col$marker)]]
 map[, in_sig := !is.na(sig_col)]
+map[, neglogq := -log10(q_all)]
 
 ggplot() +
   geom_hline(yintercept = -log10(0.05), linetype = 2, colour = "grey60") +
@@ -416,26 +463,18 @@ ggplot() +
   geom_point(data = map[in_sig == TRUE], aes(Pos / 1e6, neglogq, colour = sig_col), size = 1.3) +
   scale_colour_identity() +
   facet_wrap(~ Chr, scales = "free_x", nrow = 1) +
-  labs(x = "position (Mbp)", y = expression(-log[10](q) ~ ", single-SNP"),
-       title = "Single-SNP scan; SNPs in FDR-significant consensus clusters coloured") +
+  labs(x = "position (Mbp)", y = expression(-log[10](q) ~ ", LOCO single-SNP"),
+       title = "LOCO single-SNP scan; SNPs in FDR-significant consensus clusters coloured") +
   theme_bw(base_size = 9)
 ```
 
-```{r manh-power}
-# of the SNPs inside a significant cluster, how many reach single-SNP significance?
-c(SNPs_in_sig_clusters = sum(map$in_sig),
-  also_SNP_significant  = sum(map$in_sig & map$neglogq > -log10(0.05)))
-```
-
-The significant consensus clusters fall in the Chr1 inversion, and **most of their
-member SNPs sit below the per-SNP significance line** -- they are picked up only
-because the cluster test pools a coherent block into one less-corrected test. The
-Chr4 *Eda* peak is visible in the single-SNP scan but does not clear cluster-level
-significance here (117 individuals is modest power, and the GRM built from all
-representatives slightly over-corrects nearby signal). The comparison makes the
-trade-off concrete: single-SNP scanning localizes to the marker but pays a heavy
-multiple-testing cost, while cluster-based scanning trades resolution for power on
-block-wide signals.
+The three strategies lay out the trade-off. Single-SNP scanning localizes to the
+marker (the Chr4 *Eda* signal is a clean per-SNP peak) but pays the full
+multiple-testing cost. `ld_w` prioritization keeps SNP resolution while spending
+tests only where local LD -- the selection/structure footprint -- is high.
+Cluster-based scanning pools each coherent block into one powerful, low-resolution
+test (the Chr1 inversion clusters), recovering block-wide signal a per-SNP scan
+would split across many corrected tests.
 
 ```{r cleanup, include = FALSE}
 SNPRelate::snpgdsClose(gds)
