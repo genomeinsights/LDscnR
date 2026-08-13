@@ -2,7 +2,6 @@
 .Rhistory
 .RData
 .Ruserdata
-.Rbuildignore
 .Rdata
 .httr-oauth
 .DS_Store
@@ -24,3 +23,8 @@ tst.png
 /LDna.R
 /emmax.R
 /build.R
+
+# dev outlier workbench (regenerable)
+dev/outlier/cache.rds
+dev/outlier/fig/
+Rplots.pdf

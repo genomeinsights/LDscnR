@@ -1,0 +1,8 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.el_3sp$
+^\.el/$
+^\.positai$
+^\.claude$
+^data-raw$
+^dev$

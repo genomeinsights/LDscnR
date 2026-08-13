@@ -1,8 +1,8 @@
 ---
-title: "A worked example: LD decay and complexity reduction on stickleback data"
+title: "LD decay and LD-complexity reduction on stickleback data"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{A worked example: LD decay and complexity reduction on stickleback data}
+  %\VignetteIndexEntry{LD decay and LD-complexity reduction on stickleback data}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -25,10 +25,10 @@ library(SNPRelate)
 ## Overview
 
 The [quick introduction](LDscnR_quick_introduction.html) walks through the API on
-the small simulated `sim_ex` data. This worked example applies the same LD-decay
-and LD-complexity-reduction workflow to **real data** -- the bundled
-`stickleback` set (`?stickleback`): three-spined stickleback
-(*Gasterosteus aculeatus*) marine--freshwater ecotype genotype dosages from
+the small simulated `sim_ex` data. This vignette applies the same LD-decay and
+LD-complexity-reduction workflow to **real data** -- the bundled `stickleback`
+set (`?stickleback`): three-spined stickleback (*Gasterosteus aculeatus*)
+marine--freshwater ecotype genotype dosages from
 [Fang et al. (2021)](https://doi.org/10.1093/molbev/msab144). It is deliberately
 built from three chromosomal regions with contrasting linkage-disequilibrium
 regimes:
@@ -312,235 +312,6 @@ limit). The threshold governs *which clusters are evaluated*, not which merges a
 accepted -- the fidelity and correlation gates do that -- so a permissive setting
 costs computation rather than accuracy.
 
-## Association mapping: which cluster representation?
-
-The complexity-reduction output feeds directly into association mapping. The
-pruned representative markers give a genomic relationship matrix (GRM), and each
-LD cluster can then be tested against a phenotype using one of three unit
-representations: its **representative** SNP, its **eMLG consensus**, or its **best
-single-SNP proxy** (`eMLG_best_snp()`, the member most correlated with the
-consensus). Here we test ecotype (Marine vs Freshwater) with `emmax()` -- a
-mixed-model association test that corrects for relatedness via the GRM (Li et al.
-2018) -- and compare the F statistic across the three representations for the eMLG
-clusters.
-
-```{r assoc-setup, results = "hide"}
-pheno <- stickleback$pheno
-eco   <- as.integer(pheno$ecotype == "Marine")          # binary phenotype
-
-# GRM from the pruned representative markers. autosome.only = FALSE because the
-# Chr codes here are character labels, not integer autosome numbers.
-K <- SNPRelate::snpgdsGRM(gds, snp.id = result$pruned, method = "GCTA",
-                          autosome.only = FALSE, verbose = FALSE)$grm
-
-best <- eMLG_best_snp(result, GTs, round_fill = FALSE)  # round_fill = FALSE keeps dosages
-
-g <- as.data.table(result$groups)[has_eMLG == TRUE]
-g[, best_marker := best$stats$best_marker[match(group_id, best$stats$group_id)]]
-
-# EMMAX F per cluster, three representations, one shared GRM
-Fr <- emmax(eco, GTs[, g$representative], K)$F    # representative SNP
-Fc <- emmax(eco, result$eMLG[, g$group_id], K)$F  # eMLG consensus
-Fm <- emmax(eco, GTs[, g$best_marker],     K)$F   # best single-SNP proxy
-```
-
-```{r assoc-plot, fig.height = 4}
-fdt  <- data.table(Chr = g$Chr, representative = Fr, consensus = Fc, max_SNP = Fm)
-long <- melt(fdt, id.vars = c("Chr", "consensus"), variable.name = "single_SNP",
-             value.name = "F_single")
-ggplot(long, aes(consensus, F_single, colour = Chr)) +
-  geom_abline(slope = 1, intercept = 0, linetype = 2, colour = "grey50") +
-  geom_point(alpha = 0.7, size = 1.2) +
-  facet_wrap(~ single_SNP) +
-  labs(x = "EMMAX F : eMLG consensus", y = "EMMAX F : single SNP",
-       title = "Ecotype association F by cluster representation") +
-  theme_bw(base_size = 10)
-```
-
-```{r assoc-summary}
-# among the strongest-associated clusters, which representation gives the highest F?
-top <- fdt[order(-consensus)][1:20]
-table(apply(top[, .(representative, consensus, max_SNP)], 1,
-            function(x) c("representative", "consensus", "max_SNP")[which.max(x)]))
-
-# max F per chromosome
-fdt[, lapply(.SD, function(x) round(max(x), 1)),
-    by = Chr, .SDcols = c("representative", "consensus", "max_SNP")]
-```
-
-At the strongly-associated blocks the **consensus** usually gives the *highest* F
--- the opposite of the sorting statistic, where the consensus diluted a sharp
-per-population fixation signal (see the `module_di25` analyses). The reason is the
-nature of the statistic: ecotype association is a coherent, block-wide
-*quantitative* signal, so averaging the cluster's markers into the consensus
-**improves the signal-to-noise ratio**, whereas a sharp per-population fixation
-call is carried by individual markers that averaging blurs. Here the effect is
-clearest on the Chr1 inversion (a broad, coherently-associated block); at the more
-localized Chr4 *Eda* locus the three representations are comparable. So the best
-unit depends on the downstream statistic -- `eMLG_best_snp()` recovers signal for
-sharp per-SNP measures, while the consensus is preferable for diffuse, block-wide
-association -- and having all three on hand from one clustering lets you choose per
-analysis.
-
-### Sharper scans: LOCO GRM and ld_w prioritization
-
-Two refinements make the single-SNP versus cluster comparison fairer and more
-powerful.
-
-**Leave-one-chromosome-out (LOCO) GRM.** The GRM above includes the chromosome
-being tested, so it partly corrects away the signal it should detect. A LOCO GRM
-tests each chromosome against relatedness estimated from the *other* chromosomes'
-representatives, removing that proximal over-correction.
-
-**`ld_w` prioritization.** If selection leaves a local-LD footprint, high-`ld_w`
-markers are enriched for real signal. Restricting the single-SNP scan to the top
-10% of `ld_w` (~1,600 of ~16,000 markers) concentrates testing on candidate
-regions *and* greatly relaxes the FDR correction.
-
-```{r loco, results = "hide"}
-# LOCO GRMs: each chromosome vs relatedness estimated from the OTHER chromosomes
-pruned_chr <- map$Chr[match(result$pruned, map$marker)]
-chrs  <- unique(map$Chr)
-Kloco <- setNames(lapply(chrs, function(ch)
-  SNPRelate::snpgdsGRM(gds, snp.id = result$pruned[pruned_chr != ch],
-                       method = "GCTA", autosome.only = FALSE, verbose = FALSE)$grm), chrs)
-
-# (1) single-SNP LOCO scan, all markers
-p_snp <- setNames(rep(NA_real_, nrow(map)), map$marker)
-for (ch in chrs) { mk <- map[Chr == ch, marker]; p_snp[mk] <- emmax(eco, GTs[, mk], Kloco[[ch]])$pval }
-map[, q_all := p.adjust(p_snp, "fdr")]
-
-# (2) ld_w-prioritized: top 10% of ld_w only (FDR over that reduced set)
-map[, top_ldw := ld_w_095 >= quantile(ld_w_095, 0.90, na.rm = TRUE)]
-map[top_ldw == TRUE, q_top := p.adjust(p_snp[marker], "fdr")]
-
-# (3) cluster-consensus LOCO scan
-g[, p_clust := NA_real_]
-for (ch in chrs) { gi <- g$Chr == ch
-  if (any(gi)) g$p_clust[gi] <- emmax(eco, result$eMLG[, g$group_id[gi]], Kloco[[ch]])$pval }
-g[, q_clust := p.adjust(p_clust, "fdr")]
-```
-
-```{r loco-compare}
-data.frame(
-  strategy      = c("all SNPs", "top 10% ld_w", "consensus clusters"),
-  n_tests       = c(nrow(map), sum(map$top_ldw), nrow(g)),
-  n_significant = c(sum(map$q_all < 0.05, na.rm = TRUE),
-                    sum(map$q_top < 0.05, na.rm = TRUE),
-                    sum(g$q_clust < 0.05))
-)
-```
-
-LOCO alone sharpens the single-SNP scan: the Chr4 *Eda* peak now clears
-significance where the whole-genome GRM had masked it. The `ld_w`-prioritized scan
-gains the most hits, because the top-10% `ld_w` set is dominated by the large,
-high-LD Chr1 inversion -- a coherent ecotype-differentiated block -- so relaxing
-the FDR over that enriched subset lets most of it through. That is also the honest
-caveat: high `ld_w` in an inversion reflects suppressed recombination as much as
-selection, so the prioritized set concentrates on *candidate* regions rather than
-proving selection at each marker.
-
-The Manhattan below is the LOCO single-SNP scan. SNPs in an FDR-significant
-consensus cluster are coloured (one distinct colour per cluster, from
-`plot_pruning_comparison()`'s palette); SNPs significant at the single-SNP level
-but *not* in a significant cluster are drawn as black triangles -- the Chr4 *Eda*
-peak is entirely of this kind, a per-SNP signal the cluster test does not flag:
-
-```{r manh, fig.height = 3.4, fig.width = 8}
-# distinct colour per significant cluster (position-ordered), from the same palette
-pal <- c("#E41A1C","#377EB8","#4DAF4A","#984EA3","#FF7F00","#A65628",
-         "#F781BF","#1B9E77","#D95F02","#7570B3")
-sig <- as.data.table(result$groups)[group_id %in% g[q_clust < 0.05, group_id]]
-sig[, pos0 := vapply(members, function(mk) min(map$Pos[match(mk, map$marker)]), numeric(1))]
-setorder(sig, Chr, pos0)
-sig[, col := pal[(seq_len(.N) - 1) %% length(pal) + 1]]
-snp2col <- rbindlist(lapply(seq_len(nrow(sig)),
-                            function(i) data.table(marker = sig$members[[i]], col = sig$col[i])))
-map[, sig_col := snp2col$col[match(marker, snp2col$marker)]]
-map[, neglogq := -log10(q_all)]
-map[, cat := fifelse(!is.na(sig_col), "cluster", fifelse(q_all < 0.05, "snp_only", "ns"))]
-
-ggplot() +
-  geom_hline(yintercept = -log10(0.05), linetype = 2, colour = "grey60") +
-  geom_point(data = map[cat == "ns"], aes(Pos / 1e6, neglogq),
-             colour = "grey78", size = 0.5, alpha = 0.5) +
-  geom_point(data = map[cat == "snp_only"], aes(Pos / 1e6, neglogq),
-             colour = "black", shape = 17, size = 1.4) +
-  geom_point(data = map[cat == "cluster"], aes(Pos / 1e6, neglogq, colour = sig_col), size = 1.6) +
-  scale_colour_identity() +
-  facet_wrap(~ Chr, scales = "free_x", nrow = 1) +
-  labs(x = "position (Mbp)", y = expression(-log[10](q) ~ ", LOCO single-SNP"),
-       title = "LOCO single-SNP scan",
-       subtitle = "coloured = SNP in a significant consensus cluster (one colour per cluster); black triangles = single-SNP-significant only") +
-  theme_bw(base_size = 9) + theme(plot.subtitle = element_text(size = 7))
-```
-
-The three strategies lay out the trade-off. Single-SNP scanning localizes to the
-marker (the Chr4 *Eda* signal is a clean per-SNP peak) but pays the full
-multiple-testing cost. `ld_w` prioritization keeps SNP resolution while spending
-tests only where local LD -- the selection/structure footprint -- is high.
-Cluster-based scanning pools each coherent block into one powerful, low-resolution
-test (the Chr1 inversion clusters), recovering block-wide signal a per-SNP scan
-would split across many corrected tests.
-
-### `ld_w` as a false-positive screen, and overlapping LD components
-
-The black triangles reward a second look. Splitting them by whether they fall in a
-cluster that carries an `ld_w`-filtered-significant SNP shows they are **bimodal**
-in local LD:
-
-```{r ldw-bimodal}
-map[, ldw_sig := top_ldw & q_top < 0.05]
-mem500 <- as.data.table(result_500kb$groups)[startsWith(group_id, "F"),
-                                             .(marker = unlist(members)), by = group_id]
-map[, grp500 := mem500$group_id[match(marker, mem500$marker)]]
-ldw_clusters <- unique(na.omit(map[ldw_sig == TRUE, grp500]))
-map[, in_ldw_cluster := grp500 %in% ldw_clusters]
-
-# the single-SNP-only-significant SNPs (black triangles), split by ld_w-cluster membership
-map[cat == "snp_only", .(n = .N, median_ld_w = round(median(ld_w_095), 3)), by = in_ldw_cluster]
-```
-
-The ones in an `ld_w` cluster have high local LD (the *Eda* and inversion peaks);
-the isolated ones sit at genome-wide-background `ld_w` -- significant per-SNP but
-with no local LD support, the likely false positives. Keeping only the clusters
-that contain an `ld_w`-filtered-significant SNP (on the 500 kb Stage-2 clustering)
-therefore screens out the isolated noise while retaining the genuine peaks:
-
-```{r ldw-manh, fig.height = 3.4, fig.width = 8}
-pal <- c("#E41A1C","#377EB8","#4DAF4A","#984EA3","#FF7F00","#A65628","#F781BF","#1B9E77")
-lg <- data.table(group_id = ldw_clusters)
-lg[, `:=`(pos0 = map$Pos[match(group_id, map$grp500)],
-          Chr  = map$Chr[match(group_id, map$grp500)])]
-setorder(lg, Chr, pos0); lg[, col := pal[(seq_len(.N) - 1) %% length(pal) + 1]]
-map[, cl_col := lg$col[match(grp500, lg$group_id)]]
-map[, shown  := !is.na(cl_col)]
-
-ggplot() +
-  geom_hline(yintercept = -log10(0.05), linetype = 2, colour = "grey60") +
-  geom_point(data = map[shown == FALSE], aes(Pos / 1e6, neglogq),
-             colour = "grey80", size = 0.5, alpha = 0.4) +
-  geom_point(data = map[shown == TRUE], aes(Pos / 1e6, neglogq, colour = cl_col), size = 1.6) +
-  scale_colour_identity() +
-  facet_wrap(~ Chr, scales = "free_x", nrow = 1) +
-  labs(x = "position (Mbp)", y = expression(-log[10](q) ~ ", LOCO single-SNP"),
-       title = "Clusters with an ld_w-filtered-significant SNP (500 kb Stage-2 clustering)") +
-  theme_bw(base_size = 9)
-```
-
-Two things stand out. First, `ld_w` prioritization retains the Chr1 inversion and
-**both Chr4 *Eda* peaks** (~12.1 and ~12.8 Mb) while dropping the isolated
-low-`ld_w` hits -- exactly the false-positive screening LDscnR uses local LD for.
-Second, and more subtly, the Chr1 inversion is **not** a single cluster even under
-the 500 kb window: it resolves into two clusters (different colours) that are
-*physically interspersed* across the same 21.5--21.9 Mb interval. The 500 kb
-`distance_threshold` only bounds how far a merge may reach; within it the
-quality-gated dynamic cut clusters by **LD topology**, so the inversion's two
-haplotype components -- neighbours in bp but in weak mutual LD -- stay distinct.
-A fixed physical window would lump them into one block; resolving overlapping LD
-components in the same interval is the region-centric behaviour the eMLG
-clustering is designed for.
-
 ```{r cleanup, include = FALSE}
 SNPRelate::snpgdsClose(gds)
 unlink(gds_path)
@@ -548,14 +319,13 @@ unlink(gds_path)
 
 ## Summary
 
-On real stickleback data this worked example showed the full workflow --
-per-chromosome LD-decay estimation, marker-resolution local LD support (`ld_w`),
-and two-stage complexity reduction into a pruned marker set and eMLG consensus --
-and demonstrated that the window-resolution decay rate and marker-resolution
-`ld_w` agree, robustly, on where the high-LD regions are. It then fed the pruned
-set into `emmax()` association mapping and compared cluster representations: for a
-diffuse, block-wide quantitative signal like ecotype association the eMLG
-consensus is preferable (averaging boosts signal-to-noise), whereas for a sharp
-per-SNP measure the best single-SNP proxy (`eMLG_best_snp()`) recovers signal the
-consensus would blur -- and one clustering yields all three representations, so
-the choice can be made per analysis.
+On real stickleback data this vignette showed the LD-complexity-reduction
+workflow: per-chromosome LD-decay estimation, marker-resolution local LD support
+(`ld_w`), and the two-stage clustering into a pruned representative marker set and
+an eMLG consensus matrix -- with the Stage-2 distance-window and
+consensus-fidelity trade-offs made explicit. The window-resolution decay rate and
+marker-resolution `ld_w` agree, robustly, on where the high-LD regions are.
+
+The pruned representative set and the eMLG matrix are the inputs to downstream
+LD-aware analyses -- kinship/GRM construction, association mapping, and
+outlier detection -- which are covered separately.
