@@ -312,6 +312,76 @@ limit). The threshold governs *which clusters are evaluated*, not which merges a
 accepted -- the fidelity and correlation gates do that -- so a permissive setting
 costs computation rather than accuracy.
 
+## Association mapping: which cluster representation?
+
+The complexity-reduction output feeds directly into association mapping. The
+pruned representative markers give a genomic relationship matrix (GRM), and each
+LD cluster can then be tested against a phenotype using one of three unit
+representations: its **representative** SNP, its **eMLG consensus**, or its **best
+single-SNP proxy** (`eMLG_best_snp()`, the member most correlated with the
+consensus). Here we test ecotype (Marine vs Freshwater) with `emmax()` -- a
+mixed-model association test that corrects for relatedness via the GRM (Li et al.
+2018) -- and compare the F statistic across the three representations for the eMLG
+clusters.
+
+```{r assoc-setup, results = "hide"}
+pheno <- stickleback$pheno
+eco   <- as.integer(pheno$ecotype == "Marine")          # binary phenotype
+
+# GRM from the pruned representative markers. autosome.only = FALSE because the
+# Chr codes here are character labels, not integer autosome numbers.
+K <- SNPRelate::snpgdsGRM(gds, snp.id = result$pruned, method = "GCTA",
+                          autosome.only = FALSE, verbose = FALSE)$grm
+
+best <- eMLG_best_snp(result, GTs, round_fill = FALSE)  # round_fill = FALSE keeps dosages
+
+g <- as.data.table(result$groups)[has_eMLG == TRUE]
+g[, best_marker := best$stats$best_marker[match(group_id, best$stats$group_id)]]
+
+# EMMAX F per cluster, three representations, one shared GRM
+Fr <- emmax(eco, GTs[, g$representative], K)$F    # representative SNP
+Fc <- emmax(eco, result$eMLG[, g$group_id], K)$F  # eMLG consensus
+Fm <- emmax(eco, GTs[, g$best_marker],     K)$F   # best single-SNP proxy
+```
+
+```{r assoc-plot, fig.height = 4}
+fdt  <- data.table(Chr = g$Chr, representative = Fr, consensus = Fc, max_SNP = Fm)
+long <- melt(fdt, id.vars = c("Chr", "consensus"), variable.name = "single_SNP",
+             value.name = "F_single")
+ggplot(long, aes(consensus, F_single, colour = Chr)) +
+  geom_abline(slope = 1, intercept = 0, linetype = 2, colour = "grey50") +
+  geom_point(alpha = 0.7, size = 1.2) +
+  facet_wrap(~ single_SNP) +
+  labs(x = "EMMAX F : eMLG consensus", y = "EMMAX F : single SNP",
+       title = "Ecotype association F by cluster representation") +
+  theme_bw(base_size = 10)
+```
+
+```{r assoc-summary}
+# among the strongest-associated clusters, which representation gives the highest F?
+top <- fdt[order(-consensus)][1:20]
+table(apply(top[, .(representative, consensus, max_SNP)], 1,
+            function(x) c("representative", "consensus", "max_SNP")[which.max(x)]))
+
+# max F per chromosome
+fdt[, lapply(.SD, function(x) round(max(x), 1)),
+    by = Chr, .SDcols = c("representative", "consensus", "max_SNP")]
+```
+
+At the strongly-associated blocks the **consensus** usually gives the *highest* F
+-- the opposite of the sorting statistic, where the consensus diluted a sharp
+per-population fixation signal (see the `module_di25` analyses). The reason is the
+nature of the statistic: ecotype association is a coherent, block-wide
+*quantitative* signal, so averaging the cluster's markers into the consensus
+**improves the signal-to-noise ratio**, whereas a sharp per-population fixation
+call is carried by individual markers that averaging blurs. Here the effect is
+clearest on the Chr1 inversion (a broad, coherently-associated block); at the more
+localized Chr4 *Eda* locus the three representations are comparable. So the best
+unit depends on the downstream statistic -- `eMLG_best_snp()` recovers signal for
+sharp per-SNP measures, while the consensus is preferable for diffuse, block-wide
+association -- and having all three on hand from one clustering lets you choose per
+analysis.
+
 ```{r cleanup, include = FALSE}
 SNPRelate::snpgdsClose(gds)
 unlink(gds_path)
@@ -323,6 +393,10 @@ On real stickleback data this worked example showed the full workflow --
 per-chromosome LD-decay estimation, marker-resolution local LD support (`ld_w`),
 and two-stage complexity reduction into a pruned marker set and eMLG consensus --
 and demonstrated that the window-resolution decay rate and marker-resolution
-`ld_w` agree, robustly, on where the high-LD regions are. For a single-value
-per-block summary the eMLG consensus is ideal; where SNP-specific signal matters,
-`eMLG_best_snp()` returns the best single-SNP proxy per block instead.
+`ld_w` agree, robustly, on where the high-LD regions are. It then fed the pruned
+set into `emmax()` association mapping and compared cluster representations: for a
+diffuse, block-wide quantitative signal like ecotype association the eMLG
+consensus is preferable (averaging boosts signal-to-noise), whereas for a sharp
+per-SNP measure the best single-SNP proxy (`eMLG_best_snp()`) recovers signal the
+consensus would blur -- and one clustering yields all three representations, so
+the choice can be made per analysis.
