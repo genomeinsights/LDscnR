@@ -110,7 +110,10 @@ ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = N
 
   if (!is.null(idx)) map <- map[idx]
 
-  chr_levels <- unique(map$Chr)
+  ## as.character(): a factor Chr would otherwise be coerced to its integer
+  ## level code when used as a list index below (LD_decay$by_chr[[ch]]),
+  ## producing a "subscript out of bounds" error on real (factor-Chr) maps.
+  chr_levels <- as.character(unique(map$Chr))
 
   by_chr <- parallel_apply(chr_levels, function(ch) {
 

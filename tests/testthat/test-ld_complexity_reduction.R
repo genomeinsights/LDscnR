@@ -113,3 +113,22 @@ test_that("idx restricts ld_complexity_reduction to the given markers only", {
     sort(res_full$clusters[Chr == map$Chr[1], core_snp])
   )
 })
+
+test_that("a factor Chr column is handled (regression: by_chr[[factor]] coercion)", {
+  data(sim_ex, package = "LDscnR")
+  ld  <- build_decay()
+  map_chr <- data.table::as.data.table(sim_ex$map)[, .(Chr, Pos, marker)]
+
+  # Real genome-wide maps carry Chr as a factor with many levels; put the
+  # used chromosomes (Chr1-3) at HIGH level codes so a factor->integer index
+  # would run past by_chr's length (the original "subscript out of bounds").
+  map_fac <- data.table::copy(map_chr)
+  map_fac[, Chr := factor(Chr, levels = paste0("Chr", c(4:20, 1:3)))]
+  expect_s3_class(map_fac$Chr, "factor")
+  expect_true(all(as.integer(unique(map_fac$Chr)) > 3))  # codes really are out of range
+
+  # must not error, and must match the character-Chr result
+  expect_no_error(res_fac <- ld_complexity_reduction(map_fac, ld, rho = 0.5, cores = 1))
+  res_chr <- ld_complexity_reduction(map_chr, ld, rho = 0.5, cores = 1)
+  expect_equal(sort(res_fac$pruned), sort(res_chr$pruned))
+})
