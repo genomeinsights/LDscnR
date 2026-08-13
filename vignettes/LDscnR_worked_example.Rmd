@@ -483,6 +483,64 @@ Cluster-based scanning pools each coherent block into one powerful, low-resoluti
 test (the Chr1 inversion clusters), recovering block-wide signal a per-SNP scan
 would split across many corrected tests.
 
+### `ld_w` as a false-positive screen, and overlapping LD components
+
+The black triangles reward a second look. Splitting them by whether they fall in a
+cluster that carries an `ld_w`-filtered-significant SNP shows they are **bimodal**
+in local LD:
+
+```{r ldw-bimodal}
+map[, ldw_sig := top_ldw & q_top < 0.05]
+mem500 <- as.data.table(result_500kb$groups)[startsWith(group_id, "F"),
+                                             .(marker = unlist(members)), by = group_id]
+map[, grp500 := mem500$group_id[match(marker, mem500$marker)]]
+ldw_clusters <- unique(na.omit(map[ldw_sig == TRUE, grp500]))
+map[, in_ldw_cluster := grp500 %in% ldw_clusters]
+
+# the single-SNP-only-significant SNPs (black triangles), split by ld_w-cluster membership
+map[cat == "snp_only", .(n = .N, median_ld_w = round(median(ld_w_095), 3)), by = in_ldw_cluster]
+```
+
+The ones in an `ld_w` cluster have high local LD (the *Eda* and inversion peaks);
+the isolated ones sit at genome-wide-background `ld_w` -- significant per-SNP but
+with no local LD support, the likely false positives. Keeping only the clusters
+that contain an `ld_w`-filtered-significant SNP (on the 500 kb Stage-2 clustering)
+therefore screens out the isolated noise while retaining the genuine peaks:
+
+```{r ldw-manh, fig.height = 3.4, fig.width = 8}
+pal <- c("#E41A1C","#377EB8","#4DAF4A","#984EA3","#FF7F00","#A65628","#F781BF","#1B9E77")
+lg <- data.table(group_id = ldw_clusters)
+lg[, `:=`(pos0 = map$Pos[match(group_id, map$grp500)],
+          Chr  = map$Chr[match(group_id, map$grp500)])]
+setorder(lg, Chr, pos0); lg[, col := pal[(seq_len(.N) - 1) %% length(pal) + 1]]
+map[, cl_col := lg$col[match(grp500, lg$group_id)]]
+map[, shown  := !is.na(cl_col)]
+
+ggplot() +
+  geom_hline(yintercept = -log10(0.05), linetype = 2, colour = "grey60") +
+  geom_point(data = map[shown == FALSE], aes(Pos / 1e6, neglogq),
+             colour = "grey80", size = 0.5, alpha = 0.4) +
+  geom_point(data = map[shown == TRUE], aes(Pos / 1e6, neglogq, colour = cl_col), size = 1.6) +
+  scale_colour_identity() +
+  facet_wrap(~ Chr, scales = "free_x", nrow = 1) +
+  labs(x = "position (Mbp)", y = expression(-log[10](q) ~ ", LOCO single-SNP"),
+       title = "Clusters with an ld_w-filtered-significant SNP (500 kb Stage-2 clustering)") +
+  theme_bw(base_size = 9)
+```
+
+Two things stand out. First, `ld_w` prioritization retains the Chr1 inversion and
+**both Chr4 *Eda* peaks** (~12.1 and ~12.8 Mb) while dropping the isolated
+low-`ld_w` hits -- exactly the false-positive screening LDscnR uses local LD for.
+Second, and more subtly, the Chr1 inversion is **not** a single cluster even under
+the 500 kb window: it resolves into two clusters (different colours) that are
+*physically interspersed* across the same 21.5--21.9 Mb interval. The 500 kb
+`distance_threshold` only bounds how far a merge may reach; within it the
+quality-gated dynamic cut clusters by **LD topology**, so the inversion's two
+haplotype components -- neighbours in bp but in weak mutual LD -- stay distinct.
+A fixed physical window would lump them into one block; resolving overlapping LD
+components in the same interval is the region-centric behaviour the eMLG
+clustering is designed for.
+
 ```{r cleanup, include = FALSE}
 SNPRelate::snpgdsClose(gds)
 unlink(gds_path)
