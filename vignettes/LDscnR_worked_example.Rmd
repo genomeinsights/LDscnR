@@ -394,8 +394,8 @@ representatives, removing that proximal over-correction.
 
 **`ld_w` prioritization.** If selection leaves a local-LD footprint, high-`ld_w`
 markers are enriched for real signal. Restricting the single-SNP scan to the top
-5% of `ld_w` (~800 of ~16,000 markers) concentrates testing on candidate regions
-*and* greatly relaxes the FDR correction.
+10% of `ld_w` (~1,600 of ~16,000 markers) concentrates testing on candidate
+regions *and* greatly relaxes the FDR correction.
 
 ```{r loco, results = "hide"}
 # LOCO GRMs: each chromosome vs relatedness estimated from the OTHER chromosomes
@@ -410,9 +410,9 @@ p_snp <- setNames(rep(NA_real_, nrow(map)), map$marker)
 for (ch in chrs) { mk <- map[Chr == ch, marker]; p_snp[mk] <- emmax(eco, GTs[, mk], Kloco[[ch]])$pval }
 map[, q_all := p.adjust(p_snp, "fdr")]
 
-# (2) ld_w-prioritized: top 5% of ld_w only (FDR over that reduced set)
-map[, top5 := ld_w_095 >= quantile(ld_w_095, 0.95, na.rm = TRUE)]
-map[top5 == TRUE, q_top := p.adjust(p_snp[marker], "fdr")]
+# (2) ld_w-prioritized: top 10% of ld_w only (FDR over that reduced set)
+map[, top_ldw := ld_w_095 >= quantile(ld_w_095, 0.90, na.rm = TRUE)]
+map[top_ldw == TRUE, q_top := p.adjust(p_snp[marker], "fdr")]
 
 # (3) cluster-consensus LOCO scan
 g[, p_clust := NA_real_]
@@ -423,8 +423,8 @@ g[, q_clust := p.adjust(p_clust, "fdr")]
 
 ```{r loco-compare}
 data.frame(
-  strategy      = c("all SNPs", "top 5% ld_w", "consensus clusters"),
-  n_tests       = c(nrow(map), sum(map$top5), nrow(g)),
+  strategy      = c("all SNPs", "top 10% ld_w", "consensus clusters"),
+  n_tests       = c(nrow(map), sum(map$top_ldw), nrow(g)),
   n_significant = c(sum(map$q_all < 0.05, na.rm = TRUE),
                     sum(map$q_top < 0.05, na.rm = TRUE),
                     sum(g$q_clust < 0.05))
@@ -433,7 +433,7 @@ data.frame(
 
 LOCO alone sharpens the single-SNP scan: the Chr4 *Eda* peak now clears
 significance where the whole-genome GRM had masked it. The `ld_w`-prioritized scan
-gains the most hits, because the top-5% `ld_w` set is dominated by the large,
+gains the most hits, because the top-10% `ld_w` set is dominated by the large,
 high-LD Chr1 inversion -- a coherent ecotype-differentiated block -- so relaxing
 the FDR over that enriched subset lets most of it through. That is also the honest
 caveat: high `ld_w` in an inversion reflects suppressed recombination as much as
