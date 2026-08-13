@@ -1,0 +1,247 @@
+---
+title: "A worked example: LD decay and complexity reduction on stickleback data"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{A worked example: LD decay and complexity reduction on stickleback data}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.width = 7, fig.height = 6, dpi = 100
+)
+```
+
+```{r packages}
+library(LDscnR)
+library(data.table)
+library(ggplot2)
+library(patchwork)
+library(SNPRelate)
+```
+
+## Overview
+
+The [quick introduction](LDscnR_quick_introduction.html) walks through the API on
+the small simulated `sim_ex` data. This worked example applies the same LD-decay
+and LD-complexity-reduction workflow to **real data** -- the bundled
+`stickleback` set (`?stickleback`): three-spined stickleback
+(*Gasterosteus aculeatus*) marine--freshwater ecotype genotype dosages from
+[Fang et al. (2021)](https://doi.org/10.1093/molbev/msab144). It is deliberately
+built from three chromosomal regions with contrasting linkage-disequilibrium
+regimes:
+
+- **Chr1** -- a chromosomal inversion (structural, strong long-range LD),
+- **Chr4** -- the *Eda* marine--freshwater adaptation locus (a high-LD outlier),
+- **Chr6** -- a background region with rapidly-decaying, low LD.
+
+That contrast is what makes the LD-decay and complexity-reduction steps visible,
+so it is a good data set to *see* what the methods do. Genotypes are dosages in
+$[0, 2]$ (no missing data), 117 individuals.
+
+```{r data}
+data(stickleback)
+GTs <- stickleback$GTs
+map <- copy(stickleback$map)
+
+region_lab <- c(Chr1 = "Chr1 inversion (high LD)",
+                Chr4 = "Chr4 Eda locus",
+                Chr6 = "Chr6 background (low LD)")
+```
+
+```{r gds}
+gds_path <- tempfile(fileext = ".gds")
+gds <- create_gds_from_geno(GTs, map, gds_path)
+```
+
+## LD decay and per-marker local LD support
+
+`compute_LD_decay()` fits the per-chromosome decay curve
+$r^2(d) = b + (c-b)/(1+ad)$, where the decay rate $a$ is estimated in a series of
+overlapping windows along each chromosome (`n_win_decay` sets the nominal window
+count; 50% overlap roughly doubles it). `compute_ld_w()` then measures, at
+**marker resolution**, the local LD support `ld_w`: the median $r^2$ between a
+marker and its neighbours within the $\rho = 0.95$ window.
+
+```{r decay, results = "hide"}
+ld_decay <- compute_LD_decay(gds, keep_el = TRUE, slide = 200,
+                             ld_method = "corr", n_win_decay = 50, cores = 2)
+
+ld_w <- compute_ld_w(ld_decay, rho = 0.95, cores = 2)
+ids  <- unlist(lapply(ld_decay$by_chr, function(o) o$snp_ids), use.names = FALSE)
+map[, ld_w_095 := ld_w[match(marker, ids)]]
+```
+
+The tracks below overlay, per region, the per-marker `ld_w` (grey points) with the
+windowed decay rate `a` (orange line), each min--max scaled to 0--1 so they share
+an axis. Because `a` is a *rate*, **low `a` means slow decay = high LD**, so the
+two are inversely related: `a` bottoms out exactly under the high-`ld_w` blocks.
+
+```{r tracks-fn}
+sc01 <- function(v) { v <- as.numeric(v); (v - min(v, na.rm = TRUE)) / diff(range(v, na.rm = TRUE)) }
+
+track_panel <- function(decay_obj, ch) {
+  lw <- map[Chr == ch & is.finite(ld_w_095)]
+  lw <- data.table(x = lw$Pos / 1e6, y = sc01(lw$ld_w_095))
+  d  <- as.data.table(decay_obj$by_chr[[ch]]$decay)[regime == "structured" & is.finite(a)]
+  dw <- data.table(x = ((d$start + d$end) / 2) / 1e6, y = sc01(d$a))[order(x)]
+  ggplot() +
+    geom_point(data = lw, aes(x, y), colour = "grey55", size = 0.25, alpha = 0.35) +
+    geom_line(data = dw, aes(x, y), colour = "#D55E00", linewidth = 0.5) +
+    scale_y_continuous(limits = c(0, 1), breaks = c(0, 0.5, 1)) +
+    labs(x = "position (Mbp)", y = "scaled (0-1)",
+         title = sprintf("%s  (%d a-windows)", region_lab[[ch]], nrow(dw))) +
+    theme_classic(base_size = 9) + theme(plot.title = element_text(size = 9))
+}
+```
+
+```{r tracks-50, fig.height = 6.5}
+(track_panel(ld_decay, "Chr1") / track_panel(ld_decay, "Chr4") /
+   track_panel(ld_decay, "Chr6")) + plot_annotation(tag_levels = "a")
+```
+
+### How the decay track depends on the window count
+
+The number of windows only controls the **smoothness** of the `a` track, not what
+it says. With finer windows each `a` estimate rests on fewer marker pairs, so it
+jitters more; min--max scaling then exaggerates whichever single window is most
+extreme. Re-estimating with `n_win_decay = 100` makes this obvious -- the track is
+spikier:
+
+```{r decay-100, results = "hide"}
+# keep_el = FALSE: we only need the windowed decay, not the edge lists
+ld_decay_100 <- compute_LD_decay(gds, keep_el = FALSE, slide = 200,
+                                 ld_method = "corr", n_win_decay = 100, cores = 2)
+```
+
+```{r tracks-100, fig.height = 6.5}
+(track_panel(ld_decay_100, "Chr1") / track_panel(ld_decay_100, "Chr4") /
+   track_panel(ld_decay_100, "Chr6")) + plot_annotation(tag_levels = "a")
+```
+
+Crucially, the spikes are **noise in the low-LD background only** -- they never
+land inside an `ld_w` block. We can check this directly by pairing each window's
+`a` with the mean `ld_w` of the markers it spans:
+
+```{r robustness}
+win_stats <- rbindlist(lapply(c("Chr1", "Chr4", "Chr6"), function(ch) {
+  d <- as.data.table(ld_decay_100$by_chr[[ch]]$decay)[regime == "structured" & is.finite(a)]
+  m <- map[Chr == ch]
+  d[, win_ldw := vapply(seq_len(.N),
+        function(i) mean(m[Pos >= start[i] & Pos <= end[i], ld_w_095], na.rm = TRUE),
+        numeric(1))]
+  d[is.finite(win_ldw), .(a, win_ldw)]
+}))
+
+# fast decay <-> low local LD
+cor(win_stats$a, win_stats$win_ldw, method = "spearman")
+
+# the a spikes (top-decile a) vs high-ld_w windows (top-decile ld_w):
+top_a  <- win_stats$a      > quantile(win_stats$a,      0.90)
+hi_ldw <- win_stats$win_ldw > quantile(win_stats$win_ldw, 0.90)
+mean(hi_ldw[top_a])            # fraction of a-spikes falling in high-ld_w windows
+```
+
+The window-level `a`--`ld_w` correlation is strongly negative and **none** of the
+`a` spikes fall in high-`ld_w` windows. So the two measures -- one at window
+resolution, one at marker resolution -- independently agree on where the high-LD
+regions are, and that agreement is invariant to the window count. This is why
+`ld_w` is the statistic used to flag clusters for reconsideration during
+complexity reduction: it carries the same signal at marker resolution, without
+the windowing noise.
+
+## Two-stage LD-complexity reduction
+
+Stage 1 (`ld_complexity_reduction()`) clusters markers within each chromosome from
+a sliding-window LD graph. In extended-LD regions like the Chr1 inversion, pairs
+farther apart than the window are never compared, so a single block can fragment
+into many adjacent clusters. Stage 2 (`ld_prune_and_eMLG()`) reconsiders the
+flagged clusters directly from genotypes and consolidates them.
+
+```{r stage1, results = "hide"}
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cores = 2)
+
+result <- ld_prune_and_eMLG(
+  GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.05,
+  LD_decay = ld_decay, rho = 0.95, score_threshold = 0.80, min_r2 = 0.2,
+  min_n_loci_flag = 5, min_n_loci_eMLG = 5, compute_unflagged_eMLG = FALSE, cores = 2
+)
+```
+
+`plot_pruning_comparison()` stacks Stage 1 against the combined result for one
+chromosome. On the Chr1 inversion the effect is stark: the fragmented Stage-1
+clusters (top) are consolidated into a few coherent groups (bottom).
+
+```{r stage-plot, fig.height = 6.5}
+# plot_pruning_comparison() returns its plot invisibly (and saves to out_folder),
+# so assign and re-print it to show it here.
+p_stage <- plot_pruning_comparison(chr = "Chr1", pruned_stage1 = stage1,
+                                   result = result, map = map, out_folder = tempdir())
+p_stage
+```
+
+## Consensus fidelity and the flagging threshold
+
+A Stage-1 cluster is flagged for Stage-2 merging when its local LD support exceeds
+`ld_w_threshold`. Raising the threshold flags fewer clusters. The consensus
+fidelity `score_eMLG = cor(round(x), x)^2` measures whether a merged block's
+consensus still sits close to a discrete genotype; `ld_prune_and_eMLG()` enforces
+a floor of 0.80 when accepting a merge. Sweeping the flagging threshold shows the
+trade-off:
+
+```{r sweep, results = "hide"}
+TH <- c(0.025, 0.05, 0.1, 0.15)
+fl <- rbindlist(lapply(TH, function(th) {
+  r <- ld_prune_and_eMLG(GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095",
+                         ld_w_threshold = th, score_threshold = 0.80, min_r2 = 0.2,
+                         LD_decay = ld_decay, rho = 0.95, min_n_loci_flag = 5,
+                         min_n_loci_eMLG = 5, compute_unflagged_eMLG = FALSE, cores = 2)
+  g <- as.data.table(r$groups)[startsWith(group_id, "F")]
+  g[, .(th = th, score, n_loci)]
+}))
+```
+
+```{r fidelity-plot, fig.height = 6.5}
+fl[, th_label := sprintf("ld_w threshold = %s  (n = %s, mean = %.3f)",
+                         th, format(.N, big.mark = ","), mean(score)), by = th]
+fl[, th_label := factor(th_label, levels = unique(th_label[order(th)]))]
+fl[, cluster_type := fifelse(n_loci == 1, "singleton (no merge possible)", "merged (n_loci > 1)")]
+hb <- fl[, { br <- seq(0.80, 1, by = 0.01); h <- hist(score, breaks = br, plot = FALSE)
+             .(bin_mid = h$mids, count = h$counts) }, by = .(th_label, cluster_type)]
+hb <- fl[, .(N = .N), by = th_label][hb, on = "th_label"][, pct := 100 * count / N]
+
+ggplot(hb, aes(bin_mid, pct, fill = cluster_type)) +
+  geom_col(colour = "white", linewidth = 0.1, width = 0.01) +
+  geom_vline(xintercept = 0.80, linetype = 2, colour = "#D08A45", linewidth = 0.5) +
+  scale_fill_manual(values = c("singleton (no merge possible)" = "#C7CDD2",
+                               "merged (n_loci > 1)" = "#315B7D"), name = NULL) +
+  facet_wrap(~ th_label, ncol = 1) + coord_cartesian(xlim = c(0.80, 1)) +
+  labs(x = expression(score[eMLG] == cor(round(x), x)^2),
+       y = "% of that run's flagged clusters") +
+  theme_classic(base_size = 9) +
+  theme(legend.position = "top", strip.text = element_text(size = 7.5, face = "bold"))
+```
+
+Raising `ld_w_threshold` shrinks the flagged set but the excluded clusters are the
+fragmented extended-LD ones that would benefit from merging; lowering it pulls in
+isolated single markers with no merge partner (the mass at the upper fidelity
+limit). The threshold governs *which clusters are evaluated*, not which merges are
+accepted -- the fidelity and correlation gates do that -- so a permissive setting
+costs computation rather than accuracy.
+
+```{r cleanup, include = FALSE}
+SNPRelate::snpgdsClose(gds)
+unlink(gds_path)
+```
+
+## Summary
+
+On real stickleback data this worked example showed the full workflow --
+per-chromosome LD-decay estimation, marker-resolution local LD support (`ld_w`),
+and two-stage complexity reduction into a pruned marker set and eMLG consensus --
+and demonstrated that the window-resolution decay rate and marker-resolution
+`ld_w` agree, robustly, on where the high-LD regions are. For a single-value
+per-block summary the eMLG consensus is ideal; where SNP-specific signal matters,
+`eMLG_best_snp()` returns the best single-SNP proxy per block instead.
