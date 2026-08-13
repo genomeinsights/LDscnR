@@ -33,8 +33,9 @@ This vignette walks through the full workflow on the bundled simulated dataset `
 2.  converting between relative LD thresholds, physical distance, and expected $r^2$,
 3.  per-marker local LD support (`ld_w`),
 4.  reducing markers to LD-independent representatives (Stage 1),
-5.  consolidating into pruned markers and/or eMLGs (Stage 2), and
-6.  a diagnostic plot comparing the two stages.
+5.  consolidating into pruned markers and/or eMLGs (Stage 2),
+6.  a diagnostic plot comparing the two stages, and
+7.  picking the best single-SNP proxy per block.
 
 ```{r cores}
 # Kept small and explicit throughout this vignette -- sim_ex is tiny, so
@@ -179,6 +180,34 @@ p_comparison <- plot_pruning_comparison(
 p_comparison
 ```
 
+## Best single-SNP proxy per block (optional)
+
+The eMLG consensus averages a block's markers -- ideal for one value per LD block, but some signal is genuinely SNP-specific and can differ even between strongly-linked markers, and there the average dilutes it. `eMLG_best_snp()` is a post-processing step for exactly that case: for every block with a stored consensus it finds the member SNP most correlated with the consensus, and (optionally) returns that SNP's genotype with only its *missing* calls repaired from the consensus -- observed calls are never overwritten, so SNP-level signal is preserved.
+
+The clustering already returns a `representative` marker per block, but that is picked for cluster centrality (highest median $r^2$ to the rest of the block), not to reproduce the consensus. `eMLG_best_snp()` reports how much better the consensus-optimal member does:
+
+```{r best-snp}
+best <- eMLG_best_snp(result, GTs)
+
+# focus on multi-marker blocks, where the consensus actually differs from any
+# single SNP; `best_marker` is the consensus-optimal member, `representative`
+# the centrality choice
+head(best$stats[n_loci > 2,
+  .(group_id, n_loci, score, representative, best_marker, rep_abs_r, best_abs_r, rep_is_best)])
+```
+
+`best$geno` is a drop-in single-SNP alternative to the consensus matrix `result$eMLG` -- same shape and column order, but each column is an observed SNP (gaps filled) rather than an average:
+
+```{r best-snp-geno}
+dim(best$geno)
+
+# among multi-marker blocks, how often the centrality representative was
+# already the best consensus proxy
+mean(best$stats[n_loci > 2]$rep_is_best)
+```
+
+The `score` column (eMLG fidelity) is a useful guide for *when* to prefer a single SNP: high-fidelity blocks are near-perfectly captured by one SNP (so the consensus buys little), whereas low-fidelity blocks are where the consensus does real work. See `?eMLG_best_snp`.
+
 ## Summary
 
 Starting from genotype and SNP metadata, this vignette:
@@ -186,8 +215,9 @@ Starting from genotype and SNP metadata, this vignette:
 - created a GDS object and estimated chromosome-wise LD decay,
 - converted between relative LD thresholds, physical distance, and expected $r^2$,
 - computed per-marker local LD support across several $\rho$ values in one pass,
-- reduced markers to LD-independent representatives (Stage 1), and
-- consolidated flagged clusters into a refined pruned marker set and an eMLG matrix (Stage 2), with a diagnostic plot comparing the two stages.
+- reduced markers to LD-independent representatives (Stage 1),
+- consolidated flagged clusters into a refined pruned marker set and an eMLG matrix (Stage 2), with a diagnostic plot comparing the two stages, and
+- selected, per block, the best single-SNP proxy for the consensus (`eMLG_best_snp()`), for signals better kept at SNP resolution.
 
 For empirical data, the same workflow applies; only the tuning parameters (`slide`, `rho`, `ld_w_threshold`, ...) need adjusting to the dataset's scale.
 

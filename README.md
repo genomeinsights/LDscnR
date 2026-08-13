@@ -22,6 +22,8 @@
 
 - 🔎 **Diagnostic plotting** comparing raw vs. consolidated clusters chromosome-by-chromosome
 
+- 🎯 **Best single-SNP proxy per block** (`eMLG_best_snp()`) -- the consensus-optimal member SNP with missing calls filled from the consensus, for signals better kept at SNP resolution
+
 ------------------------------------------------------------------------
 
 ## 📦 Installation
@@ -170,6 +172,22 @@ plot_pruning_comparison(chr = "Chr3", pruned_stage1 = stage1, result = result, m
 - **Preliminary/exploratory runs**: use a high `ld_w_threshold` to flag only the most obviously redundant clusters -- fast, good enough for a first look at cluster counts and eMLG behaviour.
 - **Final run**: lower `ld_w_threshold` toward `~0.05` (optionally combined with `min_n_loci_flag`, to also pull in large-but-low-`ld_w` clusters) so that as many genuine mergers as possible actually happen -- slower, but this only needs to be run once.
 - **`compute_unflagged_eMLG = FALSE`** skips eMLG computation for the unflagged clusters entirely (usually the large majority) if you only need the pruned marker set, independent of `ld_w_threshold`.
+
+### 5. Best single-SNP proxy per block (optional)
+
+The eMLG consensus averages a block's markers -- ideal for one value per block, but it dilutes signal that is genuinely SNP-specific (differing even between strongly-linked markers). `eMLG_best_snp()` is for that case: for each block with a stored consensus it picks the member SNP most correlated with the consensus, and can return that SNP's genotype with only its *missing* calls filled from the consensus (observed calls are never overwritten, so SNP-level signal is preserved). The clustering's `representative` is chosen for cluster centrality, not to reproduce the consensus, so the two differ; the `score` (eMLG fidelity) column indicates when one SNP suffices (high score → consensus adds little) vs. when the consensus does real work (low score):
+
+```         
+best <- eMLG_best_snp(result, GTs)
+
+# per block: representative vs consensus-optimal best_marker, their |r| to the
+# consensus, the fidelity score, and (with fill = TRUE) the fill counts
+best$stats
+
+# drop-in single-SNP alternative to result$eMLG: same shape, but each column is
+# an observed SNP with its gaps filled from the consensus
+best$geno
+```
 
 ------------------------------------------------------------------------
 
