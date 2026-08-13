@@ -66,6 +66,7 @@ count; 50% overlap roughly doubles it). `compute_ld_w()` then measures, at
 marker and its neighbours within the $\rho = 0.95$ window.
 
 ```{r decay, results = "hide"}
+set.seed(1)  # compute_LD_decay() subsamples SNP pairs for the background-LD fit
 ld_decay <- compute_LD_decay(gds, keep_el = TRUE, slide = 200,
                              ld_method = "corr", n_win_decay = 50, cores = 2)
 
@@ -181,6 +182,86 @@ p_stage <- plot_pruning_comparison(chr = "Chr1", pruned_stage1 = stage1,
                                    result = result, map = map, out_folder = tempdir())
 p_stage
 ```
+
+### The Stage-2 merge distance window
+
+Stage 2 only consolidates clusters whose consecutive physical gap stays below
+`distance_threshold`. Left at its default (`NULL`), that threshold is **not** a
+fixed constant: it is derived *per chromosome* from the decay model as
+`d_from_rho(a_pred, rho)` -- the physical distance at which LD has decayed to the
+relative threshold `rho` (default 0.95) -- using the chromosome-size-corrected
+predicted decay rate `a_pred` rather than each chromosome's own noisy fit. On this
+data it works out to only a few kb per region, and it adapts to each region's
+decay:
+
+```{r dist-default}
+ds <- copy(ld_decay$decay_sum)
+ds[, distance_threshold_bp := round(d_from_rho(a_pred, 0.95))]
+ds[, .(Chr, a_pred = signif(a_pred, 3), distance_threshold_bp)]
+```
+
+A common alternative is a single fixed window -- e.g. 500 kb, as in the
+Formica-hybrid analysis, whose low-recombination blocks span megabases:
+
+```{r stage-500, results = "hide"}
+result_500kb <- ld_prune_and_eMLG(
+  GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.05,
+  LD_decay = ld_decay, rho = 0.95, score_threshold = 0.80, min_r2 = 0.2,
+  min_n_loci_flag = 5, min_n_loci_eMLG = 5, compute_unflagged_eMLG = FALSE,
+  distance_threshold = 5e5, cores = 2
+)
+```
+
+```{r stage-500-plot, fig.height = 6.5}
+p_500 <- plot_pruning_comparison(chr = "Chr1", pruned_stage1 = stage1,
+                                 result = result_500kb, map = map, out_folder = tempdir())
+p_500
+```
+
+On this compact example the two windows give almost the same partition:
+
+```{r dist-compare}
+c(default_rho_derived = nrow(result$groups),
+  fixed_500kb         = nrow(result_500kb$groups))
+```
+
+The reason is that the flagged clusters inside a dense LD block are already
+physically contiguous, so the cap rarely binds -- widening it from a few kb to
+500 kb bridges few additional gaps. (In the 500 kb plot the inversion looks like
+one green mass, but with hundreds of groups the colour palette simply recycles;
+the group *count* confirms the partition barely changed.) The distance window
+matters much more on data with *large* low-recombination blocks -- megabase
+inversions, centromeric regions -- where a tight per-chromosome window can leave a
+single block fragmented that a 500 kb window would consolidate.
+
+Ideally the window would be defined in **genetic** rather than physical distance:
+supplying a `genetic_map` and a single `cM_threshold` makes the merge window a
+fixed number of centimorgans. Because a centimorgan spans *more* base pairs where
+recombination is suppressed, a fixed cM window automatically widens (in bp)
+precisely in the low-recombination regions that harbour the large LD blocks, and
+narrows in the recombining bulk -- the behaviour you want, and one no single fixed
+bp value can reproduce. Stickleback has no recombination map here, so we fall back
+to physical distance.
+
+Among the physical-distance options, raising `rho` widens the window. The default
+`rho = 0.95` gave a few kb above; `rho = 0.99` is 5.2x wider
+(`(0.99/0.01) / (0.95/0.05)`):
+
+```{r dist-099}
+ds[, `:=`(rho_0.95_bp = round(d_from_rho(a_pred, 0.95)),
+          rho_0.99_bp = round(d_from_rho(a_pred, 0.99)))]
+ds[, .(Chr, rho_0.95_bp, rho_0.99_bp)]
+```
+
+Even at `rho = 0.99` that reaches only ~40-85 kb here, still well short of 500 kb,
+because these stickleback regions decay fairly fast (`a_pred ~1-3e-3`). Getting a
+~500 kb window out of `rho = 0.99` would take about ten-fold slower decay
+(`a_pred ~2e-4`) -- exactly the regime of large low-recombination blocks (e.g. the
+megabase ant blocks the Formica analysis capped at 500 kb). So what "500 kb" means
+is entirely relative to the local decay rate, which is why a cM-based window is the
+principled choice where a map exists, with the `rho`-derived per-chromosome bp
+window as the next-best adaptive proxy and a single fixed bp value the most
+convenient but least adaptive option.
 
 ## Consensus fidelity and the flagging threshold
 
