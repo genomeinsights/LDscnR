@@ -26,22 +26,13 @@ COMM <- list(GTs = GTs, stage1 = s1, ld_w_col = "ld_w_095", ld_w_threshold = 0.0
              min_n_loci_flag = 5, min_n_loci_eMLG = 5, compute_unflagged_eMLG = TRUE, cores = 4)
 result     <- do.call(ld_prune_and_eMLG, COMM)
 result_500 <- do.call(ld_prune_and_eMLG, c(COMM, list(distance_threshold = 5e5)))
-best <- eMLG_best_snp(result, GTs, round_fill = FALSE)
-
 eco  <- as.integer(pheno$ecotype == "Marine")
 chrs <- unique(map$Chr)
 pruned_chr <- map$Chr[match(result$pruned, map$marker)]
 
 g <- as.data.table(result$groups)[has_eMLG == TRUE]
-g[, best_marker := best$stats$best_marker[match(group_id, best$stats$group_id)]]
 
-## ---- fixed-GRM representation comparison (rep / consensus / max) ----------
-K <- snpgdsGRM(gds, snp.id = result$pruned, method = "GCTA", autosome.only = FALSE, verbose = FALSE)$grm
-g[, `:=`(Fr_fix = emmax(eco, GTs[, representative], K)$F,
-         Fc_fix = emmax(eco, result$eMLG[, group_id], K)$F,
-         Fm_fix = emmax(eco, GTs[, best_marker],     K)$F)]
-
-## ---- LOCO GRMs + scans ----------------------------------------------------
+## ---- LOCO GRMs + scans (consensus only -- the Li et al. 2018 analog) ------
 Kloco <- setNames(lapply(chrs, function(ch)
   snpgdsGRM(gds, snp.id = result$pruned[pruned_chr != ch], method = "GCTA",
             autosome.only = FALSE, verbose = FALSE)$grm), chrs)

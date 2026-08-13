@@ -15,65 +15,76 @@ sv <- function(name, p, w = 200, h = 80) ggsave(file.path("dev/outlier/fig", nam
 
 ## ---- FDR + categories -----------------------------------------------------
 map[, q_all := p.adjust(p_loco, "fdr")]
-map[, top_ldw := ld_w_095 >= quantile(ld_w_095, 0.90, na.rm = TRUE)]
-map[top_ldw == TRUE, q_top := p.adjust(p_loco[top_ldw], "fdr")]
 g[, q_clust := p.adjust(p_clust_loco, "fdr")]
 map[, neglogq := -log10(q_all)]
+map[, ldw_rank := ecdf(ld_w_095)(ld_w_095)]   # genome-wide ld_w rank (0-1)
 
+## data-driven ld_w threshold: rejection-maximizing (independent filtering; Bourgon 2010)
+thr_qs  <- seq(0, 0.98, by = 0.01)
+thr_rej <- vapply(thr_qs, function(q) {
+  keep <- map$ld_w_095 >= quantile(map$ld_w_095, q, na.rm = TRUE)
+  sum(p.adjust(map$p_loco[keep], "fdr") < 0.05, na.rm = TRUE)
+}, integer(1))
+best_thr <- thr_qs[which.max(thr_rej)]
+map[, top_ldw := ld_w_095 >= quantile(ld_w_095, best_thr, na.rm = TRUE)]
+map[top_ldw == TRUE, q_top := p.adjust(p_loco[top_ldw], "fdr")]
+
+cat(sprintf("=== data-driven ld_w threshold: q* = %.2f (rejections = %d) ===\n", best_thr, max(thr_rej)))
 cat("=== strategy comparison (LOCO, q<0.05) ===\n")
-print(data.frame(strategy = c("all SNPs","top 10% ld_w","consensus clusters"),
+print(data.frame(strategy = c("all SNPs", sprintf("ld_w q>=%.2f", best_thr), "consensus clusters"),
                  n_tests = c(nrow(map), sum(map$top_ldw), nrow(g)),
                  n_sig   = c(sum(map$q_all<0.05,na.rm=T), sum(map$q_top<0.05,na.rm=T), sum(g$q_clust<0.05))))
 
+## (E) threshold-selection curve
+pE <- ggplot(data.table(q = thr_qs, rej = thr_rej), aes(q, rej)) +
+  geom_line(colour = "grey45") + geom_point(size = 0.7) +
+  geom_vline(xintercept = best_thr, linetype = 2, colour = "#F21A00") +
+  annotate("text", x = best_thr, y = max(thr_rej), hjust = -0.1,
+           label = sprintf("q* = %.2f", best_thr), colour = "#F21A00", size = 3) +
+  labs(x = "ld_w quantile threshold (genome-wide)", y = "FDR-significant SNPs",
+       title = "Data-driven ld_w threshold: rejection maximization (independent filtering)") +
+  theme_bw(base_size = 9) + theme(strip.background = element_blank())
+sv("E_threshold_selection.png", pE, w = 130, h = 80)
+
 ## =========================================================================
-## (A) NEW: Manhattan coloured by ld_w (Zissou)
+## (A) Manhattan: colour AND alpha = ld_w (Zissou) so high-ld_w peaks pop
 ## =========================================================================
-pA <- ggplot(map, aes(Pos/1e6, neglogq, colour = ld_w_095)) +
+pA <- ggplot(map, aes(Pos/1e6, neglogq, colour = ld_w_095, alpha = ld_w_095)) +
   geom_hline(yintercept = -log10(0.05), linetype = 2, colour = "grey60") +
-  geom_point(size = 0.8) +
+  geom_point(size = 0.9) +
   scale_colour_gradientn(colours = ZISSOU, name = expression(ld[w])) +
+  scale_alpha(range = c(0, 1), guide = "none") +
   facet_wrap(~ Chr, scales = "free_x", nrow = 1) +
   labs(x = "position (Mbp)", y = expression(-log[10](q)~", LOCO single-SNP"),
-       title = "Single-SNP scan coloured by ld_w (Zissou)") +
-  theme_bw(base_size = 9)
+       title = "Single-SNP scan: colour + alpha = ld_w (Zissou)") +
+  theme_bw(base_size = 9) + theme(strip.background = element_blank(), strip.text = element_text(face = "bold"))
 sv("A_manhattan_ldw_zissou.png", pA, h = 80)
 
+## (A2) alpha-only on RAW ld_w (single colour) -- what peaks remain when low-ld_w fades
+pA2 <- ggplot(map, aes(Pos/1e6, neglogq, alpha = ld_w_095)) +
+  geom_hline(yintercept = -log10(0.05), linetype = 2, colour = "grey60") +
+  geom_point(size = 0.9, colour = "black") +
+  scale_alpha(range = c(0, 1), name = expression(ld[w])) +
+  facet_wrap(~ Chr, scales = "free_x", nrow = 1) +
+  labs(x = "position (Mbp)", y = expression(-log[10](q)~", LOCO single-SNP"),
+       title = "Single-SNP scan: alpha = ld_w (raw) only") +
+  theme_bw(base_size = 9) + theme(strip.background = element_blank(), strip.text = element_text(face = "bold"))
+sv("A2_manhattan_alpha_only.png", pA2, h = 80)
+
 ## =========================================================================
-## (B) NEW: F vs ld_w quantile, per chromosome (visual) + correlations
+## (B) F vs GENOME-WIDE ld_w quantile; rolling median + data-driven threshold line
 ## =========================================================================
-map[, ldw_q := ecdf(ld_w_095)(ld_w_095), by = Chr]
-map[, is_rep := marker %in% o$pruned]
-pB <- ggplot(map, aes(ldw_q, F_loco)) +
-  geom_point(size = 0.4, alpha = 0.3, colour = "grey40") +
-  geom_smooth(method = "loess", se = TRUE, colour = "#F21A00", linewidth = 0.6) +
+setorder(map, Chr, ldw_rank)
+map[, F_roll := frollapply(F_loco, 201, median, align = "center"), by = Chr]
+pB <- ggplot(map, aes(ldw_rank, F_loco)) +
+  geom_point(size = 0.4, alpha = 0.25, colour = "grey55") +
+  geom_line(aes(y = F_roll), colour = "#F21A00", linewidth = 0.7, na.rm = TRUE) +
+  geom_vline(xintercept = best_thr, linetype = 2, colour = "#3B9AB2") +
   facet_wrap(~ Chr, nrow = 1) +
-  labs(x = "ld_w quantile (within chromosome)", y = "EMMAX F (LOCO single-SNP)",
-       title = "F vs ld_w quantile per chromosome") +
-  theme_bw(base_size = 9)
+  labs(x = "ld_w quantile (genome-wide)", y = "EMMAX F (LOCO single-SNP)",
+       title = sprintf("F vs genome-wide ld_w quantile; rolling median; data-driven q* = %.2f", best_thr)) +
+  theme_bw(base_size = 9) + theme(strip.background = element_blank(), strip.text = element_text(face = "bold"))
 sv("B_F_vs_ldwquantile.png", pB, h = 75)
-
-cat("\n=== per-chr Spearman(F, ld_w): all-SNP | representatives ===\n")
-for (ch in chrs) { d <- map[Chr==ch]; dr <- d[is_rep==TRUE]
-  cat(sprintf("%-5s all=%+.3f (n=%d) | rep=%+.3f p=%.2g (n=%d)\n", ch,
-      cor(d$F_loco, d$ld_w_095, method="spearman"), nrow(d),
-      suppressWarnings(cor.test(dr$F_loco, dr$ld_w_095, method="spearman"))$estimate,
-      suppressWarnings(cor.test(dr$F_loco, dr$ld_w_095, method="spearman"))$p.value, nrow(dr))) }
-
-## =========================================================================
-## (C) consensus F vs cluster size, per chromosome
-## =========================================================================
-pC <- ggplot(g, aes(n_loci, Fc_loco)) +
-  geom_point(size = 0.8, alpha = 0.5, colour = "#3B9AB2") +
-  geom_smooth(method = "loess", se = TRUE, colour = "#F21A00", linewidth = 0.6) +
-  scale_x_log10() + facet_wrap(~ Chr, nrow = 1) +
-  labs(x = "cluster size (n markers, log)", y = "consensus EMMAX F (LOCO)",
-       title = "Consensus F vs cluster size per chromosome") +
-  theme_bw(base_size = 9)
-sv("C_consensusF_vs_size.png", pC, h = 75)
-
-cat("\n=== per-chr Spearman(consensus F, cluster size) ===\n")
-for (ch in chrs) { d <- g[Chr==ch]; ct <- suppressWarnings(cor.test(d$Fc_loco, d$n_loci, method="spearman"))
-  cat(sprintf("%-5s rho=%+.3f p=%.2g (n=%d)\n", ch, ct$estimate, ct$p.value, nrow(d))) }
 
 ## =========================================================================
 ## (D) reference: LOCO Manhattan with significant consensus clusters + black triangles
@@ -94,7 +105,7 @@ pD <- ggplot() +
   geom_point(data=map[cat=="cluster"], aes(Pos/1e6, neglogq, colour=sig_col), size=1.6) +
   scale_colour_identity() + facet_wrap(~Chr, scales="free_x", nrow=1) +
   labs(x="position (Mbp)", y=expression(-log[10](q)), title="LOCO single-SNP; sig consensus clusters coloured, black = SNP-only") +
-  theme_bw(base_size=9)
+  theme_bw(base_size = 9) + theme(strip.background = element_blank(), strip.text = element_text(face = "bold"))
 sv("D_loco_manhattan.png", pD, h = 80)
 
-cat("\nWrote figures to dev/outlier/fig/: A (ldw Zissou), B (F~ld_w quantile), C (consensus F~size), D (LOCO manhattan)\n")
+cat("\nWrote: A, A2, B (F~ld_w + data-driven thr), D (LOCO manhattan), E (threshold selection)\n")
