@@ -12,6 +12,10 @@ ld_outlier_clusters(
   ld_w_threshold = NULL,
   fdr = 0.05,
   r2_link = 0.5,
+  distance_threshold = NULL,
+  rho_ld = NULL,
+  rho_d = NULL,
+  LD_decay = NULL,
   min_cluster_sig = 1L,
   null = c("background", "permutation"),
   cluster_fdr = 0.05,
@@ -39,7 +43,25 @@ ld_outlier_clusters(
 
 \item{fdr}{SNP-level FDR within candidates.}
 
-\item{r2_link}{Single-linkage \eqn{r^2} threshold for candidate clustering.}
+\item{r2_link}{Single-linkage \eqn{r^2} threshold for candidate clustering.
+Ignored on a chromosome for which \code{rho_ld} supplies a value.}
+
+\item{distance_threshold}{Optional maximum consecutive-position gap (bp) within
+a cluster: after single-linkage, a cluster is split wherever adjacent members
+are farther apart than this (a distance-restricted single linkage, as in
+\code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}}'s \code{split_by_distance}). Stops long-range LD from
+chaining physically distant signals through a coherent block. \code{NULL} (default)
+applies no distance cap unless \code{rho_d} is given.}
+
+\item{rho_ld, rho_d}{Optional relative-LD thresholds that derive the linkage and
+distance cuts \emph{per chromosome} from the LD-decay fit (requires \code{LD_decay}):
+\code{r2_link = ld_from_rho(b, c, rho_ld)} (higher \code{rho_ld} = looser \eqn{r^2}),
+\code{distance_threshold = d_from_rho(a_pred, rho_d)} (higher \code{rho_d} = wider gap).
+Either may be given alone; each overrides the corresponding direct argument
+on chromosomes present in the decay fit.}
+
+\item{LD_decay}{Object from \code{\link[=compute_LD_decay]{compute_LD_decay()}} (its \verb{$decay_sum} supplies the
+per-chromosome \code{a_pred}, \code{b}, \code{c}); required only when \code{rho_ld}/\code{rho_d} are set.}
 
 \item{min_cluster_sig}{Minimum significant SNPs for a cluster to be tested.}
 

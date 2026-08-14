@@ -81,6 +81,21 @@ rmsc_threshold <- function(pval, ld_w, fdr = 0.05, grid = seq(0, 0.98, by = 0.01
 #'   (default) selects it with [rmsc_threshold()].
 #' @param fdr SNP-level FDR within candidates.
 #' @param r2_link Single-linkage \eqn{r^2} threshold for candidate clustering.
+#'   Ignored on a chromosome for which `rho_ld` supplies a value.
+#' @param distance_threshold Optional maximum consecutive-position gap (bp) within
+#'   a cluster: after single-linkage, a cluster is split wherever adjacent members
+#'   are farther apart than this (a distance-restricted single linkage, as in
+#'   [ld_prune_and_eMLG()]'s `split_by_distance`). Stops long-range LD from
+#'   chaining physically distant signals through a coherent block. `NULL` (default)
+#'   applies no distance cap unless `rho_d` is given.
+#' @param rho_ld,rho_d Optional relative-LD thresholds that derive the linkage and
+#'   distance cuts *per chromosome* from the LD-decay fit (requires `LD_decay`):
+#'   `r2_link = ld_from_rho(b, c, rho_ld)` (higher `rho_ld` = looser \eqn{r^2}),
+#'   `distance_threshold = d_from_rho(a_pred, rho_d)` (higher `rho_d` = wider gap).
+#'   Either may be given alone; each overrides the corresponding direct argument
+#'   on chromosomes present in the decay fit.
+#' @param LD_decay Object from [compute_LD_decay()] (its `$decay_sum` supplies the
+#'   per-chromosome `a_pred`, `b`, `c`); required only when `rho_ld`/`rho_d` are set.
 #' @param min_cluster_sig Minimum significant SNPs for a cluster to be tested.
 #' @param null Cluster-level null: `"background"` (default, method-agnostic) or
 #'   `"permutation"` (EMMAX, needs `Y`/`K`).
@@ -102,6 +117,8 @@ rmsc_threshold <- function(pval, ld_w, fdr = 0.05, grid = seq(0, 0.98, by = 0.01
 #' @export
 ld_outlier_clusters <- function(pval, ld_w, map, GTs,
                                 ld_w_threshold = NULL, fdr = 0.05, r2_link = 0.5,
+                                distance_threshold = NULL,
+                                rho_ld = NULL, rho_d = NULL, LD_decay = NULL,
                                 min_cluster_sig = 1L,
                                 null = c("background", "permutation"),
                                 cluster_fdr = 0.05, B = 1000L,
@@ -142,16 +159,42 @@ ld_outlier_clusters <- function(pval, ld_w, map, GTs,
     warning("No SNP significant within candidates at fdr = ", fdr,
             "; no clusters can be flagged.", call. = FALSE)
 
-  ## 3. single-linkage LD clusters on candidates (per chromosome) -------------
+  ## 3. distance-restricted single-linkage LD clusters (per chromosome) -------
+  ## Per-chromosome r2_link and distance_threshold may be derived from the LD-
+  ## decay fit via rho: r2_link = ld_from_rho(b, c, rho_ld) (higher rho_ld = looser
+  ## r2), distance_threshold = d_from_rho(a_pred, rho_d) (higher rho_d = wider gap).
+  r2_by_chr <- dist_by_chr <- NULL
+  if (!is.null(rho_ld) || !is.null(rho_d)) {
+    if (is.null(LD_decay) || is.null(LD_decay$decay_sum))
+      stop("`rho_ld`/`rho_d` require `LD_decay` (with $decay_sum).")
+    ds <- data.table::as.data.table(LD_decay$decay_sum)
+    cc <- if ("c" %in% names(ds)) ds$c else rep(1, nrow(ds))
+    if (!is.null(rho_ld)) r2_by_chr   <- stats::setNames(ld_from_rho(ds$b, cc, rho_ld), ds$Chr)
+    if (!is.null(rho_d))  dist_by_chr <- stats::setNames(d_from_rho(ds$a_pred, rho_d), ds$Chr)
+  }
+  ## split one single-linkage cluster into physically-contiguous runs
+  split_gap <- function(cl, pos, dthr) {
+    if (!is.finite(dthr)) return(cl)
+    out <- integer(length(cl)); nxt <- 0L
+    for (g in unique(cl)) {
+      gi <- which(cl == g); o <- order(pos[gi])
+      run <- integer(length(gi)); run[o] <- cumsum(c(TRUE, diff(pos[gi][o]) > dthr))
+      out[gi] <- nxt + run; nxt <- nxt + max(run)
+    }
+    out
+  }
   map[, cluster := NA_character_]
   for (ch in unique(map$Chr[map$cand])) {
     idx <- which(map$cand & map$Chr == ch)
-    mk <- map$marker[idx]
+    mk <- map$marker[idx]; pos <- map$Pos[idx]
+    r2c  <- if (!is.null(r2_by_chr) && !is.na(r2_by_chr[ch])) r2_by_chr[[ch]] else r2_link
+    dthr <- if (!is.null(dist_by_chr) && !is.na(dist_by_chr[ch])) dist_by_chr[[ch]]
+            else if (!is.null(distance_threshold)) distance_threshold else Inf
     if (length(mk) == 1L) { map$cluster[idx] <- paste0(ch, "_c1"); next }
     R <- suppressWarnings(stats::cor(GTs[, mk], use = "pairwise.complete.obs")^2)
     R[!is.finite(R)] <- 0
-    cl <- stats::cutree(stats::hclust(stats::as.dist(1 - R), method = "single"),
-                        h = 1 - r2_link)
+    cl <- stats::cutree(stats::hclust(stats::as.dist(1 - R), method = "single"), h = 1 - r2c)
+    cl <- split_gap(cl, pos, dthr)                    # distance cap (split_by_distance)
     map$cluster[idx] <- paste0(ch, "_c", cl)
   }
 
