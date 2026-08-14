@@ -105,7 +105,11 @@ rmsc_threshold <- function(pval, ld_w, fdr = 0.05, grid = seq(0, 0.98, by = 0.01
 #'   a single `n x n` matrix or a named list of per-chromosome (LOCO) matrices.
 #' @param rmsc_grid Grid passed to [rmsc_threshold()].
 #' @param cores Cores for the permutation loop.
-#' @param verbose Emit diagnostic warnings (no elbow; every chromosome flagged).
+#' @param verbose Emit diagnostic warnings: no RMSC elbow; every chromosome
+#'   flagged; `ld_w` tracking genome-wide structure (positive `ld_w`-vs-signal
+#'   correlation on most chromosomes); significant clusters spanning whole
+#'   chromosomes. The last two flag structure-dominated runs whose calls are
+#'   unreliable (see `$diagnostics$ldw_tracks_structure`, `$whole_chr_clusters`).
 #'
 #' @return An object of class `ld_outlier_clusters`: a list with `clusters`
 #'   (per-cluster `Chr`, size `n`, `n_sig`, `start`/`end`, `members`, `emp_p`,
@@ -228,6 +232,38 @@ ld_outlier_clusters <- function(pval, ld_w, map, GTs,
             "outliers are unusual -- check for residual structure or an ",
             "over-permissive threshold.", call. = FALSE)
 
+  ## structure flag 1: does the association statistic rise with ld_w on EVERY
+  ## chromosome?  On a localized-signal dataset the ld_w vs -log10(p) rank
+  ## correlation is positive only on the few chromosomes that carry outliers;
+  ## when it is positive genome-wide (including nominally neutral chromosomes)
+  ## ld_w is tracking residual structure, not signal.
+  map[, sig_stat := -log10(pmax(pv0, 1e-300))]
+  ldw_cor <- map[is.finite(ldw0) & is.finite(sig_stat),
+                 .(cor = suppressWarnings(stats::cor(ldw0, sig_stat,
+                        method = "spearman"))),
+                 by = Chr]
+  frac_chr_pos <- mean(ldw_cor$cor > 0.1, na.rm = TRUE)
+  ldw_tracks_structure <- n_chr > 2L && isTRUE(frac_chr_pos > 0.8)
+  if (verbose && ldw_tracks_structure)
+    warning(sprintf(paste0("ld_w correlates with the association signal on ",
+            "%.0f%% of chromosomes -- ld_w is likely tracking genome-wide ",
+            "structure rather than localized outliers; calls are unreliable."),
+            100 * frac_chr_pos), call. = FALSE)
+
+  ## structure flag 2: do significant clusters span whole chromosomes?  A span
+  ## fraction near 1 means a chromosome collapsed into a single cluster, so
+  ## per-cluster TP/FP is meaningless (at most one call per chromosome).
+  chrlen <- map[, .(len = max(Pos) - min(Pos)), by = Chr]
+  sigcl <- cl[significant == TRUE]
+  span_frac <- if (nrow(sigcl))
+    (sigcl$end - sigcl$start) / chrlen$len[match(sigcl$Chr, chrlen$Chr)] else numeric(0)
+  whole_chr_clusters <- length(span_frac) > 0L &&
+    stats::median(span_frac, na.rm = TRUE) > 0.5
+  if (verbose && whole_chr_clusters)
+    warning("Significant clusters span whole chromosomes (median span ",
+            "fraction > 0.5); no localizable signal -- structure-dominated.",
+            call. = FALSE)
+
   structure(list(
     clusters = cl[],
     candidates = map[cand == TRUE,
@@ -239,7 +275,14 @@ ld_outlier_clusters <- function(pval, ld_w, map, GTs,
       no_elbow = no_elbow, peak_rejections = max(sel$rejections),
       background_rate = if (is.finite(pcut))
         map[cand == FALSE & is.finite(pv0), mean(pv0 <= pcut)] else NA_real_,
-      chr_with_signal = chr_sig, all_chr_flagged = all_chr)
+      chr_with_signal = chr_sig, all_chr_flagged = all_chr,
+      ldw_signal_cor = stats::setNames(ldw_cor$cor, ldw_cor$Chr),
+      frac_chr_ldw_positive = frac_chr_pos,
+      ldw_tracks_structure = ldw_tracks_structure,
+      cluster_span_fraction = span_frac,
+      median_span_fraction = if (length(span_frac))
+        stats::median(span_frac, na.rm = TRUE) else NA_real_,
+      whole_chr_clusters = whole_chr_clusters)
   ), class = "ld_outlier_clusters")
 }
 
