@@ -41,7 +41,7 @@ make_toy <- function(seed = 1) {
   ## ld_w: high for the two blocks, low for background
   ld_w <- c(runif(50, 0.6, 0.9), runif(150, 0, 0.2))
   names(pval) <- names(ld_w) <- colnames(GTs)
-  list(GTs = GTs, map = map, pval = pval, ld_w = ld_w)
+  list(GTs = GTs, map = map, pval = pval, ld_w = ld_w, Y = Y)
 }
 
 test_that("rmsc_threshold returns a valid selection curve", {
@@ -71,6 +71,18 @@ test_that("background null flags the causal block and not the decoy", {
   ## the flagged cluster is built from causal markers (m1..m25)
   causal_markers <- paste0("m", 1:25)
   expect_true(mean(unlist(sigc$members) %in% causal_markers) > 0.8)
+})
+
+test_that("permutation null (fast EMMAX path) flags the causal block", {
+  d <- make_toy()
+  K <- tcrossprod(scale(d$GTs)) / ncol(d$GTs)          # simple genomic relationship
+  set.seed(7)
+  r <- ld_outlier_clusters(d$pval, d$ld_w, d$map, d$GTs, null = "permutation",
+                           Y = d$Y, K = K, fdr = 0.1, B = 299, verbose = FALSE)
+  sigc <- r$clusters[significant == TRUE]
+  expect_gt(nrow(sigc), 0)
+  expect_true(all(sigc$Chr == "A"))
+  expect_false(any(r$clusters[Chr == "B", significant]))
 })
 
 test_that("no significant SNPs yields no flagged clusters without error", {

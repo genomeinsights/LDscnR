@@ -217,19 +217,44 @@ ld_outlier_clusters <- function(pval, ld_w, map, GTs,
   out
 }
 
-## EMMAX permutation null: recompute the candidate scan under permuted phenotype
+## EMMAX permutation null, fast path. K is fixed across permutations, so each
+## chromosome's kinship is eigendecomposed and the candidate genotypes rotated
+## ONCE; every permutation then only re-estimates the variance component (REML
+## with a pre-computed eig.R) and does an O(nm) whitened single-SNP F-test. The
+## F is numerically identical to emmax() -- RSS is invariant to the choice of
+## whitening square-root -- so it is comparable to the observed emmax() p-values.
 .perm_null <- function(map, cl, pcut, B, Y, K, GTs, cores) {
+  n <- length(Y); df1 <- 1L; df2 <- n - 2L
   chrs <- unique(cl$Chr)
-  cand_by_chr <- stats::setNames(lapply(chrs, function(ch) map[cand == TRUE & Chr == ch, marker]), chrs)
-  clus_of <- stats::setNames(map[cand == TRUE, cluster], map[cand == TRUE, marker])
+  one_n <- matrix(1, n, n) / n
+  pre <- lapply(chrs, function(ch) {
+    mk <- map[cand == TRUE & Chr == ch, marker]
+    Kc <- if (is.list(K)) K[[ch]] else K
+    K_norm <- (n - 1) / sum((diag(n) - one_n) * Kc) * Kc
+    Xo <- matrix(1, n, 1L)
+    ev <- eigen(K_norm, symmetric = TRUE)                    # for whitening
+    list(mk = mk, clus = map[match(mk, marker), cluster],
+         K_norm = K_norm, Xo = Xo,
+         eigR = emma.eigen.R.wo.Z(K_norm, Xo),               # for REML
+         V = ev$vectors, lam = ev$values,
+         Xt = crossprod(ev$vectors, GTs[, mk, drop = FALSE]),
+         xot = as.numeric(crossprod(ev$vectors, Xo)))
+  })
   one <- function(b) {
     yb <- sample(Y); counts <- stats::setNames(integer(nrow(cl)), cl$cluster)
-    for (ch in chrs) {
-      mk <- cand_by_chr[[ch]]; if (!length(mk)) next
-      Kch <- if (is.list(K)) K[[ch]] else K
-      pv <- emmax(yb, GTs[, mk, drop = FALSE], Kch)$pval
-      hit <- mk[is.finite(pv) & pv <= pcut]
-      if (length(hit)) { tt <- table(clus_of[hit]); counts[names(tt)] <- counts[names(tt)] + as.integer(tt) }
+    for (p in pre) {
+      re <- emma.REMLE(yb, p$Xo, p$K_norm, eig.R = p$eigR)
+      wv <- 1 / sqrt(re$vg * p$lam + re$ve)                  # whitening weights
+      yt <- as.numeric(crossprod(p$V, yb)) * wv
+      xo <- p$xot * wv; Xt <- p$Xt * wv
+      a2 <- sum(xo * xo); ra <- yt - xo * (sum(xo * yt) / a2)
+      RSS0 <- sum(ra * ra)
+      Rb   <- Xt - outer(xo, as.numeric(crossprod(xo, Xt)) / a2)  # residualise on intercept
+      RSSf <- RSS0 - as.numeric(crossprod(ra, Rb))^2 / colSums(Rb * Rb)
+      Fj   <- (RSS0 / RSSf - 1) * df2 / df1
+      pj   <- stats::pf(Fj, df1, df2, lower.tail = FALSE)
+      hit  <- p$mk[is.finite(pj) & pj <= pcut]
+      if (length(hit)) { tt <- table(p$clus[match(hit, p$mk)]); counts[names(tt)] <- counts[names(tt)] + as.integer(tt) }
     }
     counts
   }
