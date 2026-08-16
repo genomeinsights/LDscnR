@@ -35,6 +35,7 @@
 #' @param prob_robust Central proportion of windows retained for robust summarization.
 #' @param max_pairs Maximum number of SNP pairs per window used in decay fitting.
 #' @param n_strata Number of distance strata used when subsampling SNP pairs.
+#' @param ld_method LD statistic used for decay/background fitting (\code{"r"} or \code{"r2"}).
 #' @param keep_el Logical; whether to store full LD edge lists per chromosome.
 #' @param slide Sliding window size in number of SNPs used for LD estimation.
 #' @param rho_targets Numeric vector of target LD thresholds used to derive recommended window sizes.
@@ -503,6 +504,7 @@ estimate_decay_chr <- function(el,
 #'   eligible for sampling (low-MAF pairs mechanically deflate r^2 and bias the
 #'   background estimate).
 #' @param min_maf MAF threshold used with \code{maf}.
+#' @param ld_method LD statistic used (\code{"r"} or \code{"r2"}).
 #'
 #' @return Numeric scalar representing background LD (\eqn{b}).
 #'
@@ -749,30 +751,15 @@ parallel_apply <- function(X, FUN, cores = 1) {
   }
 }
 
-#' Compute Local LD Support (ld_w)
+#' Print an `ld_decay` object
 #'
-#' Computes per-SNP local LD support within a distance defined by a
-#' relative LD threshold \eqn{\rho}.
-#'
-#' For each SNP, LD support is defined as the median \eqn{r^2} with
-#' neighboring SNPs within the corresponding distance window.
-#'
-#' @param ld_decay Object of class \code{"ld_decay"}.
-#' @param rho Relative LD threshold used to define the window.
-#' @param cores Number of CPU cores.
-#'
-#' @return Numeric vector of LD support values (one per SNP).
-#'
-#' @details
-#' The physical window is derived using:
-#' \deqn{d = \frac{\rho}{a(1 - \rho)}}
-#'
-#' where \eqn{a} is the chromosome-specific decay rate.
-#'
-#' Requires \code{keep_el = TRUE} when calling \code{compute_LD_decay()}.
-#'
+#' @param x An object of class `ld_decay`.
+#' @param digits Number of significant digits to display.
+#' @param ... Ignored (for S3 `print` consistency).
+#' @return Invisibly, `x`.
+#' @method print ld_decay
 #' @export
-print.ld_decay <- function(x, digits = 3) {
+print.ld_decay <- function(x, digits = 3, ...) {
 
   cat("<ld_decay>\n")
 
@@ -990,7 +977,6 @@ compute_ld_w <- function(
 #'   Defaults to the first chromosome in \code{x$by_chr}.
 #' @param rho Optional target rho value for highlighting in
 #'   \code{type = "recommendation"}.
-#' @param ask Logical; if \code{TRUE}, ask before advancing multi-panel plots.
 #' @param ... Further graphical arguments passed to low-level plotting functions.
 #'
 #' @details

@@ -6,3 +6,8 @@
 ^\.claude$
 ^data-raw$
 ^dev$
+^LICENSE\.md$
+^docs$
+^example_code\.R$
+^tmp$
+^claude_snapshot_summaries$

@@ -20,6 +20,9 @@ get_el(
 \item{idx}{Optional integer vector of SNP indices (1-based, referring to the
 SNP order in the GDS file). If \code{NULL}, all SNPs are used.}
 
+\item{SNP_id}{Optional vector of SNP ids to restrict the edge list to
+(alternative to \code{idx}).}
+
 \item{slide_win_ld}{Integer SNP window size passed to
 \code{SNPRelate::snpgdsLDMat()}. If \code{> 0}, LD is computed within a
 sliding window of this size. If \code{<= 0}, all pairwise LD values are

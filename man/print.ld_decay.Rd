@@ -2,32 +2,20 @@
 % Please edit documentation in R/compute_ld_structure.R
 \name{print.ld_decay}
 \alias{print.ld_decay}
-\title{Compute Local LD Support (ld_w)}
+\title{Print an \code{ld_decay} object}
 \usage{
-\method{print}{ld_decay}(x, digits = 3)
+\method{print}{ld_decay}(x, digits = 3, ...)
 }
 \arguments{
-\item{ld_decay}{Object of class \code{"ld_decay"}.}
+\item{x}{An object of class \code{ld_decay}.}
 
-\item{rho}{Relative LD threshold used to define the window.}
+\item{digits}{Number of significant digits to display.}
 
-\item{cores}{Number of CPU cores.}
+\item{...}{Ignored (for S3 \code{print} consistency).}
 }
 \value{
-Numeric vector of LD support values (one per SNP).
+Invisibly, \code{x}.
 }
 \description{
-Computes per-SNP local LD support within a distance defined by a
-relative LD threshold \eqn{\rho}.
-}
-\details{
-For each SNP, LD support is defined as the median \eqn{r^2} with
-neighboring SNPs within the corresponding distance window.
-
-The physical window is derived using:
-\deqn{d = \frac{\rho}{a(1 - \rho)}}
-
-where \eqn{a} is the chromosome-specific decay rate.
-
-Requires \code{keep_el = TRUE} when calling \code{compute_LD_decay()}.
+Print an \code{ld_decay} object
 }

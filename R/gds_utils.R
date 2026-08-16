@@ -88,6 +88,8 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 #' The SNP-centered representation is useful for downstream summaries that
 #' require all LD partners of each focal SNP.
 #'
+#' @param SNP_id Optional vector of SNP ids to restrict the edge list to
+#'   (alternative to \code{idx}).
 #' @export
 get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
                     method = "r", cores = 1, by_chr = FALSE)

@@ -181,7 +181,7 @@ add_snp_positions <- function(map_snp, map_ref) {
 #' @param ncores Number of cores for the per-cluster consensus computation
 #'   (`parallel::mclapply()`, fork-based -- not available on Windows).
 #' @param col_vector Optional vector of colours to cycle across clusters for
-#'   plotting; defaults to [default_cluster_colours()].
+#'   plotting; defaults to `default_cluster_colours()`.
 #'
 #' @return A list: `eMLG` (matrix, individuals x clusters), `map_eMLG`
 #'   (one row per cluster: position span, `n_loci`, `r2_eMLG`), `map_SNP`

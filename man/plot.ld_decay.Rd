@@ -25,8 +25,6 @@ Defaults to the first chromosome in \code{x$by_chr}.}
 \code{type = "recommendation"}.}
 
 \item{...}{Further graphical arguments passed to low-level plotting functions.}
-
-\item{ask}{Logical; if \code{TRUE}, ask before advancing multi-panel plots.}
 }
 \value{
 Invisibly returns \code{x}.

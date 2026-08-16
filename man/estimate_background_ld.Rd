@@ -23,6 +23,8 @@ estimate_background_ld(
 
 \item{q}{Quantile used to define background LD.}
 
+\item{ld_method}{LD statistic used (\code{"r"} or \code{"r2"}).}
+
 \item{maf}{Optional named numeric vector of MAF, named by SNP id. If supplied
 together with \code{min_maf}, only SNPs with \code{MAF > min_maf} are
 eligible for sampling (low-MAF pairs mechanically deflate r^2 and bias the

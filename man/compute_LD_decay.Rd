@@ -42,6 +42,8 @@ compute_LD_decay(
 
 \item{max_pairs}{Maximum number of SNP pairs per window used in decay fitting.}
 
+\item{ld_method}{LD statistic used for decay/background fitting (\code{"r"} or \code{"r2"}).}
+
 \item{n_strata}{Number of distance strata used when subsampling SNP pairs.}
 
 \item{keep_el}{Logical; whether to store full LD edge lists per chromosome.}
