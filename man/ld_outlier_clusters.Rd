@@ -79,7 +79,11 @@ a single \verb{n x n} matrix or a named list of per-chromosome (LOCO) matrices.}
 
 \item{cores}{Cores for the permutation loop.}
 
-\item{verbose}{Emit diagnostic warnings (no elbow; every chromosome flagged).}
+\item{verbose}{Emit diagnostic warnings: no RMSC elbow; every chromosome
+flagged; \code{ld_w} tracking genome-wide structure (positive \code{ld_w}-vs-signal
+correlation on most chromosomes); significant clusters spanning whole
+chromosomes. The last two flag structure-dominated runs whose calls are
+unreliable (see \verb{$diagnostics$ldw_tracks_structure}, \verb{$whole_chr_clusters}).}
 }
 \value{
 An object of class \code{ld_outlier_clusters}: a list with \code{clusters}
