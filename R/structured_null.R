@@ -30,21 +30,25 @@
 #'   `basis = "spatial"`).
 #' @param B Number of surrogates (default 100).
 #' @param alpha,rho,qstar C-score parameters passed to [ld_cscore()].
+#' @param prep Optional `emmax_prep` from [emmax_setup()] (reused by
+#'   [ld_outlier_regions()] to avoid re-rotating the genotypes); built from
+#'   `GTs`, `K` if `NULL`.
 #' @param seed RNG seed for reproducible surrogates.
 #'
-#' @return An `ld_null` object: `C_obs` (observed sparse C, only `C > 0`),
-#'   `C_surr` (list of `B` sparse surrogate C-vectors), `universe` (every marker
-#'   any surrogate lights up), and the settings. Build an [ld_edges()] over
-#'   `universe`, then call [null_fdr()] / [calibrate_tauc()].
+#' @return An `ld_null` object: `C_obs` (the full observed per-SNP C-vector),
+#'   `C_surr` (list of `B` *sparse* surrogate C-vectors, only `C > 0`),
+#'   `universe` (every marker the observed or any surrogate lights up), and the
+#'   settings. Build an [ld_edges()] over `universe`, then call [null_fdr()] /
+#'   [calibrate_tauc()].
 #' @seealso [null_fdr()], [calibrate_tauc()], [emmax_setup()], [ld_cscore()]
 #' @export
 structured_null <- function(y, GTs, K, ld_ws, basis = c("genetic", "spatial"),
                             coords = NULL, B = 100L, alpha = 0.05,
                             rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05),
-                            seed = 1L) {
+                            prep = NULL, seed = 1L) {
   basis <- match.arg(basis)
   n <- length(y)
-  prep <- emmax_setup(GTs, K)
+  if (is.null(prep)) prep <- emmax_setup(GTs, K)
   if (basis == "genetic") {
     eK <- eigen(K, symmetric = TRUE)
   } else {
@@ -58,11 +62,11 @@ structured_null <- function(y, GTs, K, ld_ws, basis = c("genetic", "spatial"),
     as.numeric(stats::resid(stats::lm(s ~ y)))
   }
   sparseC <- function(pv) { C <- ld_cscore(pv, ld_ws, alpha, rho, qstar); C[C > 0] }
-  C_obs <- sparseC(emmax_fast(prep, y))
+  C_obs <- ld_cscore(emmax_fast(prep, y), ld_ws, alpha, rho, qstar)   # full observed C
   set.seed(seed)
   C_surr <- vector("list", B)
   for (b in seq_len(B)) C_surr[[b]] <- sparseC(emmax_fast(prep, gen()))
-  universe <- unique(c(names(C_obs), unlist(lapply(C_surr, names))))
+  universe <- unique(c(names(C_obs)[C_obs > 0], unlist(lapply(C_surr, names))))
   structure(list(C_obs = C_obs, C_surr = C_surr, universe = universe,
                  basis = basis, B = B, params = list(alpha = alpha, rho = rho, qstar = qstar)),
             class = "ld_null")
