@@ -20,7 +20,7 @@
 #' @param GTs Genotype dosage matrix (individuals x SNPs; column names = markers).
 #' @param map data.frame/data.table with columns `marker`, `Chr`, `Pos`.
 #' @param decay_sum Per-chromosome LD-decay summary with `Chr`, `b`, `c`,
-#'   `a_pred` (see [ld_decay()]).
+#'   `a_pred` (see [compute_LD_decay()]).
 #' @param rho_ld Decay-relative r^2 link threshold (default 0.9).
 #' @param dcap Hard distance cap in bp for the gap-split (default 5e5).
 #' @param r2_link Optional scalar r^2 overriding the decay-relative value.

@@ -24,7 +24,7 @@ downstream \code{tau_C}/\code{l_min} gate is a subset of).}
 \item{map}{data.frame/data.table with columns \code{marker}, \code{Chr}, \code{Pos}.}
 
 \item{decay_sum}{Per-chromosome LD-decay summary with \code{Chr}, \code{b}, \code{c},
-\code{a_pred} (see \code{\link[=ld_decay]{ld_decay()}}).}
+\code{a_pred} (see \code{\link[=compute_LD_decay]{compute_LD_decay()}}).}
 
 \item{rho_ld}{Decay-relative r^2 link threshold (default 0.9).}
 
