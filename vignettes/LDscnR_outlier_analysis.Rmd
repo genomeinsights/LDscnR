@@ -25,10 +25,13 @@ library(SNPRelate)
 ## The idea
 
 Genome scans for selection produce noisy single-SNP signals. LDscnR turns them
-into **outlier regions (ORs)** by leaning on two facts: true signal is
-**LD-supported** (a causal variant drags a block of correlated markers with it),
-and true outliers **cluster** in the genome. The pipeline scores each SNP by how
-**consistently** it is both LD-prioritised and significant, calibrates a
+into **outlier regions (ORs)** by exploiting a single fact: **selection locally
+inflates linkage disequilibrium**. A sweep or a barrier to gene flow raises LD
+around its target, so the true signal is spread across a *block* of correlated
+markers -- which is just another way of saying that true outliers **cluster** in
+the genome. "LD-supported" and "clustered" are not two separate properties but the
+same footprint of local LD, seen per-SNP and per-region. The pipeline scores each
+SNP by how **consistently** it is both LD-prioritised and significant, calibrates a
 threshold against a **structure-aware null**, and clusters the survivors into
 regions.
 
@@ -100,6 +103,28 @@ ev <- evaluate_ors(regions, map, qtab, th$r2min, th$dmax)
 unlist(ev[c("TP", "FP", "Recall", "Precision")])
 ```
 
+For reference, the regions on a C-score Manhattan, coloured by whether each matches a
+true QTN (`classify_ors()` gives the per-region TP/FP label). QTN positions are marked
+with triangles: a region on a triangle is a **true positive**, one away from any
+triangle is a **false positive**.
+
+```{r sim-manhattan, fig.height = 2.8}
+cl <- classify_ors(regions, map, qtab, th$r2min, th$dmax)
+reg_lab <- rbindlist(lapply(seq_along(regions), function(i)
+  data.table(marker = regions[[i]], lab = ifelse(cl$is_TP[i], "TP", "FP"))))
+dd <- data.table(marker = names(C_emx), C = as.numeric(C_emx))[map[, .(marker, Chr, Pos, type)], on = "marker"]
+dd <- reg_lab[dd, on = "marker"][is.na(lab), lab := "ns"]
+ggplot() +
+  geom_point(data = dd[C > 0 & lab == "ns"], aes(Pos, C), colour = "grey78", size = 0.6) +
+  geom_point(data = dd[lab != "ns"], aes(Pos, C, colour = lab), size = 1.3) +
+  geom_point(data = dd[type == "QTN"], aes(Pos, 0), shape = 17, size = 2.4) +
+  facet_wrap(~ Chr, nrow = 1, scales = "free_x") +
+  scale_colour_manual(values = c(TP = "#1F78B4", FP = "#E31A1C"), name = "region") +
+  labs(x = "Position", y = "C-score",
+       title = "Simulation: TP (blue) vs FP (red) regions; QTNs = triangles") +
+  theme_bw(base_size = 10)
+```
+
 ### C-score vs a single-SNP alpha scan
 
 Because the C-score is one *ordered* knob (`tau_C`), a standard precision--recall
@@ -114,11 +139,24 @@ pr_curve <- function(score_fun, grid) {
     data.table(recall = e$Recall, precision = if (is.na(e$Precision)) NA_real_ else e$Precision)
   }))
 }
-cscore  <- pr_curve(function(t) names(C_emx)[C_emx >= t], seq(0.05, 1, 0.05))
+cscore  <- pr_curve(function(t) names(C_emx)[C_emx >= t], seq(0.05, 1, 0.05))[, method := "C-score"]
 singleS <- pr_curve(function(a) map$marker[p.adjust(map$emx_p, "BH") < a],
-                    c(0.001, 0.005, 0.01, 0.05, 0.1))
+                    c(0.001, 0.005, 0.01, 0.05, 0.1))[, method := "single-SNP"]
 c(C_score = pr_auc(cscore$recall, cscore$precision),
   single_SNP = pr_auc(singleS$recall, singleS$precision))
+```
+
+The curves themselves (this tiny example has only two QTNs, so they are coarse and
+noisy -- on a full simulation with many replicates they separate cleanly):
+
+```{r sim-prauc-plot, fig.height = 2.8}
+prc <- rbind(cscore, singleS)[is.finite(precision) & is.finite(recall)]
+ggplot(prc, aes(recall, precision, colour = method)) +
+  geom_path() + geom_point(size = 1.8) +
+  scale_colour_manual(values = c("C-score" = "#E31A1C", "single-SNP" = "steelblue"), name = NULL) +
+  coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
+  labs(x = "Recall", y = "Precision", title = "Precision-recall: C-score vs single-SNP") +
+  theme_bw(base_size = 10)
 ```
 
 ### Calibrating a second method against EMMAX (genomic control)
@@ -131,6 +169,48 @@ the C-score, so LFMM is operated at EMMAX's FDR anchor.
 C_lfmm  <- ld_cscore(map$lfmm_p, ld_ws)
 tau_lfmm <- gc_map_tauc(tau_C = 0.3, C_ref = C_emx, C_target = C_lfmm)
 signif(c(EMMAX_tau_C = 0.3, LFMM_tau_C = tau_lfmm), 3)
+```
+
+### The structure-aware null, checked against ground truth
+
+Part 2 calls `ld_outlier_regions()` on real data, where `tau_C` comes from a
+**structure-aware null** ([structured_null()]) rather than from truth. We can verify
+that machinery *here*, where the truth is known. `sim_ex` ships only association
+statistics, so we synthesise a phenotype with a known architecture -- the two QTNs'
+genetic value, a genetic **structure** axis (something for the null to correct
+away), and noise -- and run the whole pipeline on it.
+
+```{r sim-null}
+qtn  <- map[type == "QTN", marker]
+Ksim <- snpgdsGRM(gds, snp.id = map$marker[ld_ws[, "0.95"] < 0.05],   # low-ld_w (neutral) GRM
+                  method = "GCTA", autosome.only = FALSE, verbose = FALSE)$grm
+set.seed(7)
+y_sim <- as.numeric(1.5 * scale(rowSums(GTs[, qtn, drop = FALSE])) +       # QTN genetic value
+                    2.0 * scale(eigen(Ksim, symmetric = TRUE)$vectors[, 1]) + # structure axis
+                    rnorm(n))                                             # noise
+
+res_sim <- ld_outlier_regions(
+  y = y_sim, GTs = GTs, K = Ksim, ld_ws = ld_ws, map = map, decay_sum = decay_sum,
+  basis = "genetic", rho_ld = 0.9, l_min = 2, fdr = 0.05, B = 100, seed = 1)
+res_sim
+```
+
+The null does its job truth-free: structure-only surrogates almost never make
+regions (`n_null` ~ 0), so the region-level FDR collapses as `tau_C` rises and the
+threshold lands where the observed regions clear it.
+
+```{r sim-null-fdr}
+res_sim$fdr_curve[res_sim$fdr_curve$n_obs > 0, ]
+```
+
+Knowing the truth, we can confirm the calibrated call is right -- the recovered
+region is a genuine QTN region (precision 1). The two QTNs sit &lt;500 kb apart and
+merge into one region, so recall is 0.5: the same over-merging effect discussed for
+the real data in Part 2.
+
+```{r sim-null-eval}
+qtab_null <- qtn_ld_table(GTs, map, names(res_sim$C)[res_sim$C > 0], max_bp = 2e6)
+unlist(evaluate_ors(res_sim$regions, map, qtab_null, th$r2min, th$dmax)[c("TP", "FP", "Recall", "Precision")])
 ```
 
 ## Part 2 -- calling ORs on real data with a null-calibrated threshold
@@ -157,6 +237,16 @@ scales with SNP density per LD block, so it is dataset-dependent: the sparse
 `sim_ex` above used `l_min = 2` (its true regions span only a handful of SNPs),
 while the dense stickleback data warrants `l_min = 10`.
 
+The **distance cap** `dcap` is the other dataset-dependent knob, and on the
+stickleback data the 500 kb default *overmerges*. The Chr4 candidates are chained
+across a ~1.3 Mb window (no single physical gap exceeds 500 kb), so they collapse
+into one sprawling region -- which is exactly what makes the raw scan look noisier
+than it should. Tightening the cap to **100 kb** breaks that chain at the real
+inter-region gaps, splitting Chr4 into the handful of regions one expects there,
+while the dense Chr1 inversion -- which has no internal gaps that wide -- stays a
+single region. The cap only ever *splits* on physical gaps and never merges across
+them, so shortening it can only refine regions, never coarsen them.
+
 ```{r stickle-setup, results = "hide"}
 data(stickleback, envir = environment())
 sGTs <- stickleback$GTs
@@ -181,7 +271,7 @@ K <- snpgdsGRM(sgds, snp.id = neutral, method = "GCTA", autosome.only = FALSE, v
 res <- ld_outlier_regions(
   y = eco, GTs = sGTs, K = K, ld_ws = sld_ws, map = smap, decay_sum = sdecay$decay_sum,
   basis = "genetic",              # confounding is genetic (ecotype ~ structure)
-  rho_ld = 0.9, dcap = 5e5, l_min = 10, fdr = 0.05, B = 50, seed = 1
+  rho_ld = 0.9, dcap = 1e5, l_min = 10, fdr = 0.05, B = 50, seed = 1
 )
 res
 ```
