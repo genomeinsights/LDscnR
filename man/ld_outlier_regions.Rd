@@ -16,6 +16,8 @@ ld_outlier_regions(
   dcap = 5e+05,
   rho_d = NULL,
   l_min = 2L,
+  lmin_q = 0.99,
+  lmin_tau = 0.05,
   fdr = 0.05,
   basis = c("genetic", "spatial"),
   coords = NULL,
@@ -45,7 +47,12 @@ ld_outlier_regions(
 \item{rho_ld, dcap, rho_d}{Clustering parameters (see \code{\link[=ld_edges]{ld_edges()}}; defaults 0.9,
 500 kb hard cap, \code{rho_d = NULL}).}
 
-\item{l_min}{Minimum region size in SNPs (default 2).}
+\item{l_min}{Minimum region size in SNPs (default 2), or \code{"auto"} to set it
+data-drivenly from the structure null via \code{\link[=calibrate_lmin]{calibrate_lmin()}}.}
+
+\item{lmin_q, lmin_tau}{Passed to \code{\link[=calibrate_lmin]{calibrate_lmin()}} when \code{l_min = "auto"}: the
+upper quantile of the null max-region-size distribution (default 0.99) and the
+reference C-threshold at which it is read (default 0.05).}
 
 \item{fdr}{Target region-level FDR for \code{tau_C} (default 0.05).}
 

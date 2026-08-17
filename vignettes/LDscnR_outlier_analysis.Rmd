@@ -20,6 +20,9 @@ library(LDscnR)
 library(data.table)
 library(ggplot2)
 library(SNPRelate)
+
+# house style: white panels, no grey facet-strip background
+theme_set(theme_bw(base_size = 10) + theme(strip.background = element_blank()))
 ```
 
 ## The idea
@@ -41,8 +44,8 @@ The design collapses the usual thicket of tuning parameters to a principled few:
 |------|--------------|-----------|
 | **swept / integrated** (natural [0,1]) | `rho` (`ld_w` window), `q*` (local-LD quantile) | folded into the C-score `ld_cscore()` |
 | **fixed, principled** | `alpha` = 0.05 | the structure-aware null prices in any miscalibration |
-| **clustering, LD-informed** | `rho_ld` = 0.9 (r²-link), 500 kb hard cap | `ld_edges()` |
-| **operational knobs** | `tau_C` (null-calibrated), `l_min` (region size) | `calibrate_tauc()` / a post-filter |
+| **clustering, LD-informed** | `rho_ld` (r²-link; lower = stricter LD separation), 500 kb cap | `ld_edges()` |
+| **operational knobs** | `tau_C` (null-calibrated -- the hard one), `l_min` (null-floored post-filter; raise to focus) | `calibrate_tauc()` / `calibrate_lmin()` |
 
 The rest of the vignette shows both halves: **benchmarking** a scan against
 simulated truth (`sim_ex`), and **calling** ORs on real data with a
@@ -68,6 +71,12 @@ af <- colMeans(GTs) / 2
 map[, MAF := pmin(af, 1 - af)[marker]]
 map[, Va  := p_Va]
 map <- flag_true_qtns(map, va_col = "Va", maf_col = "MAF", maf_min = 0.1, p_va_min = 0.05)
+
+# per-marker max r^2 to any QTN (used by the diagnostic Manhattans below)
+R2_qtn <- suppressWarnings(cor(GTs, GTs[, map[type == "QTN", marker], drop = FALSE],
+                               use = "pairwise.complete.obs")^2)
+R2_qtn[!is.finite(R2_qtn)] <- 0
+map[, max_LD_to_QTN := apply(R2_qtn, 1, max)[marker]]
 
 # LD decay + a small ld_w window grid (the `rho` axis of the C-score)
 gds <- create_gds_from_geno(GTs, map, tempfile(fileext = ".gds"))
@@ -103,26 +112,54 @@ ev <- evaluate_ors(regions, map, qtab, th$r2min, th$dmax)
 unlist(ev[c("TP", "FP", "Recall", "Precision")])
 ```
 
-For reference, the regions on a C-score Manhattan, coloured by whether each matches a
-true QTN (`classify_ors()` gives the per-region TP/FP label). QTN positions are marked
-with triangles: a region on a triangle is a **true positive**, one away from any
-triangle is a **false positive**.
+The package ships a plotting helper, `ld_manhattan()`, that colours a per-marker
+value (here the C-score) either by outlier region / group or by a continuous column.
+Below we colour each region by whether it matches a true QTN (from `classify_ors()`)
+and mark the QTNs with crosses: a region on a cross is a **true positive**, one away
+from any cross is a **false positive**.
 
-```{r sim-manhattan, fig.height = 2.8}
-cl <- classify_ors(regions, map, qtab, th$r2min, th$dmax)
-reg_lab <- rbindlist(lapply(seq_along(regions), function(i)
-  data.table(marker = regions[[i]], lab = ifelse(cl$is_TP[i], "TP", "FP"))))
-dd <- data.table(marker = names(C_emx), C = as.numeric(C_emx))[map[, .(marker, Chr, Pos, type)], on = "marker"]
-dd <- reg_lab[dd, on = "marker"][is.na(lab), lab := "ns"]
-ggplot() +
-  geom_point(data = dd[C > 0 & lab == "ns"], aes(Pos, C), colour = "grey78", size = 0.6) +
-  geom_point(data = dd[lab != "ns"], aes(Pos, C, colour = lab), size = 1.3) +
-  geom_point(data = dd[type == "QTN"], aes(Pos, 0), shape = 17, size = 2.4) +
-  facet_wrap(~ Chr, nrow = 1, scales = "free_x") +
-  scale_colour_manual(values = c(TP = "#1F78B4", FP = "#E31A1C"), name = "region") +
-  labs(x = "Position", y = "C-score",
-       title = "Simulation: TP (blue) vs FP (red) regions; QTNs = triangles") +
-  theme_bw(base_size = 10)
+```{r sim-manhattan, fig.height = 2.6}
+cl  <- classify_ors(regions, map, qtab, th$r2min, th$dmax)
+grp <- unlist(lapply(seq_along(regions), function(i)
+  setNames(rep(if (cl$is_TP[i]) "TP" else "FP", length(regions[[i]])), regions[[i]])))
+
+ld_manhattan(map, value = setNames(as.numeric(C_emx), names(C_emx)), value_label = "C-score",
+             group = grp, group_colours = c(TP = "#1F78B4", FP = "#E31A1C"),
+             qtn = map[type == "QTN", marker], hline = 0.3,
+             title = "Simulation: TP (blue) vs FP (red) regions; QTNs = crosses")
+```
+
+The two QTNs sit ~470 kb apart on Chr3 and fall inside one LD-linked region, so the
+scan returns a single true-positive region (recall 0.5 under the dedup-neutral
+metric -- one region can claim only one QTN). This is the *merge* direction of the
+same distance/LD trade-off explored on the real data in Part 2; tightening the
+distance cap here does not recover the second QTN (its independent signal is weak),
+it only over-fragments the first QTN's block -- e.g. a 100 kb cap yields three
+region fragments for the same two QTNs.
+
+#### Why the C-score works: signal *and* local LD
+
+`ld_manhattan()`'s continuous mode makes the logic visible. On the left, the
+association statistic (`F`) coloured by local LD (`ld_w`): the real peaks on Chr3 are
+both high-`F` **and** high-`ld_w`. On the right, `ld_w` coloured by each marker's LD
+to the nearest QTN: high-`ld_w` markers near the QTNs are the genuine block, but note
+the high-`ld_w` markers on Chr3's right arm that carry **no** association (dark) --
+local LD alone is not enough. The C-score fires only where *both* hold, which is why
+it beats either signal alone.
+
+```{r sim-diagnostics, fig.height = 2.6}
+ldw <- setNames(ld_ws[, "0.95"], rownames(ld_ws))
+ld_manhattan(map, value = "emx_F", value_label = "EMMAX F",
+             colour = ldw, colour_label = "ld_w",
+             qtn = map[type == "QTN", marker],
+             title = "Association (F) coloured by local LD (ld_w)")
+```
+
+```{r sim-diagnostics2, fig.height = 2.6}
+ld_manhattan(map, value = ldw, value_label = "ld_w (rho 0.95)",
+             colour = "max_LD_to_QTN", colour_label = "max r2 to QTN",
+             qtn = map[type == "QTN", marker],
+             title = "Local LD (ld_w) coloured by LD to the nearest QTN")
 ```
 
 ### C-score vs a single-SNP alpha scan
@@ -155,8 +192,7 @@ ggplot(prc, aes(recall, precision, colour = method)) +
   geom_path() + geom_point(size = 1.8) +
   scale_colour_manual(values = c("C-score" = "#E31A1C", "single-SNP" = "steelblue"), name = NULL) +
   coord_cartesian(xlim = c(0, 1), ylim = c(0, 1)) +
-  labs(x = "Recall", y = "Precision", title = "Precision-recall: C-score vs single-SNP") +
-  theme_bw(base_size = 10)
+  labs(x = "Recall", y = "Precision", title = "Precision-recall: C-score vs single-SNP")
 ```
 
 ### Calibrating a second method against EMMAX (genomic control)
@@ -204,9 +240,8 @@ res_sim$fdr_curve[res_sim$fdr_curve$n_obs > 0, ]
 ```
 
 Knowing the truth, we can confirm the calibrated call is right -- the recovered
-region is a genuine QTN region (precision 1). The two QTNs sit &lt;500 kb apart and
-merge into one region, so recall is 0.5: the same over-merging effect discussed for
-the real data in Part 2.
+region is a genuine QTN region (precision 1). As before, the two QTNs sit ~470 kb
+apart and merge into one region, so recall is 0.5.
 
 ```{r sim-null-eval}
 qtab_null <- qtn_ld_table(GTs, map, names(res_sim$C)[res_sim$C > 0], max_bp = 2e6)
@@ -226,26 +261,48 @@ The kinship should capture structure without absorbing the signal, so we build i
 from **low-`ld_w` (LD-independent) markers** -- an all-marker GRM over-corrects and
 erases localised signals like *Eda*.
 
-We also raise the region-size filter to **`l_min = 10`**. `l_min` is a post-filter
-(not part of the C-score) and it is the strongest, cleanest false-positive control
-the pipeline has: a high-C **singleton** is almost always structure noise -- a lone
-SNP that happens to be locally consistent -- whereas a true selected locus drags a
-*block* of linked markers with it. And the structure-aware null essentially never
-produces large clusters, so a ≥10-SNP region is implausible by chance; raising
-`l_min` therefore removes false regions far faster than true ones. The right value
-scales with SNP density per LD block, so it is dataset-dependent: the sparse
-`sim_ex` above used `l_min = 2` (its true regions span only a handful of SNPs),
-while the dense stickleback data warrants `l_min = 10`.
+The two operating knobs play different roles. **`tau_C` is the hard one to intuit**
+-- what counts as "consistent enough" on the C-scale -- and that is exactly what the
+**structured null is for**: `calibrate_tauc()` sets it truth-free (here it lands at
+the grid floor 0.05 because the structure surrogates are so clean; on the simulation
+null-demo above it was 0.65). **`l_min` is the softer, post-filtering knob** -- how
+large a region must be to be worth reporting. `calibrate_lmin()` gives a principled
+*floor* for it from the same null (the largest region structure-only noise ever
+builds, +1): here the null never clusters more than **2** SNPs, so the floor is
+**`l_min = 3`** (`l_min = "auto"`). And that floor has a nice external check -- the
+number of regions on the negative-control **Chr6 drops to exactly zero at `l_min =
+3`** (17 at l_min 1, 1 at l_min 2, 0 at l_min 3).
 
-The **distance cap** `dcap` is the other dataset-dependent knob, and on the
-stickleback data the 500 kb default *overmerges*. The Chr4 candidates are chained
-across a ~1.3 Mb window (no single physical gap exceeds 500 kb), so they collapse
-into one sprawling region -- which is exactly what makes the raw scan look noisier
-than it should. Tightening the cap to **100 kb** breaks that chain at the real
-inter-region gaps, splitting Chr4 into the handful of regions one expects there,
-while the dense Chr1 inversion -- which has no internal gaps that wide -- stays a
-single region. The cap only ever *splits* on physical gaps and never merges across
-them, so shortening it can only refine regions, never coarsen them.
+Above that floor, `l_min` is a **focusing** control, not an FDR device. Real
+selected loci throw off *satellite* clusters -- small extra correlated blocks in the
+neighbourhood of the true target -- so, as we see in simulations, **small regions
+concentrate on the very chromosomes that carry the large true regions** (here Chr1
+and Chr4 have satellites; the null-quiet Chr6 has none). No structure null can
+correct for this, because the null has no true positives to throw satellites off.
+So if a map looks noisy -- *especially when the chromosomes with the big regions
+also carry many small ones* -- raising `l_min` is the right move: it focuses on the
+largest candidate regions. We show both views below.
+
+**Separate regions by LD, not distance.** The other clustering knob is the r²-link
+threshold, set by `rho_ld`. A distance cap alone is what every scan already does; the
+point of an *LD-aware* method is to let linkage decide where one region ends and the
+next begins. At the permissive canonical `rho_ld = 0.9` (r²-link ≈ 0.14 here) the
+Chr4 candidates all link into one sprawling region -- overmerging that makes the scan
+look noisier than it should. Lowering `rho_ld` to **0.75** raises the link threshold
+to r² ≈ 0.25, which breaks Chr4 into the several regions one expects there, **while
+the Chr1 inversion -- whose internal LD is genuinely high -- stays a single region
+even at that stricter threshold** (it holds together down to r² ≈ 0.5). That is LD,
+not the physical cap, doing the separation:
+
+| `rho_ld` | r²-link | Chr1 | Chr4 |
+|---------:|--------:|-----:|-----:|
+| 0.90 | 0.14 | 1 | 1 (overmerged) |
+| **0.75** | **0.25** | **1 (inversion)** | **several** |
+| 0.50 | 0.47 | 1 | fewer (thinned) |
+
+We therefore keep the default 500 kb cap and set `rho_ld = 0.75` (the same value used
+for the simulations). The hard distance cap is still there as a backstop, and `rho_d`
+remains available to derive the cap from LD decay instead -- but here LD does the work.
 
 ```{r stickle-setup, results = "hide"}
 data(stickleback, envir = environment())
@@ -271,38 +328,89 @@ K <- snpgdsGRM(sgds, snp.id = neutral, method = "GCTA", autosome.only = FALSE, v
 res <- ld_outlier_regions(
   y = eco, GTs = sGTs, K = K, ld_ws = sld_ws, map = smap, decay_sum = sdecay$decay_sum,
   basis = "genetic",              # confounding is genetic (ecotype ~ structure)
-  rho_ld = 0.9, dcap = 1e5, l_min = 10, fdr = 0.05, B = 50, seed = 1
+  rho_ld = 0.75, dcap = 5e5, l_min = "auto", fdr = 0.05, B = 50, seed = 1,
+  keep_cache = TRUE               # keep null + edges so we can inspect calibrate_lmin
 )
 res
+
+# the l_min the null chose, and the null's max-region-size distribution behind it
+c(l_min_auto = res$params$l_min,
+  null_max_region = max(vapply(res$null$C_surr, function(Csp)
+    max(c(0, lengths(ld_regions(names(Csp)[which(Csp >= 0.05)], res$edges)))), numeric(1))))
+
+# the same engine's per-SNP q-values (BH-FDR of the low-ld_w-GRM EMMAX p), for the
+# -log10(q) Manhattan below
+q_emx <- p.adjust(emmax_fast(emmax_setup(sGTs, K), eco), "BH")
 ```
 
 `ld_outlier_regions()` ran the whole pipeline -- fast EMMAX, C-score, a genetic
-structure-aware null, `tau_C` calibrated to FDR ≤ 0.05, clustering and the `l_min`
-filter -- and returned the surviving ORs with their chromosome, extent and peak C.
-The positive-control regions (Chr1 inversion, Chr4 *Eda*) surface while Chr6
-stays quiet.
+structure-aware null, the null-driven `l_min`, `tau_C` calibrated to FDR ≤ 0.05, and
+clustering -- and returned the surviving ORs with their chromosome, extent and peak
+C. The positive controls dominate: the Chr1 inversion comes through as one big region
+and *Eda* on Chr4 as several LD-separated regions, plus a handful of smaller blocks
+that clear the null; Chr6 stays quiet.
 
-Each surviving region gets its own colour from the package palette
-`default_cluster_colours()`; SNPs not in a region are grey.
+We show the result two ways with `ld_manhattan()`, each surviving region in its own
+colour from `default_cluster_colours()` (grey = not in a region). First the C-score
+itself, with the calibrated `tau_C`; then the same regions on a `-log10(q)` Manhattan
+(BH-FDR of the underlying EMMAX scan) -- **identical region colours**, so you can read
+across from the C-score the pipeline thresholds to the familiar q-value view.
 
-```{r stickle-plot, fig.height = 3}
-reg_id <- rbindlist(lapply(seq_along(res$regions), function(i)
-  data.table(marker = res$regions[[i]], region = as.character(i))))
-d <- data.table(marker = names(res$C), C = as.numeric(res$C))[smap, on = "marker"]
-d <- reg_id[d, on = "marker"][is.na(region), region := "ns"]
+```{r stickle-plot, fig.height = 2.8}
+ld_manhattan(smap, value = setNames(as.numeric(res$C), names(res$C)), value_label = "C-score",
+             regions = res$regions, hline = res$tau_C,
+             title = sprintf("%d outlier regions at tau_C = %.2f (l_min = %d, rho_ld = 0.75)",
+                             length(res$regions), res$tau_C, res$params$l_min))
+```
 
-pal <- setNames(rep(default_cluster_colours(), length.out = length(res$regions)),
-                as.character(seq_along(res$regions)))
-ggplot() +
-  geom_point(data = d[C > 0 & region == "ns"], aes(Pos, C), colour = "grey75", size = 0.6) +
-  geom_point(data = d[region != "ns"], aes(Pos, C, colour = region), size = 1.2) +
-  geom_hline(yintercept = res$tau_C, linetype = 2, colour = "grey40") +
-  facet_wrap(~ Chr, nrow = 1, scales = "free_x") +
-  scale_colour_manual(values = pal, guide = "none") +
-  labs(x = "Position", y = "C-score",
-       title = sprintf("%d outlier regions at tau_C = %.2f (l_min = 10)",
-                       length(res$regions), res$tau_C)) +
-  theme_bw(base_size = 10)
+At the null floor `l_min = 3` the Chr1 inversion and the three Chr4 *Eda* regions
+come through, but Chr1 and Chr4 also carry a scatter of small satellite clusters --
+the selection-driven neighbourhood blocks discussed above (note Chr6 stays empty).
+If that reads as too busy, **raise `l_min` to focus on the largest regions**. This is
+a pure post-filter on the cached clustering (no recomputation), so it is instant:
+
+```{r stickle-focus, fig.height = 2.8}
+reg10 <- ld_regions(names(res$C)[res$C >= res$tau_C], res$edges)   # reuse cached edges
+reg10 <- reg10[lengths(reg10) >= 10]
+ld_manhattan(smap, value = setNames(as.numeric(res$C), names(res$C)), value_label = "C-score",
+             regions = reg10, hline = res$tau_C,
+             title = sprintf("Focused view: l_min = 10 -> %d regions (satellites dropped)",
+                             length(reg10)))
+```
+
+Same scan, same `tau_C` -- only the size filter changed. The satellites are gone and
+the four large regions (Chr1 inversion, three Chr4 blocks) remain.
+
+The distance cap `dcap` is a second, complementary way to clean up strays. Look again
+at the focused view: the largest Chr4 region still *sprawls* ~770 kb, because a handful
+of SNPs that are in LD with the block but physically distant get chained in by
+sub-500 kb steps. Shortening the cap breaks that chain -- below ~100 kb those strays
+detach, become sub-`l_min` satellites and drop out, so the region **tightens (769 ->
+47 kb) with no change in region count** (200 kb only does this halfway on these data).
+Crucially the **structure null is not rebuilt**: `dcap` enters only the clustering, so
+this is a fresh `ld_edges()` (a `cor()`, ~0.4 s) over the *cached* C-scores -- no new
+EMMAX, no new surrogates.
+
+```{r stickle-dcap, fig.height = 2.8}
+edges100 <- ld_edges(res$null$universe, sGTs, smap, sdecay$decay_sum,   # re-cluster only:
+                     rho_ld = 0.75, dcap = 1e5)                          # 500 kb -> 100 kb cap
+reg100 <- ld_regions(names(res$C)[res$C >= res$tau_C], edges100)
+reg100 <- reg100[lengths(reg100) >= 10]
+ld_manhattan(smap, value = setNames(as.numeric(res$C), names(res$C)), value_label = "C-score",
+             regions = reg100, hline = res$tau_C,
+             title = "dcap = 100 kb (l_min = 10): strays detached, Chr4 region tightened")
+```
+
+The Chr1 inversion is unaffected -- its dense core has no gaps that wide, so it holds
+as one region down to a 25 kb cap. Finally, the null-floor result on the familiar
+`-log10(q)` scale, with **identical region colours** so you can read across from the
+C-score to the q-value view:
+
+```{r stickle-plot-q, fig.height = 2.8}
+neglogq <- setNames(-log10(pmax(q_emx[smap$marker], 1e-30)), smap$marker)
+ld_manhattan(smap, value = neglogq, value_label = expression(-log[10](italic(q))),
+             regions = res$regions, hline = -log10(0.05),
+             title = "Same outlier regions on the -log10(q) Manhattan")
 ```
 
 ## Summary
@@ -311,8 +419,11 @@ ggplot() +
   fixed `alpha` into one per-SNP consistency score.
 - **`ld_edges()` / `ld_regions()`** cluster the survivors with an LD-decay-informed
   r² link and a 500 kb cap; **`l_min`** is a region-size post-filter.
-- **`structured_null()` / `calibrate_tauc()`** set `tau_C` truth-free by pricing in
-  structure confounding; **`gc_map_tauc()`** transfers it to a second method.
+- **`structured_null()` / `calibrate_tauc()`** set the hard-to-intuit `tau_C`
+  truth-free; **`calibrate_lmin()`** gives a data-driven floor for the `l_min`
+  post-filter (raise it to focus on the largest regions); **`gc_map_tauc()`**
+  transfers the threshold to a second method.
+- **`ld_manhattan()`** draws the faceted region / continuous-coloured Manhattans.
 - **`ld_outlier_regions()`** chains all of the above into one call for real data.
 - The **`evaluate_ors()` / `pr_auc()`** benchmark scores any caller against
   simulated truth on a common OR frame -- a method-agnostic gold standard.

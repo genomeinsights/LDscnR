@@ -29,7 +29,11 @@
 #' @param alpha Fixed within-candidate FDR for the C-score (default 0.05).
 #' @param rho_ld,dcap,rho_d Clustering parameters (see [ld_edges()]; defaults 0.9,
 #'   500 kb hard cap, `rho_d = NULL`).
-#' @param l_min Minimum region size in SNPs (default 2).
+#' @param l_min Minimum region size in SNPs (default 2), or `"auto"` to set it
+#'   data-drivenly from the structure null via [calibrate_lmin()].
+#' @param lmin_q,lmin_tau Passed to [calibrate_lmin()] when `l_min = "auto"`: the
+#'   upper quantile of the null max-region-size distribution (default 0.99) and the
+#'   reference C-threshold at which it is read (default 0.05).
 #' @param fdr Target region-level FDR for `tau_C` (default 0.05).
 #' @param basis,coords Structure basis for the null (see [structured_null()]).
 #' @param B Number of null surrogates (default 100).
@@ -48,7 +52,7 @@
 #' @export
 ld_outlier_regions <- function(y, GTs, K, ld_ws, map, decay_sum,
                                alpha = 0.05, rho_ld = 0.9, dcap = 5e5, rho_d = NULL,
-                               l_min = 2L, fdr = 0.05,
+                               l_min = 2L, lmin_q = 0.99, lmin_tau = 0.05, fdr = 0.05,
                                basis = c("genetic", "spatial"), coords = NULL,
                                B = 100L, rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05),
                                tau_grid = seq(0.05, 1, by = 0.05), keep_cache = FALSE, seed = 1L) {
@@ -58,6 +62,8 @@ ld_outlier_regions <- function(y, GTs, K, ld_ws, map, decay_sum,
                           alpha = alpha, rho = rho, qstar = qstar, prep = prep, seed = seed)
   C <- null$C_obs
   edges <- ld_edges(null$universe, GTs, map, decay_sum, rho_ld = rho_ld, dcap = dcap, rho_d = rho_d)
+  if (identical(l_min, "auto"))                       # data-driven region-size floor from the null
+    l_min <- calibrate_lmin(null, edges, tau = lmin_tau, q = lmin_q)
   fdr_curve <- null_fdr(null, edges, tau_grid, l_min)
   tau_C <- calibrate_tauc(null, edges, l_min, fdr, tau_grid)
   regions <- if (!is.na(tau_C)) {

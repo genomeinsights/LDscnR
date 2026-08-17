@@ -120,6 +120,40 @@ calibrate_tauc <- function(bundle, edges, l_min = 2L, fdr = 0.05, tau_grid = seq
   if (length(ok)) f$tau_C[min(ok)] else NA_real_
 }
 
+#' Suggest l_min from the structured null (data-driven region-size floor)
+#'
+#' The region-size filter `l_min` set *by the null* instead of by hand: the
+#' smallest region size that structure-only surrogates essentially never reach.
+#' For each surrogate its C-score-significant markers (at threshold `tau`) are
+#' clustered and the size of its largest region recorded; `l_min` is one more than
+#' the upper-`q` quantile of that null max-size distribution. A region at least
+#' this large is therefore implausible under the structure null -- the exact logic
+#' `l_min` encodes, made data-driven.
+#'
+#' The null bundle is `l_min`-free (and `tau`-free), so this reuses the surrogate
+#' C-scores already computed by [structured_null()] at no extra cost. `tau` is the
+#' C-threshold at which the null's clustering propensity is read: use a *permissive*
+#' value (default `0.05`) so `l_min` reflects how large chance clusters can grow
+#' when many markers are let through -- the regime `l_min` must guard, and what then
+#' lets [calibrate_tauc()] pick a lower, more powerful `tau_C`.
+#'
+#' @param bundle An `ld_null` object from [structured_null()].
+#' @param edges An [ld_edges()] object over `bundle$universe`.
+#' @param tau C-score threshold at which to measure null clustering (default 0.05).
+#' @param q Upper quantile of the null max-region-size distribution (default 0.99).
+#'
+#' @return Integer `l_min` = `1 + floor(quantile(null max region sizes, q))`.
+#' @seealso [calibrate_tauc()], [null_fdr()], [structured_null()]
+#' @export
+calibrate_lmin <- function(bundle, edges, tau = 0.05, q = 0.99) {
+  maxsize <- vapply(bundle$C_surr, function(Csp) {
+    mk <- names(Csp)[which(Csp >= tau)]          # which() drops NA entries
+    rl <- lengths(ld_regions(mk, edges))
+    if (!length(rl)) 0L else as.integer(max(rl))  # no clusterable markers -> size 0
+  }, integer(1))
+  as.integer(floor(stats::quantile(maxsize, q, type = 1, na.rm = TRUE)) + 1L)
+}
+
 #' Map a calibrated tau_C onto another method's C-scale (genomic control)
 #'
 #' Transfers a `tau_C` calibrated on a reference method (e.g. EMMAX, which has a
