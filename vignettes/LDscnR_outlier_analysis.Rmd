@@ -151,7 +151,7 @@ We also raise the region-size filter to **`l_min = 10`**. `l_min` is a post-filt
 the pipeline has: a high-C **singleton** is almost always structure noise -- a lone
 SNP that happens to be locally consistent -- whereas a true selected locus drags a
 *block* of linked markers with it. And the structure-aware null essentially never
-produces large clusters, so a &ge;10-SNP region is implausible by chance; raising
+produces large clusters, so a ≥10-SNP region is implausible by chance; raising
 `l_min` therefore removes false regions far faster than true ones. The right value
 scales with SNP density per LD block, so it is dataset-dependent: the sparse
 `sim_ex` above used `l_min = 2` (its true regions span only a handful of SNPs),

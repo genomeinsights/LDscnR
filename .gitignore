@@ -30,3 +30,4 @@ dev/outlier/fig/
 Rplots.pdf
 vignettes/*_cache/
 vignettes/*_files/
+rendered/
