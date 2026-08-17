@@ -273,15 +273,20 @@ builds, +1): here the null never clusters more than **2** SNPs, so the floor is
 number of regions on the negative-control **Chr6 drops to exactly zero at `l_min =
 3`** (17 at l_min 1, 1 at l_min 2, 0 at l_min 3).
 
-Above that floor, `l_min` is a **focusing** control, not an FDR device. Real
-selected loci throw off *satellite* clusters -- small extra correlated blocks in the
-neighbourhood of the true target -- so, as we see in simulations, **small regions
-concentrate on the very chromosomes that carry the large true regions** (here Chr1
-and Chr4 have satellites; the null-quiet Chr6 has none). No structure null can
-correct for this, because the null has no true positives to throw satellites off.
-So if a map looks noisy -- *especially when the chromosomes with the big regions
-also carry many small ones* -- raising `l_min` is the right move: it focuses on the
-largest candidate regions. We show both views below.
+Above that floor, `l_min` is a **focusing** control, not an FDR device -- and the
+floor itself is only a *lower bound*, because `calibrate_lmin()` is **anti-conservative
+by construction**. The null assumes **every SNP is neutral**: it has no true positives,
+so it cannot reproduce the *satellite* clusters that real selected loci throw off --
+small extra correlated blocks in the neighbourhood of, and often **driven by**, the
+true target (LD shadows, secondary sweeps, structure around the locus). The null
+simply never makes those, so the size it certifies is smaller than the size real data
+needs. Empirically the satellites concentrate on exactly the chromosomes carrying the
+large true regions (here Chr1 and Chr4 have them; the null-quiet Chr6 has none) -- a
+pattern no structure null can correct for. The recommendation is therefore to **raise
+`l_min` above the floor to focus on the largest regions** -- the big driver loci --
+rather than the smaller blocks they induce nearby. If a map looks noisy, *especially
+when the big-region chromosomes also carry many small ones*, that is the signature to
+raise it. We show both views below.
 
 **Separate regions by LD, not distance.** The other clustering knob is the r²-link
 threshold, set by `rho_ld`. A distance cap alone is what every scan already does; the
@@ -402,9 +407,24 @@ ld_manhattan(smap, value = setNames(as.numeric(res$C), names(res$C)), value_labe
 ```
 
 The Chr1 inversion is unaffected -- its dense core has no gaps that wide, so it holds
-as one region down to a 25 kb cap. Finally, the null-floor result on the familiar
-`-log10(q)` scale, with **identical region colours** so you can read across from the
-C-score to the q-value view:
+as one region down to a 25 kb cap.
+
+**Two roles, not three interchangeable cleaners.** It is tempting to treat all three
+clustering knobs as ways to "remove strays", but they split into two jobs.
+`rho_ld` and `dcap` are **boundary** knobs: they decide *where a region ends* (by LD
+and by distance) and so set each region's **shape and extent**. Tightening them sheds
+distant or weakly-linked strays off a block -- but a shed piece does not vanish, it
+becomes its own small region. `l_min` is the only **removal** knob: it decides *what
+is big enough to report*, and drops a shed piece only when the piece is smaller than
+`l_min`. They compose cleanly, but with two provisos: `l_min` must exceed the size of
+the buds you want gone (here they run to ~7 SNPs, so a clean map wants `l_min` ≈ 10,
+not the floor of 3 -- at `l_min = 3`, tightening `dcap`/`rho_ld` just re-labels the
+strays as extra small regions rather than removing them); and pushing the boundary
+knobs too far eventually fragments the *real* blocks as well. In short: **`rho_ld` and
+`dcap` set the shape of the regions you keep; `l_min` sets how many.**
+
+Finally, the null-floor result on the familiar `-log10(q)` scale, with **identical
+region colours** so you can read across from the C-score to the q-value view:
 
 ```{r stickle-plot-q, fig.height = 2.8}
 neglogq <- setNames(-log10(pmax(q_emx[smap$marker], 1e-30)), smap$marker)
