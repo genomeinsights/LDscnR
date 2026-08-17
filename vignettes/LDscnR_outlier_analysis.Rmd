@@ -1,0 +1,209 @@
+---
+title: "LD-aware outlier regions: calling and benchmarking"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{LD-aware outlier regions: calling and benchmarking}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.width = 7, fig.height = 3.2, dpi = 100
+)
+```
+
+```{r packages}
+library(LDscnR)
+library(data.table)
+library(ggplot2)
+library(SNPRelate)
+```
+
+## The idea
+
+Genome scans for selection produce noisy single-SNP signals. LDscnR turns them
+into **outlier regions (ORs)** by leaning on two facts: true signal is
+**LD-supported** (a causal variant drags a block of correlated markers with it),
+and true outliers **cluster** in the genome. The pipeline scores each SNP by how
+**consistently** it is both LD-prioritised and significant, calibrates a
+threshold against a **structure-aware null**, and clusters the survivors into
+regions.
+
+The design collapses the usual thicket of tuning parameters to a principled few:
+
+| role | parameter(s) | handled by |
+|------|--------------|-----------|
+| **swept / integrated** (natural [0,1]) | `rho` (`ld_w` window), `q*` (local-LD quantile) | folded into the C-score `ld_cscore()` |
+| **fixed, principled** | `alpha` = 0.05 | the structure-aware null prices in any miscalibration |
+| **clustering, LD-informed** | `rho_ld` = 0.9 (r²-link), 500 kb hard cap | `ld_edges()` |
+| **operational knobs** | `tau_C` (null-calibrated), `l_min` (region size) | `calibrate_tauc()` / a post-filter |
+
+The rest of the vignette shows both halves: **benchmarking** a scan against
+simulated truth (`sim_ex`), and **calling** ORs on real data with a
+null-calibrated threshold (`stickleback`).
+
+## Part 1 -- benchmarking on simulated data
+
+`sim_ex` is a small three-chromosome simulation with two QTNs and precomputed
+EMMAX and LFMM F-statistics (`?sim_ex`). We turn the F-statistics into p-values,
+flag the detectable true-positive QTNs, and build the LD ingredients.
+
+```{r sim-setup, results = "hide"}
+data(sim_ex, envir = environment())
+GTs <- sim_ex$GTs
+map <- copy(sim_ex$map)
+colnames(GTs) <- map$marker   # align GTs colnames ("1:Pos") to map markers ("Chr1:Pos"), same order
+n   <- nrow(GTs)
+
+# F -> p (df 1, n-2); MAF and per-chromosome Va share for the truth flag
+map[, emx_p  := pf(emx_F,  1, n - 2, lower.tail = FALSE)]
+map[, lfmm_p := pf(lfmm_F, 1, n - 2, lower.tail = FALSE)]
+af <- colMeans(GTs) / 2
+map[, MAF := pmin(af, 1 - af)[marker]]
+map[, Va  := p_Va]
+map <- flag_true_qtns(map, va_col = "Va", maf_col = "MAF", maf_min = 0.1, p_va_min = 0.05)
+
+# LD decay + a small ld_w window grid (the `rho` axis of the C-score)
+gds <- create_gds_from_geno(GTs, map, tempfile(fileext = ".gds"))
+set.seed(1)
+ld_decay <- compute_LD_decay(gds, keep_el = TRUE, slide = 50, ld_method = "corr",
+                             n_win_decay = 20, cores = 2)
+rho_grid <- c(0.5, 0.7, 0.85, 0.95)
+ld_ws <- sapply(rho_grid, function(r) compute_ld_w(ld_decay, rho = r, cores = 2))
+rownames(ld_ws) <- unlist(lapply(ld_decay$by_chr, function(o) o$snp_ids), use.names = FALSE)
+colnames(ld_ws) <- as.character(rho_grid)
+ld_ws <- ld_ws[map$marker, ]
+decay_sum <- ld_decay$decay_sum
+```
+
+### The C-score, clustering, and TP/FP
+
+`ld_cscore()` integrates over the `ld_w` window (`rho`) and the local-LD quantile
+(`q*`) at fixed `alpha`: a SNP's score is the fraction of cells where it is both a
+local-LD candidate and FDR-significant. High-C SNPs are then clustered into ORs
+(`ld_edges()` builds the r²-graph once; `ld_regions()` clusters any gated subset),
+and scored against the QTN truth with `evaluate_ors()` (dedup-neutral: a duplicate
+region for an already-claimed QTN is counted as neither TP nor FP).
+
+```{r sim-score}
+C_emx <- ld_cscore(map$emx_p, ld_ws)                       # per-SNP consistency
+edges <- ld_edges(names(C_emx)[C_emx > 0], GTs, map, decay_sum, rho_ld = 0.9)
+th    <- score_thresholds(decay_sum, rho_r2 = 0.75, rho_d = 0.95, dmax_cap = 5e5)
+qtab  <- qtn_ld_table(GTs, map, names(C_emx)[C_emx > 0], max_bp = 2e6)
+
+regions <- ld_regions(names(C_emx)[C_emx >= 0.3], edges)     # gate at tau_C = 0.3
+regions <- regions[lengths(regions) >= 2]                    # l_min = 2
+ev <- evaluate_ors(regions, map, qtab, th$r2min, th$dmax)
+unlist(ev[c("TP", "FP", "Recall", "Precision")])
+```
+
+### C-score vs a single-SNP alpha scan
+
+Because the C-score is one *ordered* knob (`tau_C`), a standard precision--recall
+curve applies. We compare it against the single-SNP baseline (sweep `alpha` on the
+raw p-values, same clustering and scoring), and summarise each with `pr_auc()`.
+
+```{r sim-prauc}
+pr_curve <- function(score_fun, grid) {
+  rbindlist(lapply(grid, function(t) {
+    reg <- ld_regions(score_fun(t), edges); reg <- reg[lengths(reg) >= 2]
+    e <- evaluate_ors(reg, map, qtab, th$r2min, th$dmax)
+    data.table(recall = e$Recall, precision = if (is.na(e$Precision)) NA_real_ else e$Precision)
+  }))
+}
+cscore  <- pr_curve(function(t) names(C_emx)[C_emx >= t], seq(0.05, 1, 0.05))
+singleS <- pr_curve(function(a) map$marker[p.adjust(map$emx_p, "BH") < a],
+                    c(0.001, 0.005, 0.01, 0.05, 0.1))
+c(C_score = pr_auc(cscore$recall, cscore$precision),
+  single_SNP = pr_auc(singleS$recall, singleS$precision))
+```
+
+### Calibrating a second method against EMMAX (genomic control)
+
+LFMM has no cheap structure-aware null. `gc_map_tauc()` transfers a threshold
+calibrated on EMMAX onto LFMM's C-scale by quantile-matching -- genomic control on
+the C-score, so LFMM is operated at EMMAX's FDR anchor.
+
+```{r sim-gc}
+C_lfmm  <- ld_cscore(map$lfmm_p, ld_ws)
+tau_lfmm <- gc_map_tauc(tau_C = 0.3, C_ref = C_emx, C_target = C_lfmm)
+signif(c(EMMAX_tau_C = 0.3, LFMM_tau_C = tau_lfmm), 3)
+```
+
+## Part 2 -- calling ORs on real data with a null-calibrated threshold
+
+`stickleback` is a three-spined-stickleback subset with a marine/freshwater
+ecotype phenotype and three regions (`?stickleback`): the **Chr1 inversion** and
+the **Chr4 *Eda*** locus (positive controls), and **Chr6** background (negative
+control). Here there is no ground truth, so instead of benchmarking we *call* ORs
+with `ld_outlier_regions()`, which calibrates `tau_C` from the structure-aware
+null.
+
+The kinship should capture structure without absorbing the signal, so we build it
+from **low-`ld_w` (LD-independent) markers** -- an all-marker GRM over-corrects and
+erases localised signals like *Eda*.
+
+```{r stickle-setup, results = "hide"}
+data(stickleback, envir = environment())
+sGTs <- stickleback$GTs
+smap <- copy(stickleback$map)
+eco  <- as.integer(stickleback$pheno$ecotype == "Marine")
+
+sgds <- create_gds_from_geno(sGTs, smap, tempfile(fileext = ".gds"))
+set.seed(1)
+sdecay <- compute_LD_decay(sgds, keep_el = TRUE, slide = 200, ld_method = "corr",
+                           n_win_decay = 50, cores = 2)
+srho <- c(0.5, 0.7, 0.85, 0.95)
+sld_ws <- sapply(srho, function(r) compute_ld_w(sdecay, rho = r, cores = 2))
+rownames(sld_ws) <- unlist(lapply(sdecay$by_chr, function(o) o$snp_ids), use.names = FALSE)
+colnames(sld_ws) <- as.character(srho); sld_ws <- sld_ws[smap$marker, ]
+
+# neutral-background GRM: GCTA on the low-ld_w (LD-independent) markers
+neutral <- smap$marker[sld_ws[, "0.95"] < 0.05]
+K <- snpgdsGRM(sgds, snp.id = neutral, method = "GCTA", autosome.only = FALSE, verbose = FALSE)$grm
+```
+
+```{r stickle-call}
+res <- ld_outlier_regions(
+  y = eco, GTs = sGTs, K = K, ld_ws = sld_ws, map = smap, decay_sum = sdecay$decay_sum,
+  basis = "genetic",              # confounding is genetic (ecotype ~ structure)
+  rho_ld = 0.9, dcap = 5e5, l_min = 5, fdr = 0.05, B = 50, seed = 1
+)
+res
+```
+
+`ld_outlier_regions()` ran the whole pipeline -- fast EMMAX, C-score, a genetic
+structure-aware null, `tau_C` calibrated to FDR ≤ 0.05, clustering and the `l_min`
+filter -- and returned the surviving ORs with their chromosome, extent and peak C.
+The positive-control regions (Chr1 inversion, Chr4 *Eda*) surface while Chr6
+stays quiet.
+
+```{r stickle-plot, fig.height = 3}
+d <- data.table(marker = names(res$C), C = as.numeric(res$C))[smap, on = "marker"]
+d[, surv := marker %in% unlist(res$regions)]
+ggplot(d[C > 0], aes(Pos, C, colour = surv)) +
+  geom_point(size = 0.7) +
+  geom_hline(yintercept = res$tau_C, linetype = 2, colour = "grey40") +
+  facet_wrap(~ Chr, nrow = 1, scales = "free_x") +
+  scale_colour_manual(values = c(`FALSE` = "grey70", `TRUE` = "#E1AF00"), guide = "none") +
+  labs(x = "Position", y = "C-score",
+       title = sprintf("Outlier regions at tau_C = %.2f (l_min = 5)", res$tau_C)) +
+  theme_bw(base_size = 10)
+```
+
+## Summary
+
+- **`ld_cscore()`** integrates the two [0,1] nuisance parameters (`rho`, `q*`) at
+  fixed `alpha` into one per-SNP consistency score.
+- **`ld_edges()` / `ld_regions()`** cluster the survivors with an LD-decay-informed
+  r² link and a 500 kb cap; **`l_min`** is a region-size post-filter.
+- **`structured_null()` / `calibrate_tauc()`** set `tau_C` truth-free by pricing in
+  structure confounding; **`gc_map_tauc()`** transfers it to a second method.
+- **`ld_outlier_regions()`** chains all of the above into one call for real data.
+- The **`evaluate_ors()` / `pr_auc()`** benchmark scores any caller against
+  simulated truth on a common OR frame -- a method-agnostic gold standard.
+
+See `?ld_outlier_regions` and the individual function help pages for the full
+argument set.
