@@ -5,6 +5,14 @@
 # genotype construction, polarization, and the score_eMLG/weighted_row_mean
 # primitives used throughout eMLG-based complexity reduction.
 
+#' Default cluster / region colour palette
+#'
+#' A vector of ~40 visually distinct colours for colouring LD clusters or outlier
+#' regions, one colour per cluster (recycle it if there are more regions than
+#' colours). Used by the plotting helpers and the outlier-region vignette.
+#'
+#' @return A character vector of colours.
+#' @export
 default_cluster_colours <- function() {
   c(
     "#B2DF8A", "#FFD92F", "firebrick", "#33A02C", "#7FC97F", "#CAB2D6",
@@ -181,7 +189,7 @@ add_snp_positions <- function(map_snp, map_ref) {
 #' @param ncores Number of cores for the per-cluster consensus computation
 #'   (`parallel::mclapply()`, fork-based -- not available on Windows).
 #' @param col_vector Optional vector of colours to cycle across clusters for
-#'   plotting; defaults to `default_cluster_colours()`.
+#'   plotting; defaults to [default_cluster_colours()].
 #'
 #' @return A list: `eMLG` (matrix, individuals x clusters), `map_eMLG`
 #'   (one row per cluster: position span, `n_loci`, `r2_eMLG`), `map_SNP`

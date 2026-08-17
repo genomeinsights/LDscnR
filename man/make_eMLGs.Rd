@@ -35,7 +35,7 @@ clusters are dropped entirely.}
 (\code{parallel::mclapply()}, fork-based -- not available on Windows).}
 
 \item{col_vector}{Optional vector of colours to cycle across clusters for
-plotting; defaults to \code{default_cluster_colours()}.}
+plotting; defaults to \code{\link[=default_cluster_colours]{default_cluster_colours()}}.}
 }
 \value{
 A list: \code{eMLG} (matrix, individuals x clusters), \code{map_eMLG}

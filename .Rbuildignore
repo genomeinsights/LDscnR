@@ -11,3 +11,5 @@
 ^example_code\.R$
 ^tmp$
 ^claude_snapshot_summaries$
+^vignettes/.*_cache$
+^vignettes/.*_files$

@@ -10,7 +10,8 @@ vignette: >
 ```{r setup, include = FALSE}
 knitr::opts_chunk$set(
   collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
-  fig.width = 7, fig.height = 3.2, dpi = 100
+  fig.width = 7, fig.height = 3.2, dpi = 100,
+  cache = TRUE, autodep = TRUE       # cache chunks so re-knits skip the LD-decay / null steps
 )
 ```
 
@@ -145,6 +146,17 @@ The kinship should capture structure without absorbing the signal, so we build i
 from **low-`ld_w` (LD-independent) markers** -- an all-marker GRM over-corrects and
 erases localised signals like *Eda*.
 
+We also raise the region-size filter to **`l_min = 10`**. `l_min` is a post-filter
+(not part of the C-score) and it is the strongest, cleanest false-positive control
+the pipeline has: a high-C **singleton** is almost always structure noise -- a lone
+SNP that happens to be locally consistent -- whereas a true selected locus drags a
+*block* of linked markers with it. And the structure-aware null essentially never
+produces large clusters, so a &ge;10-SNP region is implausible by chance; raising
+`l_min` therefore removes false regions far faster than true ones. The right value
+scales with SNP density per LD block, so it is dataset-dependent: the sparse
+`sim_ex` above used `l_min = 2` (its true regions span only a handful of SNPs),
+while the dense stickleback data warrants `l_min = 10`.
+
 ```{r stickle-setup, results = "hide"}
 data(stickleback, envir = environment())
 sGTs <- stickleback$GTs
@@ -169,7 +181,7 @@ K <- snpgdsGRM(sgds, snp.id = neutral, method = "GCTA", autosome.only = FALSE, v
 res <- ld_outlier_regions(
   y = eco, GTs = sGTs, K = K, ld_ws = sld_ws, map = smap, decay_sum = sdecay$decay_sum,
   basis = "genetic",              # confounding is genetic (ecotype ~ structure)
-  rho_ld = 0.9, dcap = 5e5, l_min = 5, fdr = 0.05, B = 50, seed = 1
+  rho_ld = 0.9, dcap = 5e5, l_min = 10, fdr = 0.05, B = 50, seed = 1
 )
 res
 ```
@@ -180,16 +192,26 @@ filter -- and returned the surviving ORs with their chromosome, extent and peak 
 The positive-control regions (Chr1 inversion, Chr4 *Eda*) surface while Chr6
 stays quiet.
 
+Each surviving region gets its own colour from the package palette
+`default_cluster_colours()`; SNPs not in a region are grey.
+
 ```{r stickle-plot, fig.height = 3}
+reg_id <- rbindlist(lapply(seq_along(res$regions), function(i)
+  data.table(marker = res$regions[[i]], region = as.character(i))))
 d <- data.table(marker = names(res$C), C = as.numeric(res$C))[smap, on = "marker"]
-d[, surv := marker %in% unlist(res$regions)]
-ggplot(d[C > 0], aes(Pos, C, colour = surv)) +
-  geom_point(size = 0.7) +
+d <- reg_id[d, on = "marker"][is.na(region), region := "ns"]
+
+pal <- setNames(rep(default_cluster_colours(), length.out = length(res$regions)),
+                as.character(seq_along(res$regions)))
+ggplot() +
+  geom_point(data = d[C > 0 & region == "ns"], aes(Pos, C), colour = "grey75", size = 0.6) +
+  geom_point(data = d[region != "ns"], aes(Pos, C, colour = region), size = 1.2) +
   geom_hline(yintercept = res$tau_C, linetype = 2, colour = "grey40") +
   facet_wrap(~ Chr, nrow = 1, scales = "free_x") +
-  scale_colour_manual(values = c(`FALSE` = "grey70", `TRUE` = "#E1AF00"), guide = "none") +
+  scale_colour_manual(values = pal, guide = "none") +
   labs(x = "Position", y = "C-score",
-       title = sprintf("Outlier regions at tau_C = %.2f (l_min = 5)", res$tau_C)) +
+       title = sprintf("%d outlier regions at tau_C = %.2f (l_min = 10)",
+                       length(res$regions), res$tau_C)) +
   theme_bw(base_size = 10)
 ```
 
