@@ -911,10 +911,12 @@ print.ld_decay <- function(x, digits = 3, ...) {
 #'   re-read from disk.
 #' @param cores Number of CPU cores.
 #'
-#' @return If \code{rho} has length 1, a numeric vector of LD support
-#'   values (one per SNP, in the same SNP order as \code{ld_decay$by_chr}).
-#'   If \code{rho} has length > 1, a numeric matrix with one row per SNP
-#'   (same order) and one column per \code{rho}, named \code{"rho_<value>"}.
+#' @return If \code{rho} has length 1, a named numeric vector of LD support
+#'   values (names = SNP/marker ids, in the same SNP order as
+#'   \code{ld_decay$by_chr}). If \code{rho} has length > 1, a numeric matrix with
+#'   one row per SNP (rownames = marker ids, same order) and one column per
+#'   \code{rho}, named \code{"rho_<value>"}. The row names let callers index/align
+#'   by marker directly (e.g. \code{ld_ws[map$marker, ]}) without setting them.
 #'
 #' @details
 #' The physical window is derived using:
@@ -954,13 +956,13 @@ compute_ld_w <- function(
     }, FUN.VALUE = numeric(length(chr_obj$snp_ids)))
 
     matrix(w, nrow = length(chr_obj$snp_ids), ncol = length(rho),
-           dimnames = list(NULL, paste0("rho_", rho)))
+           dimnames = list(chr_obj$snp_ids, paste0("rho_", rho)))
 
   }, cores = cores)
 
   ld_w <- do.call(rbind, by_chr_w)
 
-  if (length(rho) == 1L) return(as.vector(ld_w))
+  if (length(rho) == 1L) return(stats::setNames(as.vector(ld_w), rownames(ld_w)))
 
   ld_w
 }

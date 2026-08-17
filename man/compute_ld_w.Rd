@@ -20,10 +20,12 @@ re-read from disk.}
 \item{cores}{Number of CPU cores.}
 }
 \value{
-If \code{rho} has length 1, a numeric vector of LD support
-values (one per SNP, in the same SNP order as \code{ld_decay$by_chr}).
-If \code{rho} has length > 1, a numeric matrix with one row per SNP
-(same order) and one column per \code{rho}, named \code{"rho_<value>"}.
+If \code{rho} has length 1, a named numeric vector of LD support
+values (names = SNP/marker ids, in the same SNP order as
+\code{ld_decay$by_chr}). If \code{rho} has length > 1, a numeric matrix with
+one row per SNP (rownames = marker ids, same order) and one column per
+\code{rho}, named \code{"rho_<value>"}. The row names let callers index/align
+by marker directly (e.g. \code{ld_ws[map$marker, ]}) without setting them.
 }
 \description{
 Computes per-SNP local LD support within a distance defined by one or
