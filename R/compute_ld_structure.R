@@ -26,17 +26,35 @@
 #' }
 #'
 #' @param gds A GDS file handle containing genotype data.
-#' @param el_data_folder If not `NULL`, optional path to store LD edge lists (currently not used internally).
+#' @param el_data_folder If not `NULL`, a directory to which the per-chromosome LD
+#'   edge lists are written (one `<chr>.el` file each). These edge lists are the
+#'   input to [compute_ld_w()] for the local-LD (`ld_w`) statistic; see
+#'   `max_SNPs_decay` for the subsampling caveat that governs how complete they are.
 #' @param q Quantile of \eqn{r^2} used for decay fitting (default = 0.95).
 #' @param n_sub_bg Number of SNPs used to estimate background LD.
 #' @param n_win_decay Number of sliding windows per chromosome.
 #' @param overlap Proportion of overlap between consecutive windows (0–1).
-#' @param max_SNPs_decay Maximum number of SNPs sampled per chromosome for decay estimation.
+#' @param max_SNPs_decay Maximum number of SNPs sampled per chromosome when
+#'   estimating the LD-decay curve (default `Inf`). \strong{Caution:} this cap does
+#'   \emph{not} apply only to the decay fit -- the per-chromosome edge list is built
+#'   from the same subsample, so when the edge lists are retained (`keep_el = TRUE`)
+#'   or written (`el_data_folder`) the cap \emph{carries over into them}. Those edge
+#'   lists are the input to [compute_ld_w()] downstream, so a finite
+#'   `max_SNPs_decay` thins the `ld_w` support (markers outside the subsample get no
+#'   neighbours) and reduces C-score sensitivity. Cap it (for speed) \emph{only}
+#'   when the run is used solely to estimate LD decay; leave it at `Inf` whenever the
+#'   edge lists feed `ld_w` estimation downstream.
 #' @param prob_robust Central proportion of windows retained for robust summarization.
 #' @param max_pairs Maximum number of SNP pairs per window used in decay fitting.
 #' @param n_strata Number of distance strata used when subsampling SNP pairs.
-#' @param ld_method LD statistic used for decay/background fitting (\code{"r"} or \code{"r2"}).
-#' @param keep_el Logical; whether to store full LD edge lists per chromosome.
+#' @param ld_method LD statistic passed to \code{SNPRelate::snpgdsLDMat} (its
+#'   result is squared to r^2 for decay/background fitting). Default \code{"corr"}
+#'   -- the non-EM Pearson correlation of genotype dosages (equivalent to
+#'   \code{cor()^2}, differing only in missing-data handling); \code{"r"} is the
+#'   EM-based estimate.
+#' @param keep_el Logical; whether to retain the per-chromosome LD edge lists in the
+#'   returned object (consumed by [compute_ld_w()]). Subject to the same
+#'   `max_SNPs_decay` subsampling caveat.
 #' @param slide Sliding window size in number of SNPs used for LD estimation.
 #' @param rho_targets Numeric vector of target LD thresholds used to derive recommended window sizes.
 #' @param cores Number of CPU cores for parallel computation.
@@ -50,8 +68,18 @@
 #'   returned edge lists (\code{by_chr[[ch]]$el}) still contain ALL SNPs,
 #'   unfiltered, for downstream use (e.g. \code{compute_ld_w()}). Set to
 #'   \code{NULL} to disable MAF filtering.
+#' @param ld_w_rho Optional numeric vector of relative-LD levels \eqn{\rho}. When
+#'   supplied, the local-LD statistic \code{ld_w} is computed \emph{in place} from
+#'   the per-chromosome edge lists already built here (via [compute_ld_w()]) and
+#'   returned as \code{$ld_ws}; the edge lists are then dropped (unless
+#'   \code{keep_el = TRUE}). This is the cheapest route to \code{ld_w} -- the edge
+#'   lists are reused, not recomputed or saved -- so with \code{keep_el = FALSE} and
+#'   no \code{el_data_folder} nothing large is written or retained. \code{NULL}
+#'   (default) skips it.
 #'
-#' @return An object of class \code{"ld_decay"} containing:
+#' @return An object of class \code{"ld_decay"} containing (and, when
+#'   \code{ld_w_rho} is set, an additional \code{ld_ws} matrix of local-LD support,
+#'   markers x \eqn{\rho}):
 #' \describe{
 #'   \item{by_chr}{List of per-chromosome results including decay fits and optional LD edge lists.}
 #'   \item{decay_sum}{Data table of chromosome-wise decay parameters and derived quantities.}
@@ -80,13 +108,14 @@ compute_LD_decay <- function(
     max_SNPs_decay = Inf,
     prob_robust = 0.95,
     max_pairs = 5000,
-    ld_method = "r",
+    ld_method = "corr",
     n_strata = 20,
     keep_el = FALSE,
     slide = 1000,
     rho_targets = c(0.90, 0.95, 0.99),
     cores = 1,
-    min_maf_decay = 0.1
+    min_maf_decay = 0.1,
+    ld_w_rho = NULL
 ) {
 
   if (!is.null(el_data_folder)) {
@@ -220,7 +249,9 @@ compute_LD_decay <- function(
     setTxtProgressBar(pb, which(chrs==ch))
     out_by_chr[[ch]] <- list(
       snp_ids   = snps_chr,
-      el        = if (keep_el) el else paste0(el_data_folder,ch,".el"),
+      ## retain the edge list in memory when it is needed downstream in this call
+      ## (keep_el, or the in-place ld_w below); otherwise store the on-disk path.
+      el        = if (keep_el || !is.null(ld_w_rho)) el else paste0(el_data_folder,ch,".el"),
       decay     = decay,
       decay_sum = decay_sum_chr
     )
@@ -327,6 +358,14 @@ compute_LD_decay <- function(
   )
 
   class(out) <- "ld_decay"
+
+  ## optional in-place ld_w: the per-chromosome edge lists are already in memory
+  ## here, so compute the local-LD statistic from them directly (no re-computation,
+  ## no need to save them) and, unless keep_el was requested, drop them afterwards.
+  if (!is.null(ld_w_rho)) {
+    out$ld_ws <- compute_ld_w(out, rho = ld_w_rho, cores = cores)
+    if (!isTRUE(keep_el)) for (ch in names(out$by_chr)) out$by_chr[[ch]]$el <- NULL
+  }
 
   if (!is.null(recommendation$suggested_slide_summary)) {
     message("Current slide covers the following rho range (using predicted background a):")
@@ -504,7 +543,8 @@ estimate_decay_chr <- function(el,
 #'   eligible for sampling (low-MAF pairs mechanically deflate r^2 and bias the
 #'   background estimate).
 #' @param min_maf MAF threshold used with \code{maf}.
-#' @param ld_method LD statistic used (\code{"r"} or \code{"r2"}).
+#' @param ld_method LD statistic passed to \code{SNPRelate::snpgdsLDMat} (squared
+#'   to r^2). Default \code{"corr"} (non-EM Pearson correlation of dosages).
 #'
 #' @return Numeric scalar representing background LD (\eqn{b}).
 #'
@@ -518,7 +558,7 @@ estimate_background_ld <- function(gds,
                                    idx=NULL,
                                    n_sub = 5000,
                                    q = 0.95,
-                                   ld_method="r",
+                                   ld_method="corr",
                                    maf = NULL,
                                    min_maf = NULL) {
 
@@ -910,6 +950,16 @@ print.ld_decay <- function(x, digits = 3, ...) {
 #'   \code{compute_LD_decay()}, so each chromosome's edge list has to be
 #'   re-read from disk.
 #' @param cores Number of CPU cores.
+#' @param gds Optional GDS handle. If supplied, each chromosome's edge list is
+#'   recomputed \emph{on the fly} from the genotypes (via [get_el()]) and discarded
+#'   after use, instead of reading a stored edge list -- so \code{compute_LD_decay()}
+#'   can be run with \code{keep_el = FALSE} and no \code{el_data_folder}, avoiding
+#'   the (large) edge-list files entirely. Any stored edge list is ignored when
+#'   \code{gds} is given.
+#' @param slide_win_ld,ld_method Passed to [get_el()] for the on-the-fly mode: the
+#'   sliding-window size (in SNPs) for \code{SNPRelate::snpgdsLDMat} and the LD
+#'   statistic (default \code{"corr"}). Use the same values as the
+#'   \code{compute_LD_decay()} run that produced \code{ld_decay}.
 #'
 #' @return If \code{rho} has length 1, a named numeric vector of LD support
 #'   values (names = SNP/marker ids, in the same SNP order as
@@ -924,13 +974,18 @@ print.ld_decay <- function(x, digits = 3, ...) {
 #'
 #' where \eqn{a} is the chromosome-specific decay rate.
 #'
-#' Requires \code{keep_el = TRUE} when calling \code{compute_LD_decay()}.
+#' The edge lists come from \code{compute_LD_decay()} (with \code{keep_el = TRUE} or
+#' an \code{el_data_folder}); alternatively, supply \code{gds} to recompute them on
+#' the fly and avoid saving them at all (see the \code{gds} argument).
 #'
 #' @export
 compute_ld_w <- function(
     ld_decay,
     rho = 0.95,
-    cores = 1
+    cores = 1,
+    gds = NULL,
+    slide_win_ld = 1000,
+    ld_method = "corr"
 ) {
   rho <- unique(rho)
 
@@ -939,9 +994,18 @@ compute_ld_w <- function(
 
     a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
 
-    if(is.null(chr_obj$el)) stop("No edge list present")
-
-    el <- if(is.character(chr_obj$el)) fread(chr_obj$el,showProgress = FALSE) else chr_obj$el
+    ## Edge list: either the one stored by compute_LD_decay (in memory or on disk),
+    ## or -- when `gds` is supplied -- recomputed on the fly for this chromosome's
+    ## markers and discarded after use, so the edge lists never have to be saved.
+    el <- if (!is.null(gds)) {
+      get_el(gds, SNP_id = chr_obj$snp_ids, slide_win_ld = slide_win_ld,
+             method = ld_method, cores = 1)
+    } else if (!is.null(chr_obj$el)) {
+      if (is.character(chr_obj$el)) fread(chr_obj$el, showProgress = FALSE) else chr_obj$el
+    } else {
+      stop("No edge list present; supply `gds` to estimate ld_w on the fly, or ",
+           "run compute_LD_decay() with keep_el = TRUE or an el_data_folder.")
+    }
 
     #make symmetric -- once per chromosome, reused across all rho below
     el <- data.table::rbindlist(list(

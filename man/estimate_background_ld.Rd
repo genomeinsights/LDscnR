@@ -9,7 +9,7 @@ estimate_background_ld(
   idx = NULL,
   n_sub = 5000,
   q = 0.95,
-  ld_method = "r",
+  ld_method = "corr",
   maf = NULL,
   min_maf = NULL
 )
@@ -23,7 +23,8 @@ estimate_background_ld(
 
 \item{q}{Quantile used to define background LD.}
 
-\item{ld_method}{LD statistic used (\code{"r"} or \code{"r2"}).}
+\item{ld_method}{LD statistic passed to \code{SNPRelate::snpgdsLDMat} (squared
+to r^2). Default \code{"corr"} (non-EM Pearson correlation of dosages).}
 
 \item{maf}{Optional named numeric vector of MAF, named by SNP id. If supplied
 together with \code{min_maf}, only SNPs with \code{MAF > min_maf} are

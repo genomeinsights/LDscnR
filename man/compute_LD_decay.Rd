@@ -14,19 +14,23 @@ compute_LD_decay(
   max_SNPs_decay = Inf,
   prob_robust = 0.95,
   max_pairs = 5000,
-  ld_method = "r",
+  ld_method = "corr",
   n_strata = 20,
   keep_el = FALSE,
   slide = 1000,
   rho_targets = c(0.9, 0.95, 0.99),
   cores = 1,
-  min_maf_decay = 0.1
+  min_maf_decay = 0.1,
+  ld_w_rho = NULL
 )
 }
 \arguments{
 \item{gds}{A GDS file handle containing genotype data.}
 
-\item{el_data_folder}{If not \code{NULL}, optional path to store LD edge lists (currently not used internally).}
+\item{el_data_folder}{If not \code{NULL}, a directory to which the per-chromosome LD
+edge lists are written (one \verb{<chr>.el} file each). These edge lists are the
+input to \code{\link[=compute_ld_w]{compute_ld_w()}} for the local-LD (\code{ld_w}) statistic; see
+\code{max_SNPs_decay} for the subsampling caveat that governs how complete they are.}
 
 \item{q}{Quantile of \eqn{r^2} used for decay fitting (default = 0.95).}
 
@@ -36,17 +40,32 @@ compute_LD_decay(
 
 \item{overlap}{Proportion of overlap between consecutive windows (0–1).}
 
-\item{max_SNPs_decay}{Maximum number of SNPs sampled per chromosome for decay estimation.}
+\item{max_SNPs_decay}{Maximum number of SNPs sampled per chromosome when
+estimating the LD-decay curve (default \code{Inf}). \strong{Caution:} this cap does
+\emph{not} apply only to the decay fit -- the per-chromosome edge list is built
+from the same subsample, so when the edge lists are retained (\code{keep_el = TRUE})
+or written (\code{el_data_folder}) the cap \emph{carries over into them}. Those edge
+lists are the input to \code{\link[=compute_ld_w]{compute_ld_w()}} downstream, so a finite
+\code{max_SNPs_decay} thins the \code{ld_w} support (markers outside the subsample get no
+neighbours) and reduces C-score sensitivity. Cap it (for speed) \emph{only}
+when the run is used solely to estimate LD decay; leave it at \code{Inf} whenever the
+edge lists feed \code{ld_w} estimation downstream.}
 
 \item{prob_robust}{Central proportion of windows retained for robust summarization.}
 
 \item{max_pairs}{Maximum number of SNP pairs per window used in decay fitting.}
 
-\item{ld_method}{LD statistic used for decay/background fitting (\code{"r"} or \code{"r2"}).}
+\item{ld_method}{LD statistic passed to \code{SNPRelate::snpgdsLDMat} (its
+result is squared to r^2 for decay/background fitting). Default \code{"corr"}
+-- the non-EM Pearson correlation of genotype dosages (equivalent to
+\code{cor()^2}, differing only in missing-data handling); \code{"r"} is the
+EM-based estimate.}
 
 \item{n_strata}{Number of distance strata used when subsampling SNP pairs.}
 
-\item{keep_el}{Logical; whether to store full LD edge lists per chromosome.}
+\item{keep_el}{Logical; whether to retain the per-chromosome LD edge lists in the
+returned object (consumed by \code{\link[=compute_ld_w]{compute_ld_w()}}). Subject to the same
+\code{max_SNPs_decay} subsampling caveat.}
 
 \item{slide}{Sliding window size in number of SNPs used for LD estimation.}
 
@@ -64,9 +83,20 @@ parameters). Filtering is applied only to the curve-fitting step; the
 returned edge lists (\code{by_chr[[ch]]$el}) still contain ALL SNPs,
 unfiltered, for downstream use (e.g. \code{compute_ld_w()}). Set to
 \code{NULL} to disable MAF filtering.}
+
+\item{ld_w_rho}{Optional numeric vector of relative-LD levels \eqn{\rho}. When
+supplied, the local-LD statistic \code{ld_w} is computed \emph{in place} from
+the per-chromosome edge lists already built here (via \code{\link[=compute_ld_w]{compute_ld_w()}}) and
+returned as \code{$ld_ws}; the edge lists are then dropped (unless
+\code{keep_el = TRUE}). This is the cheapest route to \code{ld_w} -- the edge
+lists are reused, not recomputed or saved -- so with \code{keep_el = FALSE} and
+no \code{el_data_folder} nothing large is written or retained. \code{NULL}
+(default) skips it.}
 }
 \value{
-An object of class \code{"ld_decay"} containing:
+An object of class \code{"ld_decay"} containing (and, when
+\code{ld_w_rho} is set, an additional \code{ld_ws} matrix of local-LD support,
+markers x \eqn{\rho}):
 \describe{
 \item{by_chr}{List of per-chromosome results including decay fits and optional LD edge lists.}
 \item{decay_sum}{Data table of chromosome-wise decay parameters and derived quantities.}

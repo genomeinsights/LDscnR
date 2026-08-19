@@ -4,7 +4,14 @@
 \alias{compute_ld_w}
 \title{Compute Local LD Support (ld_w)}
 \usage{
-compute_ld_w(ld_decay, rho = 0.95, cores = 1)
+compute_ld_w(
+  ld_decay,
+  rho = 0.95,
+  cores = 1,
+  gds = NULL,
+  slide_win_ld = 1000,
+  ld_method = "corr"
+)
 }
 \arguments{
 \item{ld_decay}{Object of class \code{"ld_decay"}.}
@@ -18,6 +25,18 @@ matters most when \code{keep_el = FALSE} was used in
 re-read from disk.}
 
 \item{cores}{Number of CPU cores.}
+
+\item{gds}{Optional GDS handle. If supplied, each chromosome's edge list is
+recomputed \emph{on the fly} from the genotypes (via \code{\link[=get_el]{get_el()}}) and discarded
+after use, instead of reading a stored edge list -- so \code{compute_LD_decay()}
+can be run with \code{keep_el = FALSE} and no \code{el_data_folder}, avoiding
+the (large) edge-list files entirely. Any stored edge list is ignored when
+\code{gds} is given.}
+
+\item{slide_win_ld, ld_method}{Passed to \code{\link[=get_el]{get_el()}} for the on-the-fly mode: the
+sliding-window size (in SNPs) for \code{SNPRelate::snpgdsLDMat} and the LD
+statistic (default \code{"corr"}). Use the same values as the
+\code{compute_LD_decay()} run that produced \code{ld_decay}.}
 }
 \value{
 If \code{rho} has length 1, a named numeric vector of LD support
@@ -40,5 +59,7 @@ The physical window is derived using:
 
 where \eqn{a} is the chromosome-specific decay rate.
 
-Requires \code{keep_el = TRUE} when calling \code{compute_LD_decay()}.
+The edge lists come from \code{compute_LD_decay()} (with \code{keep_el = TRUE} or
+an \code{el_data_folder}); alternatively, supply \code{gds} to recompute them on
+the fly and avoid saving them at all (see the \code{gds} argument).
 }
