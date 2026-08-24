@@ -192,17 +192,25 @@ compute_LD_decay <- function(
     ## ---- MAF-filtered view of the edge list, used ONLY for decay-curve
     ## fitting below. `el` itself is left untouched (all SNPs, all MAFs)
     ## so downstream ld_w computation can apply its own MAF filter later.
+    ##
+    ## Both filters (MAF and the window-size cut) are applied in ONE pass, and
+    ## only the four columns the fit actually reads are carried over. Previously
+    ## this made a full-width copy of the edge list and then a second copy for
+    ## `d < window_size`, dragging SNP1/SNP2/Chr1/Chr2 -- four character columns,
+    ## roughly two thirds of the table's memory -- through both, despite
+    ## estimate_decay_chr() and coef_ld_dec() only ever using pos1/pos2/d/r2.
     if (!is.null(maf)) {
       hi_maf_ids <- snps_chr[maf[snps_chr] > min_maf_decay & !is.na(maf[snps_chr])]
-      el_decay <- el[SNP1 %in% hi_maf_ids & SNP2 %in% hi_maf_ids]
+      el_decay <- el[SNP1 %in% hi_maf_ids & SNP2 %in% hi_maf_ids & d < window_size,
+                     list(pos1, pos2, r2, d)]
     } else {
-      el_decay <- el
+      el_decay <- el[d < window_size, list(pos1, pos2, r2, d)]
     }
 
     ## ---- LD-decay
     decay <- suppressWarnings(
       estimate_decay_chr(
-        el = el_decay[d < window_size],
+        el = el_decay,
         b = b,
         window_size = window_size,
         step_size   = step_size,
@@ -249,12 +257,21 @@ compute_LD_decay <- function(
     setTxtProgressBar(pb, which(chrs==ch))
     out_by_chr[[ch]] <- list(
       snp_ids   = snps_chr,
-      ## retain the edge list in memory when it is needed downstream in this call
-      ## (keep_el, or the in-place ld_w below); otherwise store the on-disk path
-      ## -- but only when there IS one: with no el_data_folder, paste0() would
-      ## produce a bare "<chr>.el" that was never written, which downstream code
-      ## then tries (and fails) to fread. NULL correctly says "no edges here".
-      el        = if (keep_el || !is.null(ld_w_rho)) el
+      ## retain the edge list in memory only when the caller asked for it
+      ## (keep_el); otherwise store the on-disk path -- but only when there IS one:
+      ## with no el_data_folder, paste0() would produce a bare "<chr>.el" that was
+      ## never written, which downstream code then tries (and fails) to fread.
+      ## NULL correctly says "no edges here".
+      ##
+      ## The in-place ld_w pass below deliberately does NOT hold these: it cannot
+      ## run inside this loop, because ld_w is defined against `a_pred` -- the
+      ## genome-wide regression of decay rate on chromosome size, which only
+      ## exists once every chromosome has been fitted. Retaining every
+      ## chromosome's edges until then made peak memory scale with the number of
+      ## chromosomes; instead the ld_w pass rebuilds them one chromosome at a
+      ## time from `gds` and discards each after use, so the peak is one edge
+      ## list regardless of how many chromosomes there are.
+      el        = if (keep_el) el
                   else if (!is.null(el_data_folder)) paste0(el_data_folder, ch, ".el")
                   else NULL,
       decay     = decay,
@@ -367,11 +384,15 @@ compute_LD_decay <- function(
 
   class(out) <- "ld_decay"
 
-  ## optional in-place ld_w: the per-chromosome edge lists are already in memory
-  ## here, so compute the local-LD statistic from them directly (no re-computation,
-  ## no need to save them) and, unless keep_el was requested, drop them afterwards.
+  ## optional in-place ld_w. Edge lists are reused when they are actually held
+  ## (keep_el, or an el_data_folder path); otherwise each chromosome's is rebuilt
+  ## from `gds` inside compute_ld_w() and dropped again, keeping peak memory at
+  ## one chromosome's edges rather than all of them.
   if (!is.null(ld_w_rho)) {
-    out$ld_ws <- compute_ld_w(out, rho = ld_w_rho, cores = cores)
+    reuse <- keep_el || !is.null(el_data_folder)
+    out$ld_ws <- compute_ld_w(out, rho = ld_w_rho, cores = cores,
+                              gds = if (reuse) NULL else gds,
+                              slide_win_ld = slide, ld_method = ld_method)
     if (!isTRUE(keep_el)) for (ch in names(out$by_chr)) out$by_chr[[ch]]$el <- NULL
   }
 
@@ -1015,10 +1036,13 @@ compute_ld_w <- function(
            "run compute_LD_decay() with keep_el = TRUE or an el_data_folder.")
     }
 
-    #make symmetric -- once per chromosome, reused across all rho below
+    ## Make symmetric -- once per chromosome, reused across all rho below. This
+    ## table has TWICE the edge list's rows, so it carries only the three columns
+    ## the median below actually reads; pos/pos_other used to be included and were
+    ## never used, costing ~40% of the largest allocation in this function.
     el <- data.table::rbindlist(list(
-      el[, .(SNP = SNP1, pos = pos1, pos_other = pos2, r2, d)],
-      el[, .(SNP = SNP2, pos = pos2, pos_other = pos1, r2, d)]
+      el[, .(SNP = SNP1, r2, d)],
+      el[, .(SNP = SNP2, r2, d)]
     ))
 
     w <- vapply(rho, function(r) {

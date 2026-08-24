@@ -70,3 +70,29 @@ test_that("d_from_rho and ld_from_rho behave monotonically", {
   expect_lt(ld_from_rho(b, cc, 0.50), cc)
   expect_gt(ld_from_rho(b, cc, 0.50), b)
 })
+
+test_that("in-place ld_w is the same whether edges are reused or rebuilt", {
+  skip_if_not_installed("SNPRelate")
+  data(sim_ex, package = "LDscnR")
+
+  gds_path <- tempfile(fileext = ".gds")
+  gds <- create_gds_from_geno(sim_ex$GTs, sim_ex$map, gds_path)
+  on.exit({ SNPRelate::snpgdsClose(gds); unlink(gds_path) })
+
+  RHO  <- c(0.5, 0.95)
+  args <- list(gds, n_win_decay = 5, max_SNPs_decay = Inf, slide = 1000,
+               cores = 1, ld_w_rho = RHO)
+
+  ## same seed: the decay fit subsamples pairs, so the curve (and hence a_pred,
+  ## which ld_w is defined against) is only comparable within a seed
+  set.seed(7); kept  <- do.call(compute_LD_decay, c(args, keep_el = TRUE))
+  set.seed(7); rebui <- do.call(compute_LD_decay, c(args, keep_el = FALSE))
+
+  ## keep_el = FALSE holds no edges: ld_w rebuilt them per chromosome from gds
+  expect_null(rebui$by_chr[[1]]$el)
+  expect_false(is.null(kept$by_chr[[1]]$el))
+
+  expect_equal(rebui$ld_ws, kept$ld_ws)
+  expect_equal(rebui$decay_sum, kept$decay_sum)
+  expect_equal(dim(rebui$ld_ws), c(nrow(sim_ex$map), length(RHO)))
+})

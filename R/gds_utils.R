@@ -106,26 +106,61 @@ get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
   }
   slide <- if (slide_win_ld > 0) as.integer(slide_win_ld) else -1L
 
-  compute_one <- function(local_idx) {
-    ldmat <- SNPRelate::snpgdsLDMat(gds, snp.id = ids$snp_id[local_idx],
-                                    method = method, slide = slide, verbose = FALSE,
-                                    num.thread = as.integer(cores))
-    el <- data.table::as.data.table(reshape2::melt(ldmat$LD^2,
+  ## The LD matrix is turned into an edge list a BLOCK OF COLUMNS AT A TIME.
+  ## Melting it whole (the previous approach) cost several full-size copies --
+  ## `LD^2` duplicated the matrix, reshape2::melt built every cell as three
+  ## columns including the ones about to be discarded, and each subsequent filter
+  ## copied the table again -- which on a 15M-cell chromosome dominated peak
+  ## memory. Working in blocks keeps the transient cost proportional to
+  ## `cells_per_block` instead of to the whole matrix, and r2 is squared only for
+  ## the pairs that survive filtering. Output is unchanged: same columns, same
+  ## rows, same (column-major) order.
+  cells_per_block <- 2e6
 
-                                                   value.name = "r2"))
-    if (slide_win_ld > 0) {
-      el[, `:=`(Var1, Var1 + Var2)]
+  compute_one <- function(local_idx) {
+    ld <- SNPRelate::snpgdsLDMat(gds, snp.id = ids$snp_id[local_idx],
+                                 method = method, slide = slide, verbose = FALSE,
+                                 num.thread = as.integer(cores))$LD
+    chr <- ids$snp_chr[local_idx]
+    pos <- ids$snp_pos[local_idx]
+    sid <- ids$snp_id[local_idx]
+    n_snp <- length(sid)
+    n_row <- nrow(ld); n_col <- ncol(ld)
+
+    block <- max(1L, as.integer(cells_per_block %/% max(n_row, 1L)))
+    parts <- vector("list", ceiling(n_col / block))
+    k <- 0L
+
+    for (start in seq.int(1L, n_col, by = block)) {
+      cols <- start:min(start + block - 1L, n_col)
+      v <- as.vector(ld[, cols, drop = FALSE])
+      i <- rep.int(seq_len(n_row), length(cols))     # row index within the matrix
+      j <- rep(cols, each = n_row)                   # column index
+
+      ## slide mode: LD[i, j] is the pair (j, j + i); full mode: the pair (i, j),
+      ## of which only the lower triangle is kept. SNP1 is the higher-indexed SNP
+      ## in both cases, as before.
+      a <- if (slide_win_ld > 0) i + j else i
+      b <- j
+
+      keep <- is.finite(v) & a > b & a <= n_snp
+      if (!any(keep)) next
+      a <- a[keep]; b <- b[keep]
+      k <- k + 1L
+      parts[[k]] <- data.table::data.table(
+        SNP1 = sid[a], SNP2 = sid[b], Chr1 = chr[a], Chr2 = chr[b],
+        pos1 = pos[a], pos2 = pos[b],
+        r2   = v[keep]^2,                            # squared only for survivors
+        d    = abs(pos[a] - pos[b])
+      )
     }
-    el <- el[Var1 > Var2]
-    el <- el[is.finite(r2)]
-    el[, `:=`(Chr1, ids$snp_chr[local_idx][Var1])]
-    el[, `:=`(Chr2, ids$snp_chr[local_idx][Var2])]
-    el[, `:=`(pos1, ids$snp_pos[local_idx][Var1])]
-    el[, `:=`(pos2, ids$snp_pos[local_idx][Var2])]
-    el[, `:=`(SNP1, ids$snp_id[local_idx][Var1])]
-    el[, `:=`(SNP2, ids$snp_id[local_idx][Var2])]
-    el[, `:=`(d, abs(pos1 - pos2))]
-    el[, .(SNP1, SNP2, Chr1, Chr2, pos1, pos2, r2, d)]
+
+    if (k == 0L) {
+      return(data.table::data.table(
+        SNP1 = sid[0], SNP2 = sid[0], Chr1 = chr[0], Chr2 = chr[0],
+        pos1 = pos[0], pos2 = pos[0], r2 = numeric(0), d = pos[0]))
+    }
+    data.table::rbindlist(parts[seq_len(k)], use.names = FALSE)
   }
   if (!by_chr) {
     return(compute_one(which(ids$snp_id %in% snp_ids)))
