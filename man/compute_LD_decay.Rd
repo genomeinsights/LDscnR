@@ -140,3 +140,34 @@ window sizes across heterogeneous genomic architectures.
 Recommended window sizes are provided in SNP units to match downstream
 functions that operate on marker indices rather than physical distance.
 }
+\section{Comparing decay estimates across runs and datasets}{
+
+The fitted parameters (\eqn{a}, \eqn{b}, \eqn{c}, and the \code{a_pred}
+derived from them) are \strong{conditional on the settings used}, not
+properties of the data alone. They are stable when those settings are held
+fixed: on one simulated dataset, repeat runs differing only in random seed
+gave \eqn{a} = 1.798e-05 and 1.799e-05. But they move substantially when the
+settings -- or the marker set -- change, and \eqn{a} propagates: it sets the
+\code{d_from_rho()} window behind \code{ld_w}, and \code{decay_sum} feeds
+\code{score_thresholds()}. Treat estimates as comparable only across runs
+that share the whole configuration.
+
+Matching the settings is necessary but \strong{not sufficient}, because
+\code{slide} is counted in SNPs: the physical span it covers is
+\code{slide * bp_per_snp}, so the same nominal window means different things
+at different marker densities. Halving the markers of one dataset while
+changing nothing else (via \code{max_SNPs_decay}) moved \eqn{a} from
+1.80e-05 to 2.2-2.6e-05 and pushed \eqn{c} from ~0.97 to ~0.999 -- density
+alone. To compare across datasets, check that \code{decay_sum$slide_bp} and
+\code{rho_slide_pred} are similar, rather than only that \code{slide}
+matches; \code{recommendation$suggested_slide_by_chr} gives the
+density-aware slide for a target \eqn{\rho}.
+
+A related consequence: the estimator is sensitive to how pairs are
+\emph{composed}, not just how many there are, since
+\code{subsample_pairs_for_decay()} derives its distance strata from the
+observed range of the pairs it is given. Feeding it a differently sampled
+pair set (a marker subsample, or pairs drawn directly) shifts the strata and
+therefore the fit, even at equal pair counts.
+}
+
