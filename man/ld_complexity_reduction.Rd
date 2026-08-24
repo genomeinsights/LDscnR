@@ -4,13 +4,21 @@
 \alias{ld_complexity_reduction}
 \title{Reduce a Marker Set to LD-Independent Representatives}
 \usage{
-ld_complexity_reduction(map, LD_decay, rho = 0.5, cores = 1, idx = NULL)
+ld_complexity_reduction(
+  map,
+  LD_decay,
+  rho = 0.5,
+  cores = 1,
+  idx = NULL,
+  gds = NULL
+)
 }
 \arguments{
 \item{map}{A \code{data.table} with at least \code{Chr} and \code{marker} columns.}
 
-\item{LD_decay}{An \code{ld_decay} object from \code{\link[=compute_LD_decay]{compute_LD_decay()}}, built with
-\code{keep_el = TRUE} (or a valid \code{el_data_folder}).}
+\item{LD_decay}{An \code{ld_decay} object from \code{\link[=compute_LD_decay]{compute_LD_decay()}}. Its edge
+lists are reused when present (\code{keep_el = TRUE}, or a valid
+\code{el_data_folder}); otherwise supply \code{gds} and they are rebuilt on the fly.}
 
 \item{rho}{Numeric in (0, 1). Decay level used to derive each
 chromosome's clustering threshold via \code{\link[=ld_from_rho]{ld_from_rho()}}. Default \code{0.5}.}
@@ -23,6 +31,18 @@ against each other and returned -- letting the caller decide the marker
 set up front (by \code{ld_w}, MAF, a region of interest, or anything else)
 instead of this function taking its own filtering criterion. If \code{NULL}
 (the default), all markers in \code{map} are used.}
+
+\item{gds}{Optional. An open GDS object (as returned by
+\code{\link[=create_gds_from_geno]{create_gds_from_geno()}}) or a path to a \code{.gds} file, used to rebuild a
+chromosome's edge list when \code{LD_decay} carries none. \code{slide} and
+\code{ld_method} are taken from \code{LD_decay$params}, so the rebuilt edges match
+the window the decay curve was fitted on; the one difference is that
+rebuilding covers every marker on the chromosome, whereas the original
+\code{el} may have been built on a \code{max_SNPs_decay} subsample. Ignored when the
+edge lists are already present. With \code{cores > 1} each worker opens its own
+handle from the file path; if only an open handle is available and its
+path cannot be recovered, \code{cores} is forced to 1 rather than sharing a GDS
+connection across forks.}
 }
 \value{
 An object of class \code{"ld_complexity_reduction"} (a list with a
@@ -61,9 +81,14 @@ inversion -- is exactly where pruning needs to be MORE aggressive, since
 those markers are the most redundant; adapting the threshold to expect
 high local LD there and tolerate it would defeat the purpose of pruning.
 
-Clustering is two-stage, using \code{LD_decay$by_chr[[ch]]$el} (the same
-precomputed edge list \code{\link[=compute_ld_w]{compute_ld_w()}} uses -- built with
-\code{keep_el = TRUE}, so no pairwise LD is recomputed here):
+Clustering is two-stage, using a per-chromosome edge list of pairwise
+\eqn{r^2}. That edge list is taken from \code{LD_decay$by_chr[[ch]]$el} when it
+is there (the same precomputed edges \code{\link[=compute_ld_w]{compute_ld_w()}} uses, built with
+\code{keep_el = TRUE}, so no pairwise LD is recomputed); otherwise, if \code{gds} is
+supplied, it is rebuilt from the genotypes ONE CHROMOSOME AT A TIME and
+discarded again, so a caller can run \code{compute_LD_decay(keep_el = FALSE)} --
+saving nothing to disk and carrying no edges in the returned object -- and
+still use this function. The two stages are:
 \enumerate{
 \item Connected components on the sparse thresholded graph (single
 linkage; cheap).

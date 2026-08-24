@@ -1,3 +1,37 @@
+## Edge list for one chromosome: reuse LD_decay's if it has one (in memory, or a
+## path in el_data_folder mode), else rebuild it from genotypes on the fly. The
+## rebuild is per chromosome and the result is discarded by the caller as soon as
+## its clusters are formed, so nothing is written or accumulated.
+.chr_edge_list <- function(LD_decay, ch, chr_markers, gds = NULL, reopen_path = NULL) {
+
+  el <- LD_decay$by_chr[[ch]]$el
+  if (is.character(el)) return(data.table::fread(el, showProgress = FALSE))  ## el_data_folder mode stores a path
+  if (!is.null(el)) return(el)
+
+  if (is.null(gds) && is.null(reopen_path)) {
+    stop("LD_decay$by_chr[['", ch, "']]$el is NULL -- either run compute_LD_decay() with ",
+         "keep_el = TRUE (or a valid el_data_folder), or pass gds = to ",
+         "ld_complexity_reduction() so this chromosome's edges can be rebuilt on the fly.")
+  }
+
+  g <- gds
+  if (!is.null(reopen_path)) {
+    g <- SNPRelate::snpgdsOpen(reopen_path, allow.duplicate = TRUE)
+    on.exit(SNPRelate::snpgdsClose(g), add = TRUE)
+  } else if (is.character(g)) {
+    g <- SNPRelate::snpgdsOpen(g, allow.duplicate = TRUE)
+    on.exit(SNPRelate::snpgdsClose(g), add = TRUE)
+  }
+
+  p <- LD_decay$params
+  get_el(gds          = g,
+         SNP_id       = chr_markers,
+         slide_win_ld = if (!is.null(p$slide))     p$slide     else 1000,
+         method       = if (!is.null(p$ld_method)) p$ld_method else "corr",
+         cores        = 1,
+         by_chr       = TRUE)
+}
+
 #' Reduce a Marker Set to LD-Independent Representatives
 #'
 #' Clusters markers into local LD blocks and reduces each block to a single
@@ -17,9 +51,14 @@
 #' those markers are the most redundant; adapting the threshold to expect
 #' high local LD there and tolerate it would defeat the purpose of pruning.
 #'
-#' Clustering is two-stage, using `LD_decay$by_chr[[ch]]$el` (the same
-#' precomputed edge list [compute_ld_w()] uses -- built with
-#' `keep_el = TRUE`, so no pairwise LD is recomputed here):
+#' Clustering is two-stage, using a per-chromosome edge list of pairwise
+#' \eqn{r^2}. That edge list is taken from `LD_decay$by_chr[[ch]]$el` when it
+#' is there (the same precomputed edges [compute_ld_w()] uses, built with
+#' `keep_el = TRUE`, so no pairwise LD is recomputed); otherwise, if `gds` is
+#' supplied, it is rebuilt from the genotypes ONE CHROMOSOME AT A TIME and
+#' discarded again, so a caller can run `compute_LD_decay(keep_el = FALSE)` --
+#' saving nothing to disk and carrying no edges in the returned object -- and
+#' still use this function. The two stages are:
 #' \enumerate{
 #'   \item Connected components on the sparse thresholded graph (single
 #'     linkage; cheap).
@@ -76,8 +115,20 @@
 #' threshold.
 #'
 #' @param map A `data.table` with at least `Chr` and `marker` columns.
-#' @param LD_decay An `ld_decay` object from [compute_LD_decay()], built with
-#'   `keep_el = TRUE` (or a valid `el_data_folder`).
+#' @param LD_decay An `ld_decay` object from [compute_LD_decay()]. Its edge
+#'   lists are reused when present (`keep_el = TRUE`, or a valid
+#'   `el_data_folder`); otherwise supply `gds` and they are rebuilt on the fly.
+#' @param gds Optional. An open GDS object (as returned by
+#'   [create_gds_from_geno()]) or a path to a `.gds` file, used to rebuild a
+#'   chromosome's edge list when `LD_decay` carries none. `slide` and
+#'   `ld_method` are taken from `LD_decay$params`, so the rebuilt edges match
+#'   the window the decay curve was fitted on; the one difference is that
+#'   rebuilding covers every marker on the chromosome, whereas the original
+#'   `el` may have been built on a `max_SNPs_decay` subsample. Ignored when the
+#'   edge lists are already present. With `cores > 1` each worker opens its own
+#'   handle from the file path; if only an open handle is available and its
+#'   path cannot be recovered, `cores` is forced to 1 rather than sharing a GDS
+#'   connection across forks.
 #' @param rho Numeric in (0, 1). Decay level used to derive each
 #'   chromosome's clustering threshold via [ld_from_rho()]. Default `0.5`.
 #' @param cores Number of chromosomes to process in parallel.
@@ -106,7 +157,8 @@
 #' }
 #'
 #' @export
-ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = NULL) {
+ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = NULL,
+                                    gds = NULL) {
 
   if (!is.null(idx)) map <- map[idx]
 
@@ -114,6 +166,22 @@ ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = N
   ## level code when used as a list index below (LD_decay$by_chr[[ch]]),
   ## producing a "subscript out of bounds" error on real (factor-Chr) maps.
   chr_levels <- as.character(unique(map$Chr))
+
+  ## Any chromosome without edges has to be rebuilt from `gds`. A forked worker
+  ## cannot safely share an open GDS connection, so with cores > 1 each opens its
+  ## own from the file path; without a usable path, drop to sequential instead.
+  need_el     <- any(vapply(chr_levels, function(ch) is.null(LD_decay$by_chr[[ch]]$el), logical(1)))
+  reopen_path <- NULL
+  if (need_el && !is.null(gds) && cores > 1) {
+    path <- if (is.character(gds)) gds else gds$filename
+    if (!is.null(path) && file.exists(path)) {
+      reopen_path <- path
+    } else {
+      message("Rebuilding edge lists from an open GDS handle -- forcing cores = 1 ",
+              "(a forked worker cannot share it safely).")
+      cores <- 1
+    }
+  }
 
   by_chr <- parallel_apply(chr_levels, function(ch) {
 
@@ -146,12 +214,7 @@ ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = N
     }
     r2_th <- ld_from_rho(b = ds$b, c = ds$c, rho = rho)
 
-    el <- LD_decay$by_chr[[ch]]$el
-    if (is.null(el)) {
-      stop("LD_decay$by_chr[['", ch, "']]$el is NULL -- compute_LD_decay() must be run with ",
-           "keep_el = TRUE (or a valid el_data_folder) for ld_complexity_reduction() to reuse its edges.")
-    }
-    if (is.character(el)) el <- data.table::fread(el, showProgress = FALSE)  ## el_data_folder mode stores a path
+    el <- .chr_edge_list(LD_decay, ch, chr_markers, gds = gds, reopen_path = reopen_path)
     edges_th <- el[r2 >= r2_th & SNP1 %in% chr_markers & SNP2 %in% chr_markers]
 
     if (nrow(edges_th) == 0) {

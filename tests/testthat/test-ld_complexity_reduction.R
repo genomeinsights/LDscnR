@@ -132,3 +132,41 @@ test_that("a factor Chr column is handled (regression: by_chr[[factor]] coercion
   res_chr <- ld_complexity_reduction(map_chr, ld, rho = 0.5, cores = 1)
   expect_equal(sort(res_fac$pruned), sort(res_chr$pruned))
 })
+
+test_that("edge lists can be rebuilt on the fly from gds when keep_el = FALSE", {
+  skip_if_not_installed("SNPRelate")
+  data(sim_ex, package = "LDscnR")
+  map <- data.table::as.data.table(sim_ex$map)[, .(Chr, Pos, marker)]
+
+  gds_path <- tempfile(fileext = ".gds")
+  gds <- create_gds_from_geno(sim_ex$GTs, sim_ex$map, gds_path)
+  on.exit({ SNPRelate::snpgdsClose(gds); unlink(gds_path) })
+
+  ## with no el_data_folder and nothing keeping them, edges are absent -- not a
+  ## bare "<chr>.el" path that was never written
+  ld_dropped <- compute_LD_decay(gds, n_win_decay = 5, max_SNPs_decay = Inf,
+                                 slide = 1000, cores = 1, keep_el = FALSE)
+  expect_null(ld_dropped$by_chr[[1]]$el)
+
+  ## without gds there is nothing to rebuild from -- still an informative error
+  expect_error(ld_complexity_reduction(map, ld_dropped, rho = 0.5, cores = 1),
+               "keep_el = TRUE")
+
+  ## Compare rebuild vs stored edges on ONE decay object: a second
+  ## compute_LD_decay() call would refit the curve off a different random
+  ## background-LD subsample, moving the r2 threshold and confounding the test.
+  ld_kept <- compute_LD_decay(gds, n_win_decay = 5, max_SNPs_decay = Inf,
+                              slide = 1000, cores = 1, keep_el = TRUE)
+  ld_stripped <- ld_kept
+  for (ch in names(ld_stripped$by_chr)) ld_stripped$by_chr[[ch]]$el <- NULL
+
+  res_kept    <- ld_complexity_reduction(map, ld_kept,     rho = 0.5, cores = 1)
+  res_rebuilt <- ld_complexity_reduction(map, ld_stripped, rho = 0.5, cores = 1, gds = gds)
+
+  expect_equal(res_rebuilt$pruned, res_kept$pruned)
+  expect_equal(res_rebuilt$map_snp$CL_id, res_kept$map_snp$CL_id)
+
+  ## a file path works in place of an open handle
+  res_path <- ld_complexity_reduction(map, ld_stripped, rho = 0.5, cores = 1, gds = gds_path)
+  expect_equal(res_path$pruned, res_kept$pruned)
+})

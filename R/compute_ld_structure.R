@@ -250,8 +250,13 @@ compute_LD_decay <- function(
     out_by_chr[[ch]] <- list(
       snp_ids   = snps_chr,
       ## retain the edge list in memory when it is needed downstream in this call
-      ## (keep_el, or the in-place ld_w below); otherwise store the on-disk path.
-      el        = if (keep_el || !is.null(ld_w_rho)) el else paste0(el_data_folder,ch,".el"),
+      ## (keep_el, or the in-place ld_w below); otherwise store the on-disk path
+      ## -- but only when there IS one: with no el_data_folder, paste0() would
+      ## produce a bare "<chr>.el" that was never written, which downstream code
+      ## then tries (and fails) to fread. NULL correctly says "no edges here".
+      el        = if (keep_el || !is.null(ld_w_rho)) el
+                  else if (!is.null(el_data_folder)) paste0(el_data_folder, ch, ".el")
+                  else NULL,
       decay     = decay,
       decay_sum = decay_sum_chr
     )
@@ -352,6 +357,9 @@ compute_LD_decay <- function(
       keep_el = keep_el,
       prob_robust = prob_robust,
       slide = slide,             # in SNPs
+      ld_method = ld_method,     # so edges rebuilt later match the ones fitted here
+      min_maf_decay = min_maf_decay,
+      max_SNPs_decay = max_SNPs_decay,
       rho_targets = rho_targets,
       cores = cores
     )
