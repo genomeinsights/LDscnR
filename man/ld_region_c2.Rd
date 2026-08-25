@@ -64,6 +64,15 @@ order loci that \code{q_R} cannot separate -- which is the normal situation, sin
 with a permutation null every region worth reporting tends to sit at the
 p-floor \code{1/(1+B)}.
 }
+\section{Relation to the per-SNP C-score}{
+
+The consistency principle is Fang et al.'s (2021, \doi{10.1093/molbev/msab144});
+see \code{\link[=ld_cscore]{ld_cscore()}} for the attribution. Applying it a second time, to the
+region-calling parameters, is what is new here, and it is only possible
+because \code{\link[=ld_cscore]{ld_cscore()}} keeps the first-level score per-SNP: regions can then be
+re-formed at every \verb{(tau, l_min)} rather than fixed once.
+}
+
 \seealso{
 \code{\link[=ld_region_scan]{ld_region_scan()}}, \code{\link[=ld_gate]{ld_gate()}}, \code{\link[=ld_scan]{ld_scan()}}
 }

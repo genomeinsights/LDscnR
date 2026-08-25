@@ -23,6 +23,13 @@
 #' with a permutation null every region worth reporting tends to sit at the
 #' p-floor `1/(1+B)`.
 #'
+#' @section Relation to the per-SNP C-score:
+#' The consistency principle is Fang et al.'s (2021, \doi{10.1093/molbev/msab144});
+#' see [ld_cscore()] for the attribution. Applying it a second time, to the
+#' region-calling parameters, is what is new here, and it is only possible
+#' because [ld_cscore()] keeps the first-level score per-SNP: regions can then be
+#' re-formed at every `(tau, l_min)` rather than fixed once.
+#'
 #' @param null An `ld_null` object ([ld_null_from_p()] or [structured_null()]).
 #' @param edges An [ld_edges()] object built over `null$universe`.
 #' @param tau_grid C-score thresholds to sweep (default `seq(0.02, 0.5, by = 0.02)`).

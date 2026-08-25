@@ -56,6 +56,38 @@ The C-score is a per-SNP statistic: clustering into outlier regions
 (\code{\link[=ld_regions]{ld_regions()}}) and the region-size filter \code{l_min} are applied downstream,
 not folded in.
 }
+\section{Attribution}{
+
+\strong{The C-score is not original to this package.} It was introduced by
+Fang, Kemppainen, Momigliano & Merila (2021), \emph{Population structure limits
+parallel evolution in sticklebacks}, Molecular Biology and Evolution
+38(10):4205-4221, \doi{10.1093/molbev/msab144}, which defines the C-score by
+name together with \code{tau_C = 0.05}, \code{l_min = 10}, a 500 kb single-linkage
+distance cap, and the definition of a region as a cluster of significant
+loci. There the score integrates over a \strong{menu of 144 tests} -- three
+clustering parameterisations crossed with four multiple-testing corrections,
+one of them the LD-cluster permutation of Li, Kemppainen, Rastas & Merila
+(2018), \doi{10.1111/1755-0998.12893}, made affordable by complexity
+reduction. Cite Fang et al. (2021) when you use the C-score.
+
+What this implementation changes is the shape of the integration, not the
+idea. Integration here is \strong{continuous} over \code{rho} and \verb{q*} -- two nuisance
+parameters with a natural \verb{[0, 1]} domain -- rather than over a discrete menu
+of analyses; and the score stays a \strong{per-SNP} statistic, whereas Fang et al.
+test cluster-level units (SMLAs) directly. Keeping it per-SNP is what allows
+\code{tau_C} and \code{l_min} to be swept as a second, nested scale downstream
+(\code{\link[=ld_region_c2]{ld_region_c2()}}).
+}
+
+\references{
+Fang B, Kemppainen P, Momigliano P, Merila J (2021). Population structure
+limits parallel evolution in sticklebacks. \emph{Molecular Biology and Evolution}
+38(10):4205-4221. \doi{10.1093/molbev/msab144}
+
+Li Z, Kemppainen P, Rastas P, Merila J (2018). Linkage disequilibrium
+clustering-based approach for association mapping with tightly linked
+genomewide data. \emph{Molecular Ecology Resources}. \doi{10.1111/1755-0998.12893}
+}
 \seealso{
-\code{\link[=ld_regions]{ld_regions()}}, \code{\link[=structured_null]{structured_null()}}, \code{\link[=calibrate_tauc]{calibrate_tauc()}}
+\code{\link[=ld_regions]{ld_regions()}}, \code{\link[=ld_region_c2]{ld_region_c2()}}, \code{\link[=structured_null]{structured_null()}}
 }

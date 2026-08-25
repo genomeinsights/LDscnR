@@ -22,6 +22,28 @@
 #' ([ld_regions()]) and the region-size filter `l_min` are applied downstream,
 #' not folded in.
 #'
+#' @section Attribution:
+#' **The C-score is not original to this package.** It was introduced by
+#' Fang, Kemppainen, Momigliano & Merila (2021), *Population structure limits
+#' parallel evolution in sticklebacks*, Molecular Biology and Evolution
+#' 38(10):4205-4221, \doi{10.1093/molbev/msab144}, which defines the C-score by
+#' name together with `tau_C = 0.05`, `l_min = 10`, a 500 kb single-linkage
+#' distance cap, and the definition of a region as a cluster of significant
+#' loci. There the score integrates over a **menu of 144 tests** -- three
+#' clustering parameterisations crossed with four multiple-testing corrections,
+#' one of them the LD-cluster permutation of Li, Kemppainen, Rastas & Merila
+#' (2018), \doi{10.1111/1755-0998.12893}, made affordable by complexity
+#' reduction. Cite Fang et al. (2021) when you use the C-score.
+#'
+#' What this implementation changes is the shape of the integration, not the
+#' idea. Integration here is **continuous** over `rho` and `q*` -- two nuisance
+#' parameters with a natural `[0, 1]` domain -- rather than over a discrete menu
+#' of analyses; and the score stays a **per-SNP** statistic, whereas Fang et al.
+#' test cluster-level units (SMLAs) directly. Keeping it per-SNP is what allows
+#' `tau_C` and `l_min` to be swept as a second, nested scale downstream
+#' ([ld_region_c2()]).
+#'
+#'
 #' @param p Numeric vector of per-SNP association p-values (from any method),
 #'   aligned to the rows of `ld_ws`.
 #' @param ld_ws Numeric matrix of local-LD support: SNPs in rows, `ld_w` windows
@@ -35,7 +57,15 @@
 #' @return Named numeric vector of per-SNP C-scores in `[0, 1]`
 #'   (`names` = markers). Gate with a threshold `tau_C`
 #'   (`names(C)[C >= tau_C]`) calibrated by [calibrate_tauc()].
-#' @seealso [ld_regions()], [structured_null()], [calibrate_tauc()]
+#' @references
+#' Fang B, Kemppainen P, Momigliano P, Merila J (2021). Population structure
+#' limits parallel evolution in sticklebacks. *Molecular Biology and Evolution*
+#' 38(10):4205-4221. \doi{10.1093/molbev/msab144}
+#'
+#' Li Z, Kemppainen P, Rastas P, Merila J (2018). Linkage disequilibrium
+#' clustering-based approach for association mapping with tightly linked
+#' genomewide data. *Molecular Ecology Resources*. \doi{10.1111/1755-0998.12893}
+#' @seealso [ld_regions()], [ld_region_c2()], [structured_null()]
 #' @export
 ld_cscore <- function(p, ld_ws, alpha = 0.05,
                       rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05)) {

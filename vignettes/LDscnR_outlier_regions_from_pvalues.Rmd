@@ -26,6 +26,20 @@ Nothing about your phenotype, covariates or association model enters the
 pipeline — only p-values. EMMAX, LFMM, BayPass, a plain GLM: all work, and two
 engines can be compared on identical footing.
 
+## Where the C-score comes from
+
+The consistency C-score is **not original to this package**. It was introduced by
+Fang, Kemppainen, Momigliano & Merilä (2021), *Population structure limits
+parallel evolution in sticklebacks*, Mol Biol Evol 38(10):4205–4221, which
+defines it by name along with `tau_C = 0.05`, `l_min = 10`, a 500 kb
+single-linkage cap, and the region-as-cluster-of-significant-loci definition.
+**Cite that paper when you use the C-score.**
+
+What differs here is the shape of the integration, not the idea: continuous over
+`rho` and `q*` rather than over a menu of 144 analyses, and per-SNP rather than
+tested at cluster level — which is what lets `tau_C` and `l_min` be swept as a
+second, nested scale by `ld_region_c2()`.
+
 ## What you need
 
 | Input | What it is |
