@@ -97,7 +97,17 @@ is fixed; clustering is LD-decay-informed (\code{rho_ld}) with a hard distance c
 \code{l_min} (region size; the region-level null makes a larger \code{l_min} a strong,
 clean false-positive control).
 }
+\section{Choosing between this and ld_scan()}{
+
+This wrapper runs its own EMMAX scan and generates its own MVN surrogates, so
+it is tied to that one engine and to a null it constructs for you. If you have
+p-values already -- from any engine -- and want to define the surrogates
+yourself, use \code{\link[=ld_scan]{ld_scan()}} instead: it takes observed and permuted p-values,
+applies the location-matched region test, and ranks the result with
+\code{\link[=ld_region_c2]{ld_region_c2()}} rather than calibrating a single \code{tau_C}.
+}
+
 \seealso{
-\code{\link[=ld_cscore]{ld_cscore()}}, \code{\link[=structured_null]{structured_null()}}, \code{\link[=calibrate_tauc]{calibrate_tauc()}}, \code{\link[=ld_regions]{ld_regions()}},
-\code{\link[=gc_map_tauc]{gc_map_tauc()}}, \code{\link[=evaluate_ors]{evaluate_ors()}}
+\code{\link[=ld_scan]{ld_scan()}} (engine-agnostic entry point), \code{\link[=ld_cscore]{ld_cscore()}},
+\code{\link[=structured_null]{structured_null()}}, \code{\link[=ld_regions]{ld_regions()}}, \code{\link[=gc_map_tauc]{gc_map_tauc()}}, \code{\link[=evaluate_ors]{evaluate_ors()}}
 }

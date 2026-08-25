@@ -47,8 +47,16 @@
 #'   vectors), `summary` (per-region `Chr`, `start`, `end`, `size`, `maxC`),
 #'   `tau_C`, `C` (full per-SNP C-score), `fdr_curve`, `params`, and -- if
 #'   `keep_cache` -- `null` and `edges`.
-#' @seealso [ld_cscore()], [structured_null()], [calibrate_tauc()], [ld_regions()],
-#'   [gc_map_tauc()], [evaluate_ors()]
+#' @section Choosing between this and ld_scan():
+#' This wrapper runs its own EMMAX scan and generates its own MVN surrogates, so
+#' it is tied to that one engine and to a null it constructs for you. If you have
+#' p-values already -- from any engine -- and want to define the surrogates
+#' yourself, use [ld_scan()] instead: it takes observed and permuted p-values,
+#' applies the location-matched region test, and ranks the result with
+#' [ld_region_c2()] rather than calibrating a single `tau_C`.
+#'
+#' @seealso [ld_scan()] (engine-agnostic entry point), [ld_cscore()],
+#'   [structured_null()], [ld_regions()], [gc_map_tauc()], [evaluate_ors()]
 #' @export
 ld_outlier_regions <- function(y, GTs, K, ld_ws, map, decay_sum,
                                alpha = 0.05, rho_ld = 0.9, dcap = 5e5, rho_d = NULL,

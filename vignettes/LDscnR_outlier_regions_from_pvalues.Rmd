@@ -1,0 +1,186 @@
+---
+title: "LD-aware outlier regions from your own scan"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{LD-aware outlier regions from your own scan}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
+```
+
+## What this does
+
+You have run a genome scan and have a p-value per marker. You want the
+**regions** that stand out, not a list of individual markers, and you want a
+defensible significance statement for each one.
+
+`ld_scan()` takes two things: the p-values from your observed data, and the
+p-values from `B` permuted datasets scanned exactly the same way. It returns
+LD-supported regions, each with a p-value obtained by asking how often a
+surrogate produced something as strong *at that same locus*.
+
+Nothing about your phenotype, covariates or association model enters the
+pipeline — only p-values. EMMAX, LFMM, BayPass, a plain GLM: all work, and two
+engines can be compared on identical footing.
+
+## What you need
+
+| Input | What it is |
+|---|---|
+| `p_obs` | one p-value per marker, from your scan |
+| `p_perm` | the same, for each of `B` permuted datasets |
+| `ld_ws` | local-LD weights, from `compute_ld_w()` |
+| `map` | `marker`, `Chr`, `Pos` |
+| `GTs` | genotype dosages, individuals x markers |
+| `decay_sum` | per-chromosome LD decay, from `compute_LD_decay()` |
+
+## The one decision that matters: how you permute
+
+The surrogates *define* what "no signal" means, and that choice is yours, not
+the software's.
+
+Suppose samples come from four localities, each containing both ecotypes.
+Shuffling the ecotype label **within** each locality holds the between-locality
+composition fixed, so a surrogate can rebuild any signal that merely tracks
+geography — and such a signal will fail the test. Shuffling **globally** breaks
+that link, so the same clinal signal now looks real. Neither is wrong; they
+answer different questions. Decide which one you mean, then say so — the
+`basis` label is carried through every printed output for exactly this reason.
+
+```{r}
+# one surrogate: permute, re-run YOUR scan, keep the p-values
+one_surrogate <- function() {
+  eco_perm <- ave(ecotype, locality, FUN = sample)   # within-locality shuffle
+  my_scan(eco_perm)                                  # same engine, same settings
+}
+p_perm <- replicate(200, one_surrogate(), simplify = FALSE)
+```
+
+`B = 200` is a reasonable default: the smallest p-value any region can attain is
+`1/(1+B)`, so `B = 200` gives a floor of 0.005 and `B = 96` gives 0.0103. If you
+compare two engines, give them the **same** `B`, or their p-values are not on the
+same scale.
+
+## Running it
+
+```{r}
+fit <- ld_scan(p_obs, p_perm, ld_ws, map, GTs, decay_sum,
+               tau = 0.05, l_min = 3, rho_ld = 0.6,
+               basis = "within-locality permutation", engine = "EMMAX")
+fit
+```
+
+Memory note: `p_perm` may also be a `function(b)` that reads surrogate `b` from
+disk. Each is reduced to a sparse C-score and discarded, so 200 whole-genome
+surrogates cost a few MB rather than gigabytes.
+
+## Read the gate first
+
+```{r}
+fit$gate
+```
+
+The gate reports, per surrogate, the **median** number of markers with `C > 0`
+and of regions of at least `l_min` markers, against the observed counts. If the
+surrogates approach the observed numbers, the null reproduces the very signal it
+is supposed to be a null for, and **its p-values mean nothing**. `ld_scan()`
+warns and `print()` says so, but the judgement is yours.
+
+Read the `max_regions` and `frac_surr_any_region` columns next to the median.
+Permutation nulls are often heavy-tailed — silent in four surrogates out of five
+and explosive in the fifth — and a median alone reports that as "silent".
+
+Report a null that fails the gate rather than dropping it. A disclosed
+mis-specified null is a result; a quietly deleted one is a hole in the methods.
+
+## The regions
+
+```{r}
+fit$regions$regions
+```
+
+Each region carries `s_R` (its summed C-mass), `p_R`, and `q_R` after
+Benjamini–Hochberg across the discovered regions:
+
+$$s_R = \sum_{j \in R} C_j, \qquad
+  p_R = \frac{1 + \#\{b : s^{null}_{b,R} \ge s_R\}}{1 + B}$$
+
+The test is **location-matched**, and that is what makes it work. A signal
+confined to part of your sampled range need not be reproduced by a surrogate *at
+its own locus*, so a genuinely range-restricted peak — which a genome-wide count
+would charge to population structure — can still separate. It is also robust to a
+globally noisy null, because excess null peaks are scattered and rarely land on
+any one observed locus.
+
+`q_R` is the multiple-testing correction this method reports. A Bonferroni
+correction over every marker would double-count a burden already carried at the
+C-score and region-size stages.
+
+## When everything sits at the p-floor
+
+With a permutation null, the regions worth reporting usually all land at
+`1/(1+B)`. That is not a failure — `q_R` is telling you "not a structure
+artifact" — but it cannot rank them, and it is worth saying so plainly rather
+than implying a resolution the null does not have.
+
+Ranking is a separate job:
+
+```{r}
+fit$c2$regions      # regions ordered by C-squared
+```
+
+`ld_region_c2()` re-runs the region test across a `(tau, l_min)` grid and scores
+each locus by the fraction of *usable* cells — those producing any significant
+region — in which it comes out significant. Normalising by the usable grid is
+what defeats cherry-picking: a locus significant only in the single cell that
+maximises the region count scores near zero, while one significant across the
+grid scores near 1.
+
+`C^(2)` is a **ranking, not a second significance test**. The grid cells are not
+independent and no error rate is controlled by it.
+
+## Step by step
+
+`ld_scan()` is a convenience wrapper. The stages are separately callable, which
+is what you want when surrogates are expensive and you intend to reuse them:
+
+```{r}
+null  <- ld_null_from_p(p_obs, p_perm, ld_ws, basis = "...", engine = "...")
+edges <- ld_edges(null$universe, GTs, map, decay_sum, rho_ld = 0.6, dcap = 5e5)
+
+ld_gate(null, edges, tau = 0.05, l_min = 3)
+ld_region_scan(null, edges, tau = 0.05, l_min = 3)
+ld_region_c2(null, edges)
+```
+
+To gate several nulls side by side, pass a **named list** and one shared edge
+graph. Edge membership is a property of a marker pair, not of the marker set, so
+a graph built over the union of their universes gives identical clustering and
+makes the rows comparable:
+
+```{r}
+univ  <- unique(unlist(lapply(nulls, `[[`, "universe")))
+edges <- ld_edges(univ, GTs, map, decay_sum, rho_ld = 0.6, dcap = 5e5)
+ld_gate(nulls, edges, tau = 0.05, l_min = 3)
+```
+
+## Choosing tau and l_min
+
+Don't agonise. `tau = 0.05` and `l_min = 3` are sensible defaults, and
+`ld_region_c2()` exists precisely so the choice does not have to carry weight —
+it integrates both away. Raising `l_min` is the strongest simple lever on
+false positives: chance clusters rarely grow large.
+
+## Relationship to `ld_outlier_regions()`
+
+`ld_outlier_regions()` is the older, self-contained route: it runs its own EMMAX
+scan, generates its own MVN surrogates, and calibrates a single `tau_C` against a
+pooled count-FDR. It is still there and still works. Prefer `ld_scan()` when you
+want to choose the engine, choose the surrogates, or compare two engines.
+
+`null_fdr()`, `calibrate_tauc()` and `calibrate_lmin()` remain exported as
+**diagnostics** for describing a null's clustering propensity. They are no longer
+the recommended way to pick an operating point.

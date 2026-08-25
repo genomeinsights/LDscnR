@@ -6,7 +6,7 @@
 \alias{LDscnR-package}
 \title{LDscnR: Chromosome-wise LD-decay estimation for population genomic data}
 \description{
-What the package does (one paragraph).
+Linkage-disequilibrium-aware genome scans. Estimates chromosome-wise LD decay, derives a local-LD weight for every marker, and turns a per-SNP association scan into LD-supported outlier regions. The consistency C-score integrates over the LD window and stringency rather than fixing them, markers are clustered into regions by LD, and each region is tested at its own locus against surrogate scans that the user supplies -- so the method is independent of the association engine and of how the null is constructed.
 }
 \author{
 \strong{Maintainer}: Petri Kemppainen \email{petri@genomeinsights.fi}

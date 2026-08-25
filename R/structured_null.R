@@ -40,7 +40,8 @@
 #'   `universe` (every marker the observed or any surrogate lights up), and the
 #'   settings. Build an [ld_edges()] over `universe`, then call [null_fdr()] /
 #'   [calibrate_tauc()].
-#' @seealso [null_fdr()], [calibrate_tauc()], [emmax_setup()], [ld_cscore()]
+#' @seealso [ld_null_from_p()] to build this bundle from your own p-values,
+#'   [ld_gate()], [ld_region_scan()], [ld_region_c2()]
 #' @export
 structured_null <- function(y, GTs, K, ld_ws, basis = c("genetic", "spatial"),
                             coords = NULL, B = 100L, alpha = 0.05,
@@ -88,6 +89,21 @@ structured_null <- function(y, GTs, K, ld_ws, basis = c("genetic", "spatial"),
 #' @param l_min Minimum region size in SNPs (default 2).
 #'
 #' @return A data.frame with `tau_C`, `n_obs`, `n_null`, `fdr`.
+#' @section Status -- diagnostic, not a calibration procedure:
+#' This is retained as a **diagnostic**, and is no longer the recommended way to
+#' set an operating threshold. The pooled count-FDR calibrates `tau_C` only when
+#' the null is already close to silent; on structured empirical data it degrades
+#' badly, and it can disagree with the location-matched region test
+#' ([ld_region_scan()]) on the same null by two orders of magnitude -- returning
+#' `tau_C = NA` while every region the location-matched test examines comes out
+#' significant. Two calibration routes disagreeing that far is a procedure to
+#' retire, not a result to reconcile.
+#'
+#' Use it to *describe* a null's clustering propensity across `tau_C`. To choose
+#' an operating point, do not: [ld_region_c2()] integrates `tau_C` and `l_min`
+#' away over a grid instead of picking one cell, and [ld_gate()] is the check on
+#' whether the null is usable at all.
+#'
 #' @seealso [structured_null()], [calibrate_tauc()], [ld_edges()]
 #' @export
 null_fdr <- function(bundle, edges, tau_grid = seq(0.05, 1, by = 0.05), l_min = 2L) {
@@ -112,6 +128,21 @@ null_fdr <- function(bundle, edges, tau_grid = seq(0.05, 1, by = 0.05), l_min = 
 #'
 #' @return The calibrated `tau_C` (numeric scalar), or `NA` if none reaches the
 #'   target.
+#' @section Status -- diagnostic, not a calibration procedure:
+#' This is retained as a **diagnostic**, and is no longer the recommended way to
+#' set an operating threshold. The pooled count-FDR calibrates `tau_C` only when
+#' the null is already close to silent; on structured empirical data it degrades
+#' badly, and it can disagree with the location-matched region test
+#' ([ld_region_scan()]) on the same null by two orders of magnitude -- returning
+#' `tau_C = NA` while every region the location-matched test examines comes out
+#' significant. Two calibration routes disagreeing that far is a procedure to
+#' retire, not a result to reconcile.
+#'
+#' Use it to *describe* a null's clustering propensity across `tau_C`. To choose
+#' an operating point, do not: [ld_region_c2()] integrates `tau_C` and `l_min`
+#' away over a grid instead of picking one cell, and [ld_gate()] is the check on
+#' whether the null is usable at all.
+#'
 #' @seealso [null_fdr()], [gc_map_tauc()]
 #' @export
 calibrate_tauc <- function(bundle, edges, l_min = 2L, fdr = 0.05, tau_grid = seq(0.05, 1, by = 0.05)) {
@@ -143,6 +174,21 @@ calibrate_tauc <- function(bundle, edges, l_min = 2L, fdr = 0.05, tau_grid = seq
 #' @param q Upper quantile of the null max-region-size distribution (default 0.99).
 #'
 #' @return Integer `l_min` = `1 + floor(quantile(null max region sizes, q))`.
+#' @section Status -- diagnostic, not a calibration procedure:
+#' This is retained as a **diagnostic**, and is no longer the recommended way to
+#' set an operating threshold. The pooled count-FDR calibrates `tau_C` only when
+#' the null is already close to silent; on structured empirical data it degrades
+#' badly, and it can disagree with the location-matched region test
+#' ([ld_region_scan()]) on the same null by two orders of magnitude -- returning
+#' `tau_C = NA` while every region the location-matched test examines comes out
+#' significant. Two calibration routes disagreeing that far is a procedure to
+#' retire, not a result to reconcile.
+#'
+#' Use it to *describe* a null's clustering propensity across `tau_C`. To choose
+#' an operating point, do not: [ld_region_c2()] integrates `tau_C` and `l_min`
+#' away over a grid instead of picking one cell, and [ld_gate()] is the check on
+#' whether the null is usable at all.
+#'
 #' @seealso [calibrate_tauc()], [null_fdr()], [structured_null()]
 #' @export
 calibrate_lmin <- function(bundle, edges, tau = 0.05, q = 0.99) {

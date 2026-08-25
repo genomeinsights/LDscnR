@@ -26,6 +26,23 @@ observed C and (averaged) for the surrogates. \verb{FDR = mean surrogate regions
 clusters, a large \code{l_min} makes the null very clean -- the region-size filter
 is itself a strong false-positive control.
 }
+\section{Status -- diagnostic, not a calibration procedure}{
+
+This is retained as a \strong{diagnostic}, and is no longer the recommended way to
+set an operating threshold. The pooled count-FDR calibrates \code{tau_C} only when
+the null is already close to silent; on structured empirical data it degrades
+badly, and it can disagree with the location-matched region test
+(\code{\link[=ld_region_scan]{ld_region_scan()}}) on the same null by two orders of magnitude -- returning
+\code{tau_C = NA} while every region the location-matched test examines comes out
+significant. Two calibration routes disagreeing that far is a procedure to
+retire, not a result to reconcile.
+
+Use it to \emph{describe} a null's clustering propensity across \code{tau_C}. To choose
+an operating point, do not: \code{\link[=ld_region_c2]{ld_region_c2()}} integrates \code{tau_C} and \code{l_min}
+away over a grid instead of picking one cell, and \code{\link[=ld_gate]{ld_gate()}} is the check on
+whether the null is usable at all.
+}
+
 \seealso{
 \code{\link[=structured_null]{structured_null()}}, \code{\link[=calibrate_tauc]{calibrate_tauc()}}, \code{\link[=ld_edges]{ld_edges()}}
 }

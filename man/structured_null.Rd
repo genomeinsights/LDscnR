@@ -76,5 +76,6 @@ environmental gradient); requires \code{coords}.
 }
 }
 \seealso{
-\code{\link[=null_fdr]{null_fdr()}}, \code{\link[=calibrate_tauc]{calibrate_tauc()}}, \code{\link[=emmax_setup]{emmax_setup()}}, \code{\link[=ld_cscore]{ld_cscore()}}
+\code{\link[=ld_null_from_p]{ld_null_from_p()}} to build this bundle from your own p-values,
+\code{\link[=ld_gate]{ld_gate()}}, \code{\link[=ld_region_scan]{ld_region_scan()}}, \code{\link[=ld_region_c2]{ld_region_c2()}}
 }
