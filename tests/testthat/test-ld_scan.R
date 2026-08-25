@@ -194,3 +194,22 @@ test_that("misordered named p-values are rejected, not silently reordered", {
   expect_error(suppressWarnings(
     ld_null_from_p(p, list(p, scrambled), ld_ws, verbose = FALSE)), "Surrogate 2")
 })
+
+test_that("ld_gate fails a basis whose observed data has no regions", {
+  cs <- make_case()
+  null <- ld_null_from_p(cs$p_obs, cs$p_perm, cs$ld_ws, verbose = FALSE)
+  edges <- edges_for(cs, null)
+
+  # observed silent, surrogates carrying regions: the most emphatic failure there
+  # is, and the old rule (is.na(ratio) | ...) reported it as a pass
+  empty <- null
+  empty$C_obs <- stats::setNames(rep(0, length(null$C_obs)), names(null$C_obs))
+  empty$C_surr <- rep(list(null$C_obs[null$C_obs > 0]), 10L)
+  empty$B <- 10L
+
+  expect_warning(g <- ld_gate(empty, edges, tau = 0.05, l_min = 3L), "no observed regions")
+  expect_equal(g$obs_regions, 0L)
+  expect_true(g$med_regions > 0)
+  expect_true(is.na(g$ratio))
+  expect_false(g$pass)
+})

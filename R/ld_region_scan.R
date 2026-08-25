@@ -97,7 +97,10 @@
 #'
 #' @return A `data.table`, one row per basis, with the observed counts, the
 #'   median/IQR/max per-surrogate counts, `frac_surr_any_region`, the
-#'   median-to-observed ratio, and a logical `pass`.
+#'   median-to-observed ratio, and a logical `pass`. `pass` is `TRUE` only when
+#'   the observed data produced at least one region *and* the median surrogate
+#'   count stays below `warn_at` of it; zero observed regions is a failure, not
+#'   a pass, and leaves `ratio` as `NA`.
 #' @seealso [ld_region_scan()], [ld_null_from_p()]
 #' @export
 ld_gate <- function(null, edges, tau = 0.05, l_min = 3L, warn_at = 0.5) {
@@ -118,10 +121,21 @@ ld_gate <- function(null, edges, tau = 0.05, l_min = 3L, warn_at = 0.5) {
       frac_surr_any_region = mean(rg > 0))
   }))
   out[, "ratio" := ifelse(get("obs_regions") > 0, get("med_regions") / get("obs_regions"), NA_real_)]
-  out[, "pass" := is.na(get("ratio")) | get("ratio") < warn_at]
-  if (any(!out$pass))
+  ## A basis passes only if the observed data produced regions AND the median
+  ## surrogate stays below `warn_at` of that count. "Observed found nothing,
+  ## surrogates found plenty" is the most emphatic gate failure there is, and it
+  ## must not be reported as a pass just because the ratio is undefined. `ratio`
+  ## is left NA -- it genuinely is undefined at zero observed regions, and the
+  ## obs_regions column already tells the reader why `pass` is FALSE.
+  out[, "pass" := get("obs_regions") > 0 & !is.na(get("ratio")) & get("ratio") < warn_at]
+  zero  <- out$basis[out$obs_regions == 0]
+  noisy <- out$basis[out$obs_regions > 0 & !out$pass]
+  if (length(zero))
+    warning(sprintf("Gate FAILED for: %s -- no observed regions at this (tau, l_min), so there is nothing for the surrogates to be measured against.",
+                    paste(zero, collapse = ", ")), call. = FALSE)
+  if (length(noisy))
     warning(sprintf("Gate FAILED for: %s -- median surrogate regions reach >= %.0f%% of observed. Do not read p-values from these bases.",
-                    paste(out$basis[!out$pass], collapse = ", "), 100 * warn_at), call. = FALSE)
+                    paste(noisy, collapse = ", "), 100 * warn_at), call. = FALSE)
   structure(out, class = c("ld_gate", class(out)),
             params = list(tau = tau, l_min = l_min, warn_at = warn_at))
 }

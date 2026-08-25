@@ -25,7 +25,10 @@ flagged as failing the gate (default 0.5).}
 \value{
 A \code{data.table}, one row per basis, with the observed counts, the
 median/IQR/max per-surrogate counts, \code{frac_surr_any_region}, the
-median-to-observed ratio, and a logical \code{pass}.
+median-to-observed ratio, and a logical \code{pass}. \code{pass} is \code{TRUE} only when
+the observed data produced at least one region \emph{and} the median surrogate
+count stays below \code{warn_at} of it; zero observed regions is a failure, not
+a pass, and leaves \code{ratio} as \code{NA}.
 }
 \description{
 For each null bundle, the \strong{median per-surrogate} count of markers with
