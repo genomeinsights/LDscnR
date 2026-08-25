@@ -172,3 +172,25 @@ test_that("ld_cscore tolerates NA p-values", {
   expect_true(all(C[c(3L, 17L, 200L)] == 0))
   expect_true(all(C >= 0 & C <= 1))
 })
+
+test_that("misordered named p-values are rejected, not silently reordered", {
+  set.seed(1)
+  n <- 200L
+  ld_ws <- matrix(runif(n * 3), n, 3,
+                  dimnames = list(paste0("m", seq_len(n)), c("0.5", "0.7", "0.9")))
+  p <- stats::setNames(runif(n), rownames(ld_ws))
+
+  expect_silent(ld_cscore(p, ld_ws))                       # names match: fine
+  expect_silent(ld_cscore(unname(p), ld_ws))               # unnamed: still legal
+
+  scrambled <- p[c(2:n, 1L)]                               # right length, wrong order
+  expect_error(ld_cscore(scrambled, ld_ws), "do not match")
+
+  # and through the null constructor, for both p_obs and a surrogate.
+  # suppressWarnings() because these toy calls have B < 20, which warns about the
+  # p-floor before reaching the name check -- not what is under test here.
+  expect_error(suppressWarnings(
+    ld_null_from_p(scrambled, list(p), ld_ws, verbose = FALSE)), "p_obs")
+  expect_error(suppressWarnings(
+    ld_null_from_p(p, list(p, scrambled), ld_ws, verbose = FALSE)), "Surrogate 2")
+})

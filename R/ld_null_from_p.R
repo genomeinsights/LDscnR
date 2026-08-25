@@ -57,6 +57,7 @@ ld_null_from_p <- function(p_obs, p_perm, ld_ws, B = NULL, alpha = 0.05,
     stop(sprintf("`p_obs` has %d values but `ld_ws` has %d rows -- they must be aligned.",
                  length(p_obs), nrow(ld_ws)))
   if (is.null(rownames(ld_ws))) stop("`ld_ws` must have rownames (the marker IDs).")
+  .check_p_names(p_obs, ld_ws, "`p_obs`")
 
   ## ---- normalise the three accepted forms of `p_perm` to a get(b) accessor ----
   if (is.function(p_perm)) {
@@ -89,6 +90,7 @@ ld_null_from_p <- function(p_obs, p_perm, ld_ws, B = NULL, alpha = 0.05,
     pv <- get_b(b)
     if (length(pv) != nrow(ld_ws))
       stop(sprintf("Surrogate %d has %d p-values but `ld_ws` has %d rows.", b, length(pv), nrow(ld_ws)))
+    .check_p_names(pv, ld_ws, sprintf("Surrogate %d", b))
     C <- ld_cscore(pv, ld_ws, alpha, rho, qstar)
     C[C > 0]                                   # sparse: only the markers that light up
   }

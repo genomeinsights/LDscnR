@@ -1,3 +1,16 @@
+## Names are checked, never used to reorder. A p-vector of the right length in
+## the wrong order is silently wrong -- no error, no warning, wrong regions -- so
+## this stops rather than repairing: silent reordering would mask a bug in the
+## caller's own pipeline. Only checked when names are present; unnamed vectors
+## stay legal.
+.check_p_names <- function(p, ld_ws, what) {
+  if (!is.null(names(p)) && !is.null(rownames(ld_ws)) &&
+      !identical(names(p), rownames(ld_ws)))
+    stop(what, " is named but its names do not match `rownames(ld_ws)` -- ",
+         "reorder it to the rows of `ld_ws` before calling.", call. = FALSE)
+  invisible(TRUE)
+}
+
 #' Per-SNP consistency C-score
 #'
 #' The LD-scan C-score: for each SNP, the fraction of `(rho, q*)` cells in which
@@ -70,6 +83,7 @@
 ld_cscore <- function(p, ld_ws, alpha = 0.05,
                       rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05)) {
   stopifnot(length(p) == nrow(ld_ws))
+  .check_p_names(p, ld_ws, "`p`")
   ncell <- length(rho) * length(qstar) * length(alpha)
   cnt <- integer(nrow(ld_ws))
   for (rc in rho) {
