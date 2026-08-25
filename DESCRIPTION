@@ -21,7 +21,6 @@ Imports:
     igraph,
     parallel,
     patchwork,
-    reshape2,
     SNPRelate,
     stats,
     utils
