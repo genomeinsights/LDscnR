@@ -160,3 +160,15 @@ test_that("ld_scan requires a well-formed map", {
   expect_error(ld_scan(cs$p_obs, cs$p_perm, cs$ld_ws, bad_map, cs$GTs, cs$decay_sum,
                        verbose = FALSE), "needs columns")
 })
+
+test_that("ld_cscore tolerates NA p-values", {
+  set.seed(1)
+  n <- 200L
+  ld_ws <- matrix(runif(n * 3), n, 3,
+                  dimnames = list(paste0("m", seq_len(n)), c("0.5", "0.7", "0.9")))
+  p <- runif(n); p[c(3L, 17L, 200L)] <- NA_real_
+  C <- expect_silent(ld_cscore(p, ld_ws))
+  expect_length(C, n)
+  expect_true(all(C[c(3L, 17L, 200L)] == 0))
+  expect_true(all(C >= 0 & C <= 1))
+})

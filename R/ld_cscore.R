@@ -80,7 +80,7 @@ ld_cscore <- function(p, ld_ws, alpha = 0.05,
       if (!length(cand)) next
       qv <- stats::p.adjust(p[cand], "BH")
       for (al in alpha) {
-        hit <- cand[qv < al]
+        hit <- cand[which(qv < al)]          # which() drops NA q-values
         if (length(hit)) cnt[hit] <- cnt[hit] + 1L
       }
     }
