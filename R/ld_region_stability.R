@@ -39,7 +39,7 @@
 ld_cscore_scan <- function(y = NULL, GTs, K = NULL, ld_ws, map, decay_sum,
                            alpha = 0.05, rho = colnames(ld_ws),
                            qstar = seq(0, 0.95, by = 0.05),
-                           rho_ld = 0.9, dcap = 5e5, rho_d = NULL,
+                           rho_ld = 0.75, dcap = 5e5, rho_d = NULL,
                            prep = NULL, pvals = NULL) {
   if (is.null(pvals)) {
     if (is.null(prep)) {

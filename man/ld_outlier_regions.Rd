@@ -12,7 +12,7 @@ ld_outlier_regions(
   map,
   decay_sum,
   alpha = 0.05,
-  rho_ld = 0.9,
+  rho_ld = 0.75,
   dcap = 5e+05,
   rho_d = NULL,
   l_min = 2L,

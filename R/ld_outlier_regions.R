@@ -59,7 +59,7 @@
 #'   [structured_null()], [ld_regions()], [gc_map_tauc()], [evaluate_ors()]
 #' @export
 ld_outlier_regions <- function(y, GTs, K, ld_ws, map, decay_sum,
-                               alpha = 0.05, rho_ld = 0.9, dcap = 5e5, rho_d = NULL,
+                               alpha = 0.05, rho_ld = 0.75, dcap = 5e5, rho_d = NULL,
                                l_min = 2L, lmin_q = 0.99, lmin_tau = 0.05, fdr = 0.05,
                                basis = c("genetic", "spatial"), coords = NULL,
                                B = 100L, rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05),

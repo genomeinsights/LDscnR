@@ -58,7 +58,7 @@
 #' ## p_obs: your observed scan. p_list: one p-value vector per permuted dataset,
 #' ## each produced by re-running THAT SAME scan on permuted labels.
 #' fit <- ld_scan(p_obs, p_list, ld_ws, map, GTs, decay_sum,
-#'                tau = 0.05, l_min = 3, rho_ld = 0.6,
+#'                tau = 0.05, l_min = 3, rho_ld = 0.75,
 #'                basis = "within-locality permutation", engine = "EMMAX")
 #' fit                          # gate first, then the significant regions
 #' fit$gate                     # is this null usable at all?
@@ -70,7 +70,7 @@
 ld_scan <- function(p_obs, p_perm, ld_ws, map, GTs, decay_sum,
                     tau = 0.05, l_min = 3L, fdr = 0.05,
                     alpha = 0.05, rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05),
-                    rho_ld = 0.9, dcap = 5e5, rho_d = NULL, B = NULL,
+                    rho_ld = 0.75, dcap = 5e5, rho_d = NULL, B = NULL,
                     c2 = TRUE, tau_grid = seq(0.02, 0.5, by = 0.02),
                     lmin_grid = c(1L, 2L, 3L, 5L, 10L, 15L, 20L),
                     basis = "user-supplied", engine = "user-supplied",

@@ -9,7 +9,7 @@ ld_edges(
   GTs,
   map,
   decay_sum,
-  rho_ld = 0.9,
+  rho_ld = 0.75,
   dcap = 5e+05,
   r2_link = NULL,
   rho_d = NULL
@@ -49,8 +49,18 @@ their r^2 exceeds a (by default LD-decay-informed) threshold \code{r2_link}.
 }
 \details{
 The r^2 threshold is decay-relative and self-calibrates per chromosome:
-\code{r2_link = ld_from_rho(b, c, rho_ld)}. \code{rho_ld = 0.9} is the canonical value
-(shown insensitive on simulated and empirical data). The physical extent of an
+\code{r2_link = ld_from_rho(b, c, rho_ld)}. \code{rho_ld = 0.75} is the canonical value,
+used by both the stickleback and the simulation analyses. Note the direction:
+a HIGHER \code{rho_ld} gives a LOWER r^2 link and therefore MORE merging.
+
+Insensitivity is bounded, not general. On the stickleback panel 0.60 and 0.75
+give the same 17 regions, the same \code{q_R}, and the same null-gate verdicts --
+the whole difference is one marker joining one region -- even though the r^2
+link moves from 0.405 to 0.273. It does not hold indefinitely: by \code{rho_ld = 0.9}
+(r^2 ~ 0.14) the linkage is loose enough to overmerge, and a chromosome carrying
+several distinct peaks collapses into one region. Sweep it if your decay fits
+differ materially from these.
+The physical extent of an
 outlier region is bounded by a hard distance cap \code{dcap} (default 500 kb)
 rather than by LD decay, because a region's footprint is set by
 selection/recombination, not by background LD decay -- long-range r^2 links are

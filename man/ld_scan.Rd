@@ -17,7 +17,7 @@ ld_scan(
   alpha = 0.05,
   rho = colnames(ld_ws),
   qstar = seq(0, 0.95, by = 0.05),
-  rho_ld = 0.9,
+  rho_ld = 0.75,
   dcap = 5e+05,
   rho_d = NULL,
   B = NULL,
@@ -108,7 +108,7 @@ and no amount of downstream care recovers it.
 ## p_obs: your observed scan. p_list: one p-value vector per permuted dataset,
 ## each produced by re-running THAT SAME scan on permuted labels.
 fit <- ld_scan(p_obs, p_list, ld_ws, map, GTs, decay_sum,
-               tau = 0.05, l_min = 3, rho_ld = 0.6,
+               tau = 0.05, l_min = 3, rho_ld = 0.75,
                basis = "within-locality permutation", engine = "EMMAX")
 fit                          # gate first, then the significant regions
 fit$gate                     # is this null usable at all?

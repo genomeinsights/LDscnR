@@ -14,7 +14,7 @@ ld_cscore_scan(
   alpha = 0.05,
   rho = colnames(ld_ws),
   qstar = seq(0, 0.95, by = 0.05),
-  rho_ld = 0.9,
+  rho_ld = 0.75,
   dcap = 5e+05,
   rho_d = NULL,
   prep = NULL,
