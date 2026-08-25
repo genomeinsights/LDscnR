@@ -96,3 +96,28 @@ test_that("in-place ld_w is the same whether edges are reused or rebuilt", {
   expect_equal(rebui$decay_sum, kept$decay_sum)
   expect_equal(dim(rebui$ld_ws), c(nrow(sim_ex$map), length(RHO)))
 })
+
+test_that("a chromosome whose decay fit fails is dropped cleanly, not left as a NULL hole", {
+  skip_if_not_installed("SNPRelate")
+  data(sim_ex, package = "LDscnR")
+
+  gds_path <- tempfile(fileext = ".gds")
+  gds <- create_gds_from_geno(sim_ex$GTs, sim_ex$map, gds_path)
+  on.exit({ SNPRelate::snpgdsClose(gds); unlink(gds_path) })
+
+  ## n_win_decay = 1 yields far fewer than the 5 windows summarize_decay() needs,
+  ## so every chromosome fails the gate. That used to leave NULL elements in the
+  ## pre-allocated by_chr list, which consumers dereferenced into an opaque
+  ## data.table error ("RHS of == is length 0") far from the real cause.
+  expect_error(
+    suppressWarnings(compute_LD_decay(gds, n_win_decay = 1, max_SNPs_decay = Inf,
+                                      slide = 1000, cores = 1, keep_el = FALSE)),
+    "failed for every chromosome"
+  )
+
+  ## and a normal run leaves no NULL entries behind
+  ld <- compute_LD_decay(gds, n_win_decay = 5, max_SNPs_decay = Inf,
+                         slide = 1000, cores = 1, keep_el = FALSE)
+  expect_false(any(vapply(ld$by_chr, is.null, logical(1))))
+  expect_setequal(names(ld$by_chr), ld$decay_sum$Chr)
+})

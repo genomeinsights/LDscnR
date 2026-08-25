@@ -309,6 +309,27 @@ compute_LD_decay <- function(
   }
   close(pb)
 
+  ## A chromosome whose decay fit failed summarize_decay()'s gate (fewer than 5
+  ## windows with a usable fit) was skipped by `next` above -- but out_by_chr is
+  ## PRE-ALLOCATED with names, so that leaves a NULL element still present in the
+  ## list. Consumers then dereference it: compute_ld_w() evaluating
+  ## `decay_sum[Chr == chr_obj$decay_sum$Chr]` on a NULL entry yields a length-0
+  ## RHS and data.table's opaque "RHS of == is length 0" error, far from the
+  ## actual cause. Drop the holes here and say plainly which chromosomes are gone.
+  failed_chr <- names(out_by_chr)[vapply(out_by_chr, is.null, logical(1))]
+  if (length(failed_chr)) {
+    out_by_chr <- out_by_chr[!vapply(out_by_chr, is.null, logical(1))]
+    if (!length(out_by_chr)) {
+      stop("LD-decay estimation failed for every chromosome (", paste(failed_chr, collapse = ", "),
+           "): no chromosome had >= 5 windows with a valid fit. Nothing can be estimated from ",
+           "this dataset at these settings -- see summarize_decay() and n_win_decay.", call. = FALSE)
+    }
+    warning("LD-decay estimation failed for chromosome(s) ", paste(failed_chr, collapse = ", "),
+            " (fewer than 5 windows with a valid fit). They are ABSENT from by_chr, decay_sum ",
+            "and ld_ws, so downstream results cover only: ",
+            paste(names(out_by_chr), collapse = ", "), ".", call. = FALSE)
+  }
+
   message("Predicting a from chromosome size")
   decay_sum <- data.table::rbindlist(
     lapply(out_by_chr, function(x) x$decay_sum),
