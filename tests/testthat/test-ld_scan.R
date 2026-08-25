@@ -213,3 +213,26 @@ test_that("ld_gate fails a basis whose observed data has no regions", {
   expect_true(is.na(g$ratio))
   expect_false(g$pass)
 })
+
+test_that("ld_null_from_p records lambda for the observed scan and every surrogate", {
+  cs <- make_case()
+  null <- ld_null_from_p(cs$p_obs, cs$p_perm, cs$ld_ws, verbose = FALSE)
+
+  expect_length(null$lambda_surr, null$B)
+  expect_true(all(is.finite(null$lambda_surr)))
+  expect_true(is.finite(null$lambda_obs))
+  # uniform p-values give lambda ~ 1; the surrogates here are pure noise
+  expect_true(abs(stats::median(null$lambda_surr) - 1) < 0.35)
+  # the observed carries a planted signal, so it is at least as inflated
+  expect_gte(null$lambda_obs, stats::median(null$lambda_surr) * 0.8)
+
+  # lambda must not leak into C_surr as a stray attribute
+  expect_null(attr(null$C_surr[[1]], "lambda"))
+
+  # an inflated surrogate is detected as such
+  infl <- cs$p_perm
+  infl[[1]] <- stats::pchisq(stats::qchisq(infl[[1]], 1, lower.tail = FALSE) * 3,
+                             1, lower.tail = FALSE)
+  n2 <- ld_null_from_p(cs$p_obs, infl, cs$ld_ws, verbose = FALSE)
+  expect_gt(n2$lambda_surr[1], 2 * stats::median(n2$lambda_surr[-1]))
+})

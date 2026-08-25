@@ -1,3 +1,14 @@
+## Genomic inflation factor from p-values: median chi-square(1) of the p-values
+## against its null median. Recorded per surrogate because the C-score reduction
+## discards everything else about a surrogate scan, so lambda_perm cannot be
+## recovered afterwards -- and it is expensive to retrofit once a long run has
+## happened. p == 0 gives an infinite chi-square, so exact zeros and NAs drop out.
+.lambda_gc <- function(p) {
+  p <- p[is.finite(p) & p > 0]
+  if (!length(p)) return(NA_real_)
+  stats::median(stats::qchisq(p, df = 1, lower.tail = FALSE)) / stats::qchisq(0.5, df = 1)
+}
+
 #' Build a null bundle from your own observed and permuted p-values
 #'
 #' The engine-agnostic entry point to the LD-scan pipeline. Where
@@ -46,7 +57,10 @@
 #' @return An `ld_null` object -- the same class [structured_null()] returns, so
 #'   everything downstream applies: `C_obs` (full observed C-vector), `C_surr`
 #'   (list of `B` sparse surrogate C-vectors), `universe` (every marker lit up by
-#'   the observed or any surrogate), and the settings.
+#'   the observed or any surrogate), `lambda_obs` and `lambda_surr` -- the genomic
+#'   inflation factor of the observed scan and of each surrogate -- and the
+#'   settings. `lambda_surr` is recorded here because the C-score reduction
+#'   discards the surrogate p-values, so it cannot be recovered afterwards.
 #' @seealso [ld_gate()], [ld_region_scan()], [ld_scan()], [structured_null()]
 #' @export
 ld_null_from_p <- function(p_obs, p_perm, ld_ws, B = NULL, alpha = 0.05,
@@ -86,13 +100,14 @@ ld_null_from_p <- function(p_obs, p_perm, ld_ws, B = NULL, alpha = 0.05,
   if (verbose) { cat(sprintf("[ld_null_from_p] reducing %d surrogate(s) to sparse C-scores on %d core(s)...\n",
                              B, cores)); utils::flush.console() }
   C_obs <- ld_cscore(p_obs, ld_ws, alpha, rho, qstar)
+  lambda_obs <- .lambda_gc(p_obs)
   one <- function(b) {
     pv <- get_b(b)
     if (length(pv) != nrow(ld_ws))
       stop(sprintf("Surrogate %d has %d p-values but `ld_ws` has %d rows.", b, length(pv), nrow(ld_ws)))
     .check_p_names(pv, ld_ws, sprintf("Surrogate %d", b))
     C <- ld_cscore(pv, ld_ws, alpha, rho, qstar)
-    C[C > 0]                                   # sparse: only the markers that light up
+    structure(C[C > 0], lambda = .lambda_gc(pv))   # sparse, plus this scan's lambda
   }
   C_surr <- if (cores > 1L) parallel::mclapply(seq_len(B), one, mc.cores = cores)
             else lapply(seq_len(B), one)
@@ -101,11 +116,14 @@ ld_null_from_p <- function(p_obs, p_perm, ld_ws, B = NULL, alpha = 0.05,
     stop(sprintf("Surrogate(s) %s failed to reduce: %s",
                  paste(bad, collapse = ", "), as.character(C_surr[[bad[1]]])))
 
+  lambda_surr <- vapply(C_surr, function(x) { l <- attr(x, "lambda"); if (is.null(l)) NA_real_ else l }, numeric(1))
+  C_surr <- lapply(C_surr, function(x) { attr(x, "lambda") <- NULL; x })
   universe <- unique(c(names(C_obs)[C_obs > 0], unlist(lapply(C_surr, names), use.names = FALSE)))
   if (verbose) cat(sprintf("[ld_null_from_p] universe = %d marker(s) with C > 0 in the observed or any surrogate\n",
                            length(universe)))
   structure(list(C_obs = C_obs, C_surr = C_surr, universe = universe,
                  basis = basis, engine = engine, B = B,
+                 lambda_obs = lambda_obs, lambda_surr = lambda_surr,
                  params = list(alpha = alpha, rho = rho, qstar = qstar)),
             class = "ld_null")
 }
@@ -116,6 +134,10 @@ print.ld_null <- function(x, ...) {
               x$B, x$basis %||% "?", x$engine %||% "?"))
   cat(sprintf("  observed: %d marker(s) with C > 0 of %d | universe: %d | p-floor 1/(1+B) = %.4f\n",
               sum(x$C_obs > 0), length(x$C_obs), length(x$universe), 1 / (1 + x$B)))
+  if (!is.null(x$lambda_obs) && is.finite(x$lambda_obs))
+    cat(sprintf("  lambda: observed %.3f | surrogates median %.3f (range %.3f - %.3f)\n",
+                x$lambda_obs, stats::median(x$lambda_surr, na.rm = TRUE),
+                min(x$lambda_surr, na.rm = TRUE), max(x$lambda_surr, na.rm = TRUE)))
   invisible(x)
 }
 

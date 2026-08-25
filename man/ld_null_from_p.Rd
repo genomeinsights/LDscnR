@@ -55,7 +55,10 @@ step; the scan itself is cheap.}
 An \code{ld_null} object -- the same class \code{\link[=structured_null]{structured_null()}} returns, so
 everything downstream applies: \code{C_obs} (full observed C-vector), \code{C_surr}
 (list of \code{B} sparse surrogate C-vectors), \code{universe} (every marker lit up by
-the observed or any surrogate), and the settings.
+the observed or any surrogate), \code{lambda_obs} and \code{lambda_surr} -- the genomic
+inflation factor of the observed scan and of each surrogate -- and the
+settings. \code{lambda_surr} is recorded here because the C-score reduction
+discards the surrogate p-values, so it cannot be recovered afterwards.
 }
 \description{
 The engine-agnostic entry point to the LD-scan pipeline. Where
