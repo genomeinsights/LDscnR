@@ -84,10 +84,23 @@ score_thresholds <- function(decay_sum, rho_r2 = 0.75, rho_d = 0.95, dmax_cap = 
        dmax  = min(d_from_rho(stats::median(ds$a), rho_d), dmax_cap))
 }
 
+## internal: filter the QTN-LD table ONCE per call set and key it by marker.
+## r2_match and d_match are fixed for a dataset, so the filter is invariant across
+## regions -- applying it inside .assign_focal_qtn() re-scanned the whole table for
+## every region, which dominated runtime when a sweep scores hundreds of region
+## sets. Keying on marker also turns the `%in%` scan into a binary join.
+.prep_qtn_lookup <- function(qtn_ld_table, r2_match, d_match) {
+  qt <- data.table::as.data.table(qtn_ld_table)[r2 > r2_match & dist_bp < d_match]
+  data.table::setkeyv(qt, "marker")
+  qt
+}
+
 ## internal: assign one OR its focal QTN (highest-r^2 QTN within the thresholds;
 ## ties broken toward the QTN best supported by the region's neutral markers).
-.assign_focal_qtn <- function(cluster_markers, qtn_ld_table, qtn_marker_set, r2_match, d_match) {
-  rows <- qtn_ld_table[marker %in% cluster_markers & r2 > r2_match & dist_bp < d_match]
+## `qtn_lookup` must come from .prep_qtn_lookup() -- already threshold-filtered
+## and keyed by marker.
+.assign_focal_qtn <- function(cluster_markers, qtn_lookup, qtn_marker_set) {
+  rows <- qtn_lookup[list(cluster_markers), nomatch = NULL]
   if (nrow(rows) == 0) return(list(qtn = NA_character_, evidence = NA_real_))
   best_per_qtn <- rows[, .(max_r2 = max(r2)), by = qtn_marker]
   if (nrow(best_per_qtn) == 1) return(list(qtn = best_per_qtn$qtn_marker[1], evidence = best_per_qtn$max_r2[1]))
@@ -126,8 +139,9 @@ classify_ors <- function(regions, map, qtn_ld_table, r2_match, d_match) {
   if (length(regions) == 0)
     return(data.table::data.table(CL_id = integer(0), n_loci = integer(0),
                                   qtn = character(0), evidence = numeric(0), is_TP = logical(0)))
-  assign_list <- lapply(regions, .assign_focal_qtn, qtn_ld_table = qtn_ld_table,
-                        qtn_marker_set = qtn_marker_set, r2_match = r2_match, d_match = d_match)
+  qtn_lookup <- .prep_qtn_lookup(qtn_ld_table, r2_match, d_match)
+  assign_list <- lapply(regions, .assign_focal_qtn, qtn_lookup = qtn_lookup,
+                        qtn_marker_set = qtn_marker_set)
   assignments <- data.table::data.table(
     CL_id    = seq_along(regions),
     n_loci   = vapply(regions, length, integer(1)),
@@ -154,8 +168,9 @@ classify_ors <- function(regions, map, qtn_ld_table, r2_match, d_match) {
   true_pos_lookup <- stats::setNames(map$true_pos_QTN, map$marker)
   pos_lookup      <- stats::setNames(map$Pos, map$marker)
   if (length(regions) == 0) return(data.table::data.table())
-  assign_list <- lapply(regions, .assign_focal_qtn, qtn_ld_table = qtn_ld_table,
-                        qtn_marker_set = qtn_marker_set, r2_match = r2_match, d_match = d_match)
+  qtn_lookup <- .prep_qtn_lookup(qtn_ld_table, r2_match, d_match)
+  assign_list <- lapply(regions, .assign_focal_qtn, qtn_lookup = qtn_lookup,
+                        qtn_marker_set = qtn_marker_set)
   dt <- data.table::data.table(
     CL_id         = seq_along(regions),
     n_loci        = vapply(regions, length, integer(1)),
