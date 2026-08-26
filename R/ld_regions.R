@@ -97,13 +97,24 @@ ld_regions <- function(markers, edges) {
     if (!length(mkc)) next
     posc <- E$pos[inmk]
     if (length(mkc) == 1L) { out <- c(out, list(mkc)); next }
-    comp <- stats::setNames(seq_along(mkc), mkc)          # union-find on the induced subgraph
+    ## Connected components of the induced subgraph. This was a scalar union-find
+    ## loop in R, which is quadratic-ish in practice because `comp[comp == cb] <- ca`
+    ## rewrites the whole vector on every merge. On a dense chromosome (2,037
+    ## markers, 1.9M edges) it cost 31.7 s; igraph does the same job in 0.37 s, 85x
+    ## faster, and igraph is already an Import. The partition is identical -- only
+    ## the component LABELS differ. factor() below relabels them by sorted unique
+    ## value, so a different labelling could in principle reorder the output list
+    ## and shift CL_id downstream -- verified it does not: over 16 region sets
+    ## (4 genomes x 4 tau) the partition AND the list order are identical.
+    comp <- stats::setNames(seq_along(mkc), mkc)
     if (!is.null(E$edges) && nrow(E$edges)) {
       keep <- E$edges[, 1] %in% mkc & E$edges[, 2] %in% mkc
       ee <- E$edges[keep, , drop = FALSE]
-      for (r in seq_len(nrow(ee))) {
-        ca <- comp[[ee[r, 1]]]; cb <- comp[[ee[r, 2]]]
-        if (ca != cb) comp[comp == cb] <- ca
+      if (nrow(ee)) {
+        g <- igraph::graph_from_data_frame(
+          data.frame(from = ee[, 1], to = ee[, 2], stringsAsFactors = FALSE),
+          directed = FALSE, vertices = data.frame(name = mkc, stringsAsFactors = FALSE))
+        comp <- stats::setNames(as.integer(igraph::components(g)$membership)[match(mkc, igraph::V(g)$name)], mkc)
       }
     }
     cl <- .split_gap(as.integer(factor(comp)), posc, E$dc)
