@@ -38,7 +38,12 @@ test_that("two near-monomorphic, uncorrelated clusters do NOT merge just because
   pair_r2 <- suppressWarnings(cor(A, B))^2
   expect_lt(pair_r2, 0.001)
 
-  candidate_score <- score_eMLG(weighted_row_mean(polarize_genotypes(cbind(A, B)), c(1, 1)))
+  ## LDscnR::: because these three are internal: test_check() runs tests with the
+  ## package namespace as parent so bare names resolve there, but running this
+  ## file standalone after library(LDscnR) does not
+  candidate_score <- LDscnR:::score_eMLG(
+    LDscnR:::weighted_row_mean(LDscnR:::polarize_genotypes(cbind(A, B)), c(1, 1))
+  )
   expect_equal(candidate_score, 1)  # confirms this WOULD pass a score_eMLG-only gate
 
   eMLG <- cbind(A = A, B = B)
