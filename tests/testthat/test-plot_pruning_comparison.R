@@ -72,6 +72,8 @@ test_that("plot_pruning_comparison() defaults ld_w_col/ld_w_threshold/min_n_loci
     res$params,
     list(
       ld_w_col = "ld_w_095", ld_w_threshold = 0.5, min_n_loci_flag = Inf, rho = 0.95, distance_threshold = 100,
+      min_r2_rho = 0.5, min_r2 = 0.2,
+      distance_threshold_resolved = 100, min_r2_resolved = 0.2,
       use_cM = FALSE, cM_threshold = NULL
     )
   )

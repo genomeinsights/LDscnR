@@ -159,7 +159,15 @@ always lists EVERY group regardless of eMLG filtering), \code{pruned}
 (character vector of representative markers, one per group -- for
 LD-pruning use, unaffected by eMLG filtering), \code{params} (the
 \code{ld_w_col}/\code{ld_w_threshold}/\code{min_n_loci_flag}/\code{rho}/\code{distance_threshold}/
-\code{use_cM}/\code{cM_threshold} this call actually used -- \code{\link[=plot_pruning_comparison]{plot_pruning_comparison()}} defaults to
+\code{min_r2_rho}/\code{min_r2}/\code{use_cM}/\code{cM_threshold} this call was given, plus
+\code{distance_threshold_resolved} and \code{min_r2_resolved} -- the values it
+actually applied: a scalar when the threshold was supplied directly, a
+vector named by chromosome when it was derived from \code{LD_decay}, and
+\code{NULL} when that threshold did not apply (\code{distance_threshold_resolved}
+under \code{use_cM}). The raw fields alone cannot distinguish two runs whose
+derived defaults differed, since both record \code{NULL}; the resolved fields
+let a stored result carry the partition's provenance with it.
+\code{\link[=plot_pruning_comparison]{plot_pruning_comparison()}} defaults to
 these so a Stage 1 vs Combined comparison can't silently use a
 different threshold on each side).
 }

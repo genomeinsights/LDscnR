@@ -262,7 +262,15 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'   (character vector of representative markers, one per group -- for
 #'   LD-pruning use, unaffected by eMLG filtering), `params` (the
 #'   `ld_w_col`/`ld_w_threshold`/`min_n_loci_flag`/`rho`/`distance_threshold`/
-#'   `use_cM`/`cM_threshold` this call actually used -- [plot_pruning_comparison()] defaults to
+#'   `min_r2_rho`/`min_r2`/`use_cM`/`cM_threshold` this call was given, plus
+#'   `distance_threshold_resolved` and `min_r2_resolved` -- the values it
+#'   actually applied: a scalar when the threshold was supplied directly, a
+#'   vector named by chromosome when it was derived from `LD_decay`, and
+#'   `NULL` when that threshold did not apply (`distance_threshold_resolved`
+#'   under `use_cM`). The raw fields alone cannot distinguish two runs whose
+#'   derived defaults differed, since both record `NULL`; the resolved fields
+#'   let a stored result carry the partition's provenance with it.
+#'   [plot_pruning_comparison()] defaults to
 #'   these so a Stage 1 vs Combined comparison can't silently use a
 #'   different threshold on each side).
 #'
@@ -432,9 +440,24 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
     )
   }
 
+  ## params records BOTH the raw arguments and the values actually used. The
+  ## two derived thresholds (distance_threshold from rho, min_r2 from
+  ## min_r2_rho) resolve to a per-chromosome named vector when defaulted, so a
+  ## raw NULL says only "it was derived" -- not derived to WHAT, and not from
+  ## which decay fit. That matters downstream: a cached result whose partition
+  ## depends on a derived default cannot otherwise be told apart from one built
+  ## under a different default without re-running it. Both derived thresholds
+  ## are recorded the same way so the *_resolved fields mean one thing: the
+  ## value this call actually applied, scalar if supplied directly, named by
+  ## chromosome if derived, NULL if the threshold did not apply at all.
   params <- list(
     ld_w_col = ld_w_col, ld_w_threshold = ld_w_threshold, min_n_loci_flag = min_n_loci_flag,
     rho = rho, distance_threshold = distance_threshold,
+    min_r2_rho = min_r2_rho, min_r2 = min_r2,
+    distance_threshold_resolved = if (use_cM) NULL
+                                  else if (is.null(distance_threshold)) dist_threshold_by_chr
+                                  else distance_threshold,
+    min_r2_resolved = if (is.null(min_r2)) min_r2_by_chr else min_r2,
     use_cM = use_cM, cM_threshold = cM_threshold
   )
 

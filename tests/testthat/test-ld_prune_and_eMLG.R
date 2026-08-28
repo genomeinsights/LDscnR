@@ -107,6 +107,35 @@ test_that("distance_threshold derived from rho/LD_decay reproduces the same merg
 
   expect_equal(res$params$rho, 0.95)
   expect_null(res$params$distance_threshold)
+
+  ## a supplied min_r2 resolves to itself; a derived distance_threshold
+  ## resolves to a per-chromosome vector, so the raw NULL above is not the
+  ## only record of what this call actually applied
+  expect_equal(res$params$min_r2_resolved, 0.2)
+  dtr <- res$params$distance_threshold_resolved
+  expect_type(dtr, "double")
+  expect_named(dtr, ld_decay$decay_sum$Chr)
+  expect_equal(unname(dtr), unname(d_from_rho(ld_decay$decay_sum$a_pred, 0.95)))
+})
+
+test_that("ld_prune_and_eMLG() records a derived min_r2 per chromosome in params", {
+  d <- build_stage1()
+  ld_decay <- list(decay_sum = data.table::data.table(
+    Chr = "Chr1", a_pred = 0.19, b = 0.05, c = 0.9
+  ))
+
+  res <- ld_prune_and_eMLG(
+    GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+    LD_decay = ld_decay, rho = 0.95, score_threshold = 0.80, cores = 1
+  )
+
+  ds <- ld_decay$decay_sum
+  cc <- if ("c" %in% names(ds)) ds$c else rep(1, nrow(ds))
+  expect_null(res$params$min_r2)
+  expect_equal(res$params$min_r2_rho, 0.5)
+  mr <- res$params$min_r2_resolved
+  expect_named(mr, ds$Chr)
+  expect_equal(unname(mr), unname(ld_from_rho(b = ds$b, c = cc, rho = 0.5)))
 })
 
 test_that("ld_prune_and_eMLG() errors when neither distance_threshold nor LD_decay is supplied", {
