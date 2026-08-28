@@ -12,7 +12,8 @@ ld_prune_and_eMLG(
   LD_decay = NULL,
   rho = 0.95,
   score_threshold = 0.8,
-  min_r2 = 0.2,
+  min_r2 = NULL,
+  min_r2_rho = 0.5,
   distance_threshold = NULL,
   genetic_map = NULL,
   cM_threshold = NULL,
@@ -33,12 +34,15 @@ ANY member exceeds \code{ld_w_threshold}).}
 
 \item{ld_w_threshold}{Flagging threshold.}
 
-\item{LD_decay}{Object from \code{\link[=compute_LD_decay]{compute_LD_decay()}}, used to derive a
-per-chromosome \code{distance_threshold} from \code{rho} when \code{distance_threshold}
-is not supplied directly (via \code{d_from_rho(a_pred, rho)}, using each
-chromosome's size-corrected predicted decay rate \code{a_pred}, not its own
-observed \code{a} -- see \code{distance_threshold} below for why). Only required
-when \code{distance_threshold} is \code{NULL} (the default).}
+\item{LD_decay}{Object from \code{\link[=compute_LD_decay]{compute_LD_decay()}}, used to derive two
+per-chromosome thresholds from the fitted decay curves: a
+\code{distance_threshold} from \code{rho} when \code{distance_threshold} is not supplied
+directly (via \code{d_from_rho(a_pred, rho)}, using each chromosome's
+size-corrected predicted decay rate \code{a_pred}, not its own observed \code{a}
+-- see \code{distance_threshold} below for why), and a \code{min_r2} from
+\code{min_r2_rho} when \code{min_r2} is not supplied directly (via
+\code{ld_from_rho(b, c, min_r2_rho)}). Only required when either of those is
+\code{NULL} (both are by default).}
 
 \item{rho}{Relative LD threshold used to derive \code{distance_threshold} when
 it isn't supplied directly. Reuses the same \code{rho} already implied by
@@ -54,7 +58,20 @@ must clear (see \code{\link[=dynamic_cut_eMLG]{dynamic_cut_eMLG()}}).}
 merged (see \code{\link[=dynamic_cut_eMLG]{dynamic_cut_eMLG()}}). A genuine merge/independence gate: it
 bounds the residual correlation between distinct final clusters (~ the
 fixed floor conventional LD pruning applies), not a device to shrink the
-pairwise edge list. Default \code{0.2}.}
+pairwise edge list. Default \code{NULL}: derived per chromosome from
+\code{min_r2_rho} and \code{LD_decay} (via \code{ld_from_rho(b, c, min_r2_rho)}) rather
+than one fixed r2 for the whole genome. Supply a single number to
+override.}
+
+\item{min_r2_rho}{Relative LD threshold used to derive \code{min_r2} when it
+isn't supplied directly. Defaults to \code{0.5}, i.e. the same decay-relative
+r2 that \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}} uses at its own default \code{rho = 0.5}
+to build the Stage 1 clusters this function then merges -- so the bar a
+merge must clear is the same bar that put markers in a cluster to begin
+with, on each chromosome's own decay scale. A fixed \code{min_r2} instead
+applies one number across chromosomes whose decay curves differ, making
+it lenient on slow-decaying chromosomes and strict on fast-decaying
+ones.}
 
 \item{distance_threshold}{Max consecutive-gap in bp allowed within one
 physically-contiguous run (see \code{split_by_distance()}). Clusters more
@@ -168,7 +185,7 @@ stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5)
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095",
   ld_w_threshold = 0.2, LD_decay = ld_decay, rho = 0.95,
-  score_threshold = 0.80, min_r2 = 0.2
+  score_threshold = 0.80
 )
 pruned_markers <- result$pruned
 eMLG <- result$eMLG

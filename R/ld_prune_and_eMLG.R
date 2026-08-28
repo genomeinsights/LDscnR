@@ -149,12 +149,15 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'   which clusters need the expensive treatment (a cluster is flagged if
 #'   ANY member exceeds `ld_w_threshold`).
 #' @param ld_w_threshold Flagging threshold.
-#' @param LD_decay Object from [compute_LD_decay()], used to derive a
-#'   per-chromosome `distance_threshold` from `rho` when `distance_threshold`
-#'   is not supplied directly (via `d_from_rho(a_pred, rho)`, using each
-#'   chromosome's size-corrected predicted decay rate `a_pred`, not its own
-#'   observed `a` -- see `distance_threshold` below for why). Only required
-#'   when `distance_threshold` is `NULL` (the default).
+#' @param LD_decay Object from [compute_LD_decay()], used to derive two
+#'   per-chromosome thresholds from the fitted decay curves: a
+#'   `distance_threshold` from `rho` when `distance_threshold` is not supplied
+#'   directly (via `d_from_rho(a_pred, rho)`, using each chromosome's
+#'   size-corrected predicted decay rate `a_pred`, not its own observed `a`
+#'   -- see `distance_threshold` below for why), and a `min_r2` from
+#'   `min_r2_rho` when `min_r2` is not supplied directly (via
+#'   `ld_from_rho(b, c, min_r2_rho)`). Only required when either of those is
+#'   `NULL` (both are by default).
 #' @param rho Relative LD threshold used to derive `distance_threshold` when
 #'   it isn't supplied directly. Reuses the same `rho` already implied by
 #'   `ld_w_col`'s naming convention (e.g. `"ld_w_095"`) by default, so one
@@ -167,7 +170,19 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'   merged (see [dynamic_cut_eMLG()]). A genuine merge/independence gate: it
 #'   bounds the residual correlation between distinct final clusters (~ the
 #'   fixed floor conventional LD pruning applies), not a device to shrink the
-#'   pairwise edge list. Default `0.2`.
+#'   pairwise edge list. Default `NULL`: derived per chromosome from
+#'   `min_r2_rho` and `LD_decay` (via `ld_from_rho(b, c, min_r2_rho)`) rather
+#'   than one fixed r2 for the whole genome. Supply a single number to
+#'   override.
+#' @param min_r2_rho Relative LD threshold used to derive `min_r2` when it
+#'   isn't supplied directly. Defaults to `0.5`, i.e. the same decay-relative
+#'   r2 that [ld_complexity_reduction()] uses at its own default `rho = 0.5`
+#'   to build the Stage 1 clusters this function then merges -- so the bar a
+#'   merge must clear is the same bar that put markers in a cluster to begin
+#'   with, on each chromosome's own decay scale. A fixed `min_r2` instead
+#'   applies one number across chromosomes whose decay curves differ, making
+#'   it lenient on slow-decaying chromosomes and strict on fast-decaying
+#'   ones.
 #' @param distance_threshold Max consecutive-gap in bp allowed within one
 #'   physically-contiguous run (see `split_by_distance()`). Clusters more
 #'   than this apart are never merged, regardless of correlation. Default
@@ -257,7 +272,7 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #' result <- ld_prune_and_eMLG(
 #'   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095",
 #'   ld_w_threshold = 0.2, LD_decay = ld_decay, rho = 0.95,
-#'   score_threshold = 0.80, min_r2 = 0.2
+#'   score_threshold = 0.80
 #' )
 #' pruned_markers <- result$pruned
 #' eMLG <- result$eMLG
@@ -266,7 +281,8 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #' @export
 ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
                                LD_decay = NULL, rho = 0.95,
-                               score_threshold = 0.80, min_r2 = 0.2,
+                               score_threshold = 0.80,
+                               min_r2 = NULL, min_r2_rho = 0.5,
                                distance_threshold = NULL,
                                genetic_map = NULL, cM_threshold = NULL,
                                compute_unflagged_eMLG = TRUE,
@@ -323,6 +339,31 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
     }
     dsum <- LD_decay$decay_sum
     dist_threshold_by_chr <- stats::setNames(d_from_rho(dsum$a_pred, rho), dsum$Chr)
+  }
+
+  ## min_r2 likewise defaults to a per-chromosome, decay-relative value rather
+  ## than one fixed r2 floor for the whole genome -- and specifically to the
+  ## SAME ld_from_rho(b, c, rho = 0.5) that ld_complexity_reduction() used to
+  ## form the Stage 1 clusters being merged here. Chromosomes differ in how
+  ## fast r2 decays, so a single fixed floor is simultaneously lenient on
+  ## slow-decaying chromosomes and strict on fast-decaying ones; anchoring the
+  ## merge gate to each chromosome's own curve keeps "these two sides are still
+  ## correlated enough to be one cluster" meaning the same thing everywhere,
+  ## and makes it the same bar that admitted markers to a cluster upstream.
+  min_r2_by_chr <- NULL
+  if (is.null(min_r2)) {
+    if (is.null(LD_decay)) {
+      stop(
+        "Either `min_r2` (a single r2 floor) or `LD_decay` (to derive a ",
+        "per-chromosome floor from `min_r2_rho` via ld_from_rho(b, c, ",
+        "min_r2_rho)) must be supplied."
+      )
+    }
+    dsr <- data.table::as.data.table(LD_decay$decay_sum)
+    ccr <- if ("c" %in% names(dsr)) dsr$c else rep(1, nrow(dsr))
+    min_r2_by_chr <- stats::setNames(
+      ld_from_rho(b = dsr$b, c = ccr, rho = min_r2_rho), dsr$Chr
+    )
   }
 
   needs_merge_ids <- map_snp[get(ld_w_col) > ld_w_threshold, unique(CL_id)]
@@ -493,7 +534,8 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
 
       sub_groups <- dynamic_cut_eMLG(
         flagged_eMLG[, run_ids, drop = FALSE], n_loci_flagged,
-        threshold = score_threshold, min_r2 = min_r2
+        threshold = score_threshold,
+        min_r2 = if (is.null(min_r2)) min_r2_by_chr[[ch]] else min_r2
       )
       for (g in sub_groups) {
         flagged_group_list[[length(flagged_group_list) + 1]] <- list(
