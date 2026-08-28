@@ -11,7 +11,8 @@ get_el(
   slide_win_ld = 1000,
   method = "r",
   cores = 1,
-  by_chr = FALSE
+  by_chr = FALSE,
+  el_floor = 0
 )
 }
 \arguments{
@@ -35,6 +36,27 @@ computed.}
 
 \item{by_chr}{Logical; if \code{TRUE}, LD is computed separately within each
 chromosome. If \code{FALSE}, LD is computed across the full SNP subset.}
+
+\item{el_floor}{Minimum \eqn{r^2} for a pair to be retained, applied
+\strong{during} construction rather than afterwards. Default \code{0},
+which returns every finite pair and so reproduces the previous behaviour
+exactly.
+
+The point is peak memory, not the returned object: a sliding window of
+\code{slide_win_ld} over \eqn{n} markers materialises on the order of
+\eqn{n \times} \code{slide_win_ld} rows before any downstream filter sees
+them, which for a 15,000-marker chromosome at the default window is ~15M
+rows and on the order of a gigabyte. A caller that is going to discard
+low-\eqn{r^2} pairs anyway should say so here and never pay for them.
+
+\strong{Only safe when the caller genuinely does not need the discarded
+pairs.} Anything that summarises the LD \emph{distribution} does need them:
+\code{\link[=compute_LD_decay]{compute_LD_decay()}} fits decay across the whole range, and
+\code{\link[=compute_ld_w]{compute_ld_w()}} takes a median within a window, which a floor would bias
+upward. Both therefore leave this at \code{0}. Threshold-based consumers
+such as \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}}, which joins at
+\code{ld_from_rho(b, c, rho)}, can safely floor anywhere below their own
+threshold.}
 }
 \value{
 A \code{data.table} with columns:

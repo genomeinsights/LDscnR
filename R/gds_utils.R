@@ -90,10 +90,33 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 #'
 #' @param SNP_id Optional vector of SNP ids to restrict the edge list to
 #'   (alternative to \code{idx}).
+#' @param el_floor Minimum \eqn{r^2} for a pair to be retained, applied
+#'   \strong{during} construction rather than afterwards. Default \code{0},
+#'   which returns every finite pair and so reproduces the previous behaviour
+#'   exactly.
+#'
+#'   The point is peak memory, not the returned object: a sliding window of
+#'   \code{slide_win_ld} over \eqn{n} markers materialises on the order of
+#'   \eqn{n \times} \code{slide_win_ld} rows before any downstream filter sees
+#'   them, which for a 15,000-marker chromosome at the default window is ~15M
+#'   rows and on the order of a gigabyte. A caller that is going to discard
+#'   low-\eqn{r^2} pairs anyway should say so here and never pay for them.
+#'
+#'   \strong{Only safe when the caller genuinely does not need the discarded
+#'   pairs.} Anything that summarises the LD \emph{distribution} does need them:
+#'   [compute_LD_decay()] fits decay across the whole range, and
+#'   [compute_ld_w()] takes a median within a window, which a floor would bias
+#'   upward. Both therefore leave this at \code{0}. Threshold-based consumers
+#'   such as [ld_complexity_reduction()], which joins at
+#'   \code{ld_from_rho(b, c, rho)}, can safely floor anywhere below their own
+#'   threshold.
 #' @export
 get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
-                    method = "r", cores = 1, by_chr = FALSE)
+                    method = "r", cores = 1, by_chr = FALSE, el_floor = 0)
 {
+  if (!is.numeric(el_floor) || length(el_floor) != 1L || is.na(el_floor) ||
+      el_floor < 0 || el_floor > 1)
+    stop("`el_floor` must be a single number in [0, 1].")
   ids <- .read_gds_ids(gds)
   if (is.null(SNP_id)) {
     if (missing(idx) || is.null(idx)) {
@@ -143,7 +166,11 @@ get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
       a <- if (slide_win_ld > 0) i + j else i
       b <- j
 
+      ## The floor is applied HERE, before the block is materialised as a
+      ## data.table, so discarded pairs are never allocated. v is the LD value on
+      ## the correlation scale, and r2 = v^2 is what the column reports.
       keep <- is.finite(v) & a > b & a <= n_snp
+      if (el_floor > 0) keep <- keep & (v * v >= el_floor)
       if (!any(keep)) next
       a <- a[keep]; b <- b[keep]
       k <- k + 1L
