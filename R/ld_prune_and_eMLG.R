@@ -270,6 +270,18 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'   under `use_cM`). The raw fields alone cannot distinguish two runs whose
 #'   derived defaults differed, since both record `NULL`; the resolved fields
 #'   let a stored result carry the partition's provenance with it.
+#'
+#'   Note that `params` records what this call applied but does not
+#'   *propagate*: a caller that reduces the result to a marker set (e.g. keeps
+#'   only `pruned`) discards it, and a cache written from that marker set is
+#'   as opaque as if the field did not exist. Anything caching a partition
+#'   whose thresholds were derived is responsible for carrying `params`
+#'   forward itself -- otherwise telling two cached partitions apart means
+#'   reproducing one of them from a second pipeline to fingerprint it. Beware
+#'   of routing it through a step that strips attributes
+#'   (`unique(as.character(x))` and friends) if carrying it as an attribute on
+#'   the marker vector: provenance that appears recorded and is not is worse
+#'   than none.
 #'   [plot_pruning_comparison()] defaults to
 #'   these so a Stage 1 vs Combined comparison can't silently use a
 #'   different threshold on each side).
