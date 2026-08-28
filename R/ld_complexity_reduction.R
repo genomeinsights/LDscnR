@@ -2,7 +2,8 @@
 ## path in el_data_folder mode), else rebuild it from genotypes on the fly. The
 ## rebuild is per chromosome and the result is discarded by the caller as soon as
 ## its clusters are formed, so nothing is written or accumulated.
-.chr_edge_list <- function(LD_decay, ch, chr_markers, gds = NULL, reopen_path = NULL) {
+.chr_edge_list <- function(LD_decay, ch, chr_markers, gds = NULL, reopen_path = NULL,
+                           el_floor = 0) {
 
   el <- LD_decay$by_chr[[ch]]$el
   if (is.character(el)) return(data.table::fread(el, showProgress = FALSE))  ## el_data_folder mode stores a path
@@ -24,12 +25,15 @@
   }
 
   p <- LD_decay$params
+  ## el_floor applies only on this on-the-fly path. A stored edge list (in
+  ## memory or on disk) is already materialised, so there is nothing to save.
   get_el(gds          = g,
          SNP_id       = chr_markers,
          slide_win_ld = if (!is.null(p$slide))     p$slide     else 1000,
          method       = if (!is.null(p$ld_method)) p$ld_method else "corr",
          cores        = 1,
-         by_chr       = TRUE)
+         by_chr       = TRUE,
+         el_floor     = el_floor)
 }
 
 #' Reduce a Marker Set to LD-Independent Representatives
@@ -214,7 +218,17 @@ ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = N
     }
     r2_th <- ld_from_rho(b = ds$b, c = ds$c, rho = rho)
 
-    el <- .chr_edge_list(LD_decay, ch, chr_markers, gds = gds, reopen_path = reopen_path)
+    ## The edge list is consumed on the very next line and nowhere else, and only
+    ## to select r2 >= r2_th. Building it with that floor is therefore
+    ## OUTPUT-IDENTICAL -- every row it drops is a row the filter below would drop
+    ## -- while avoiding the materialisation of pairs that are about to be thrown
+    ## away. On a 15,000-marker chromosome at the default sliding window that is
+    ## the difference between ~15M rows and the few that clear the threshold.
+    ## Guarded: a chromosome whose decay fit failed gives a non-finite threshold,
+    ## and then no floor is applied.
+    floor_ok <- length(r2_th) == 1L && is.finite(r2_th) && r2_th >= 0 && r2_th <= 1
+    el <- .chr_edge_list(LD_decay, ch, chr_markers, gds = gds, reopen_path = reopen_path,
+                         el_floor = if (floor_ok) r2_th else 0)
     edges_th <- el[r2 >= r2_th & SNP1 %in% chr_markers & SNP2 %in% chr_markers]
 
     if (nrow(edges_th) == 0) {
