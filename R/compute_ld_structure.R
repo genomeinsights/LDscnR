@@ -31,6 +31,22 @@
 #'   input to [compute_ld_w()] for the local-LD (`ld_w`) statistic; see
 #'   `max_SNPs_decay` for the subsampling caveat that governs how complete they are.
 #' @param q Quantile of \eqn{r^2} used for decay fitting (default = 0.95).
+#' @param seed Optional integer. Fixes the random draws this function makes --
+#'   the background-LD subsample, the `max_SNPs_decay` thinning and the
+#'   stratified pair sampling -- so that repeat calls on the same data return
+#'   the same fit. The caller's RNG stream is saved and restored, so a seed
+#'   changes this function's behaviour and nothing else in a pipeline.
+#'
+#'   Worth setting whenever two runs are to be COMPARED rather than merely
+#'   produced, because \eqn{b} propagates: it sets every decay-relative
+#'   threshold through [ld_from_rho()], including the stage-1 join in
+#'   [ld_complexity_reduction()] and the `min_r2` derived in
+#'   [ld_prune_and_eMLG()]. Unseeded repeat parses of one simulated dataset
+#'   moved \eqn{b} from 0.03038 to 0.03045, which was enough to move stage-1
+#'   cluster counts by 0.75% (12,435 against 12,529) and GRM marker counts by
+#'   0.70% -- larger than the differences some settings changes produce, so an
+#'   unseeded A/B comparison in that range measures the subsample, not the
+#'   setting.
 #' @param n_sub_bg Number of SNPs used to estimate background LD.
 #' @param n_win_decay Number of sliding windows per chromosome.
 #' @param overlap Proportion of overlap between consecutive windows (0–1).
@@ -102,7 +118,11 @@
 #' derived from them) are \strong{conditional on the settings used}, not
 #' properties of the data alone. They are stable when those settings are held
 #' fixed: on one simulated dataset, repeat runs differing only in random seed
-#' gave \eqn{a} = 1.798e-05 and 1.799e-05. But they move substantially when the
+#' gave \eqn{a} = 1.798e-05 and 1.799e-05. Note that this stability is a
+#' property of \eqn{a}, not of the whole fit -- \eqn{b} is estimated from a
+#' subsample and moves enough between unseeded runs to shift the thresholds
+#' derived from it (see `seed`), so use `seed` when comparing runs rather than
+#' relying on the fit being reproducible by default. But they move substantially when the
 #' settings -- or the marker set -- change, and \eqn{a} propagates: it sets the
 #' \code{d_from_rho()} window behind \code{ld_w}, and \code{decay_sum} feeds
 #' \code{score_thresholds()}. Treat estimates as comparable only across runs
@@ -144,8 +164,24 @@ compute_LD_decay <- function(
     rho_targets = c(0.90, 0.95, 0.99),
     cores = 1,
     min_maf_decay = 0.1,
-    ld_w_rho = NULL
+    ld_w_rho = NULL,
+    seed = NULL
 ) {
+
+  ## Everything random in this function happens downstream of here: the
+  ## background-LD subsample (n_sub_bg), the per-chromosome marker thinning
+  ## (max_SNPs_decay) and the stratified pair sampling (max_pairs). Seeding once
+  ## at the top therefore fixes the whole fit.
+  ##
+  ## The caller's RNG stream is restored on exit, so passing a seed changes what
+  ## THIS function does and nothing else. Without that, seeding here would
+  ## silently re-align every later draw in a pipeline that also samples.
+  if (!is.null(seed)) {
+    if (!exists(".Random.seed", envir = globalenv(), inherits = FALSE)) stats::runif(1)
+    .old_seed <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
+    on.exit(assign(".Random.seed", .old_seed, envir = globalenv()), add = TRUE)
+    set.seed(seed)
+  }
 
   if (!is.null(el_data_folder)) {
     if (!dir.exists(el_data_folder)) dir.create(el_data_folder, recursive = TRUE)

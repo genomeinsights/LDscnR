@@ -4,7 +4,7 @@
 
 # Build an ld_decay object with small, fast settings. The temporary GDS file
 # is closed and removed before returning, so callers get a self-contained object.
-build_decay <- function(keep_el = FALSE) {
+build_decay <- function(keep_el = FALSE, seed = NULL, n_sub_bg = 5000) {
   skip_if_not_installed("SNPRelate")
   data(sim_ex, package = "LDscnR")
 
@@ -21,7 +21,9 @@ build_decay <- function(keep_el = FALSE) {
     max_SNPs_decay = 2000,
     slide          = 1000,
     keep_el        = keep_el,
-    cores          = 1
+    cores          = 1,
+    seed           = seed,
+    n_sub_bg       = n_sub_bg
   )
 }
 
@@ -120,4 +122,35 @@ test_that("a chromosome whose decay fit fails is dropped cleanly, not left as a 
                          slide = 1000, cores = 1, keep_el = FALSE)
   expect_false(any(vapply(ld$by_chr, is.null, logical(1))))
   expect_setequal(names(ld$by_chr), ld$decay_sum$Chr)
+})
+
+
+test_that("seed makes the fit reproducible, and restores the caller's RNG stream", {
+  ## Why this matters beyond tidiness: b is estimated from a subsample and feeds
+  ## every decay-relative threshold via ld_from_rho(), so an unseeded pair of
+  ## runs differs by enough to move stage-1 cluster counts and GRM sizes by
+  ## ~0.7% -- larger than some real settings effects, which makes unseeded A/B
+  ## comparisons in that range unsound.
+  a <- build_decay(seed = 42)
+  b <- build_decay(seed = 42)
+  expect_equal(a$decay_sum$b, b$decay_sum$b)
+  expect_equal(a$decay_sum$a, b$decay_sum$a)
+  expect_equal(a$decay_sum$c, b$decay_sum$c)
+
+  ## A different seed must be a genuinely different draw, or the test above
+  ## would pass against a `seed` argument that is silently ignored. That needs
+  ## n_sub_bg BELOW the marker count: sim_ex has 900 markers against the default
+  ## subsample of 5000, so by default the background step takes everything and
+  ## is deterministic whatever the seed. Which is worth knowing in itself --
+  ## the seed only bites on data large enough to actually be subsampled.
+  d1 <- build_decay(seed = 42, n_sub_bg = 200)
+  d2 <- build_decay(seed = 7,  n_sub_bg = 200)
+  expect_false(isTRUE(all.equal(d1$decay_sum$b, d2$decay_sum$b)))
+  expect_equal(d1$decay_sum$b, build_decay(seed = 42, n_sub_bg = 200)$decay_sum$b)
+
+  ## the caller's stream must be untouched: seeding the decay fit should not
+  ## silently re-align later draws in a pipeline that also samples
+  set.seed(99); before <- runif(3)
+  set.seed(99); invisible(build_decay(seed = 42)); after <- runif(3)
+  expect_equal(before, after)
 })

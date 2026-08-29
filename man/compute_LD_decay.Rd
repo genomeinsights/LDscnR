@@ -21,7 +21,8 @@ compute_LD_decay(
   rho_targets = c(0.9, 0.95, 0.99),
   cores = 1,
   min_maf_decay = 0.1,
-  ld_w_rho = NULL
+  ld_w_rho = NULL,
+  seed = NULL
 )
 }
 \arguments{
@@ -92,6 +93,23 @@ returned as \code{$ld_ws}; the edge lists are then dropped (unless
 lists are reused, not recomputed or saved -- so with \code{keep_el = FALSE} and
 no \code{el_data_folder} nothing large is written or retained. \code{NULL}
 (default) skips it.}
+
+\item{seed}{Optional integer. Fixes the random draws this function makes --
+the background-LD subsample, the \code{max_SNPs_decay} thinning and the
+stratified pair sampling -- so that repeat calls on the same data return
+the same fit. The caller's RNG stream is saved and restored, so a seed
+changes this function's behaviour and nothing else in a pipeline.
+
+Worth setting whenever two runs are to be COMPARED rather than merely
+produced, because \eqn{b} propagates: it sets every decay-relative
+threshold through \code{\link[=ld_from_rho]{ld_from_rho()}}, including the stage-1 join in
+\code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}} and the \code{min_r2} derived in
+\code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}}. Unseeded repeat parses of one simulated dataset
+moved \eqn{b} from 0.03038 to 0.03045, which was enough to move stage-1
+cluster counts by 0.75\% (12,435 against 12,529) and GRM marker counts by
+0.70\% -- larger than the differences some settings changes produce, so an
+unseeded A/B comparison in that range measures the subsample, not the
+setting.}
 }
 \value{
 An object of class \code{"ld_decay"} containing (and, when
@@ -146,7 +164,11 @@ The fitted parameters (\eqn{a}, \eqn{b}, \eqn{c}, and the \code{a_pred}
 derived from them) are \strong{conditional on the settings used}, not
 properties of the data alone. They are stable when those settings are held
 fixed: on one simulated dataset, repeat runs differing only in random seed
-gave \eqn{a} = 1.798e-05 and 1.799e-05. But they move substantially when the
+gave \eqn{a} = 1.798e-05 and 1.799e-05. Note that this stability is a
+property of \eqn{a}, not of the whole fit -- \eqn{b} is estimated from a
+subsample and moves enough between unseeded runs to shift the thresholds
+derived from it (see \code{seed}), so use \code{seed} when comparing runs rather than
+relying on the fit being reproducible by default. But they move substantially when the
 settings -- or the marker set -- change, and \eqn{a} propagates: it sets the
 \code{d_from_rho()} window behind \code{ld_w}, and \code{decay_sum} feeds
 \code{score_thresholds()}. Treat estimates as comparable only across runs
