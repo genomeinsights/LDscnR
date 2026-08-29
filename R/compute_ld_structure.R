@@ -116,13 +116,14 @@
 #' @section Comparing decay estimates across runs and datasets:
 #' The fitted parameters (\eqn{a}, \eqn{b}, \eqn{c}, and the \code{a_pred}
 #' derived from them) are \strong{conditional on the settings used}, not
-#' properties of the data alone. They are stable when those settings are held
+#' properties of the data alone. \eqn{a} is stable when those settings are held
 #' fixed: on one simulated dataset, repeat runs differing only in random seed
-#' gave \eqn{a} = 1.798e-05 and 1.799e-05. Note that this stability is a
-#' property of \eqn{a}, not of the whole fit -- \eqn{b} is estimated from a
-#' subsample and moves enough between unseeded runs to shift the thresholds
-#' derived from it (see `seed`), so use `seed` when comparing runs rather than
-#' relying on the fit being reproducible by default. But they move substantially when the
+#' gave \eqn{a} = 1.798e-05 and 1.799e-05. That stability is a property of
+#' \eqn{a} specifically and does not extend to the whole fit -- only \eqn{a}
+#' was measured across seeds. \eqn{b} is estimated from a subsample and moves
+#' enough between unseeded runs to shift the thresholds derived from it, so set
+#' `seed` when two runs are to be compared rather than relying on the fit being
+#' reproducible by default. The estimates move substantially when the
 #' settings -- or the marker set -- change, and \eqn{a} propagates: it sets the
 #' \code{d_from_rho()} window behind \code{ld_w}, and \code{decay_sum} feeds
 #' \code{score_thresholds()}. Treat estimates as comparable only across runs
