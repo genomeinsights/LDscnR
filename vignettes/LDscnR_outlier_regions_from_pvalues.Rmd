@@ -8,6 +8,10 @@ vignette: >
 ---
 
 ```{r, include = FALSE}
+## Every chunk below is illustrative: it calls the reader's own scan engine
+## (my_scan) on their own data, so it cannot be executed here. eval = FALSE
+## keeps it out of the rendered output; the per-chunk purl = FALSE keeps it
+## out of the TANGLED .R as well, which is what R CMD check sources.
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
 ```
 
@@ -64,7 +68,7 @@ that link, so the same clinal signal now looks real. Neither is wrong; they
 answer different questions. Decide which one you mean, then say so — the
 `basis` label is carried through every printed output for exactly this reason.
 
-```{r}
+```{r, purl = FALSE}
 # one surrogate: permute, re-run YOUR scan, keep the p-values
 one_surrogate <- function() {
   eco_perm <- ave(ecotype, locality, FUN = sample)   # within-locality shuffle
@@ -80,7 +84,7 @@ same scale.
 
 ## Running it
 
-```{r}
+```{r, purl = FALSE}
 fit <- ld_scan(p_obs, p_perm, ld_ws, map, GTs, decay_sum,
                tau = 0.05, l_min = 3, rho_ld = 0.6,
                basis = "within-locality permutation", engine = "EMMAX")
@@ -93,7 +97,7 @@ surrogates cost a few MB rather than gigabytes.
 
 ## Read the gate first
 
-```{r}
+```{r, purl = FALSE}
 fit$gate
 ```
 
@@ -112,7 +116,7 @@ mis-specified null is a result; a quietly deleted one is a hole in the methods.
 
 ## The regions
 
-```{r}
+```{r, purl = FALSE}
 fit$regions$regions
 ```
 
@@ -142,7 +146,7 @@ than implying a resolution the null does not have.
 
 Ranking is a separate job:
 
-```{r}
+```{r, purl = FALSE}
 fit$c2$regions      # regions ordered by C-squared
 ```
 
@@ -161,7 +165,7 @@ independent and no error rate is controlled by it.
 `ld_scan()` is a convenience wrapper. The stages are separately callable, which
 is what you want when surrogates are expensive and you intend to reuse them:
 
-```{r}
+```{r, purl = FALSE}
 null  <- ld_null_from_p(p_obs, p_perm, ld_ws, basis = "...", engine = "...")
 edges <- ld_edges(null$universe, GTs, map, decay_sum, rho_ld = 0.6, dcap = 5e5)
 
@@ -175,7 +179,7 @@ graph. Edge membership is a property of a marker pair, not of the marker set, so
 a graph built over the union of their universes gives identical clustering and
 makes the rows comparable:
 
-```{r}
+```{r, purl = FALSE}
 univ  <- unique(unlist(lapply(nulls, `[[`, "universe")))
 edges <- ld_edges(univ, GTs, map, decay_sum, rho_ld = 0.6, dcap = 5e5)
 ld_gate(nulls, edges, tau = 0.05, l_min = 3)
