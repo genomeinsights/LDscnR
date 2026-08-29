@@ -175,7 +175,10 @@ plot_pruning_comparison <- function(chr, pruned_stage1, result, map,
   ## `/(e1, e2)`". wrap_plots() is an explicit patchwork:: call, so it always
   ## loads the namespace itself before needing it.
   p_compare <- patchwork::wrap_plots(p_stage1, p_combined, ncol = 1)
-  fname <- paste0(out_folder, chr, "_stage1_vs_combined_", direction, ".png")
+  ## file.path, not paste0: out_folder rarely ends in a separator, and
+  ## concatenating without one writes <parent>/<folder><chr>_... instead of
+  ## <folder>/<chr>_..., i.e. beside the target directory rather than in it.
+  fname <- file.path(out_folder, paste0(chr, "_stage1_vs_combined_", direction, ".png"))
   ggplot2::ggsave(fname, p_compare, width = width, height = height)
   message("Saved: ", fname)
 
