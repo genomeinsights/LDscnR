@@ -154,3 +154,28 @@ test_that("seed makes the fit reproducible, and restores the caller's RNG stream
   set.seed(99); invisible(build_decay(seed = 42)); after <- runif(3)
   expect_equal(before, after)
 })
+
+test_that("co-located markers do not break the decay stratification", {
+  ## Regression: two markers at the same bp give distance 0, log(0) = -Inf, and
+  ## the strata breaks become non-finite -- which surfaced far from the cause as
+  ## "'from' must be a finite number" from seq(), and made compute_LD_decay()
+  ## fail outright on a dense simulated map (95k loci in 0.79 Mb, ~600 such
+  ## pairs per chromosome). LDscnR::: because the helper is internal.
+  set.seed(1)
+  sub <- data.table::data.table(d = c(0, 0, 10^runif(200, 1, 5)), r2 = runif(202))
+  expect_silent(res <- suppressMessages(
+    LDscnR:::subsample_pairs_for_decay(sub, max_pairs = 50, n_strata = 5)))
+  expect_true(nrow(res) > 0)
+  expect_true(all(res$d > 0))          # the zero-distance pairs are gone
+
+  ## degenerate case: everything at one distance, so there is nothing to stratify
+  flat <- data.table::data.table(d = rep(500, 30), r2 = runif(30))
+  expect_silent(r2 <- suppressMessages(
+    LDscnR:::subsample_pairs_for_decay(flat, max_pairs = 10, n_strata = 5)))
+  expect_equal(nrow(r2), 10)
+
+  ## and nothing usable at all returns empty rather than erroring
+  zero <- data.table::data.table(d = c(0, 0, NA_real_), r2 = runif(3))
+  expect_equal(nrow(suppressMessages(
+    LDscnR:::subsample_pairs_for_decay(zero, max_pairs = 5, n_strata = 5))), 0L)
+})

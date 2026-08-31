@@ -553,9 +553,30 @@ subsample_pairs_for_decay <- function(sub,
                                       n_strata = 20) {
 
 
+  ## Pairs at distance ZERO are co-located markers -- two loci at the same bp.
+  ## They say nothing about how LD decays WITH distance, and log(0) = -Inf makes
+  ## the strata breaks non-finite. That surfaces a long way from here, as
+  ## "'from' must be a finite number" out of seq(), so drop them at the source
+  ## rather than let one pair poison the stratification.
+  ##
+  ## Real assemblies rarely place two markers on the same base; dense simulated
+  ## maps do. A pilot with 95k loci in 0.79 Mb is one locus per 52 bp and carried
+  ## ~600 co-located pairs per chromosome, which made compute_LD_decay() fail
+  ## outright on it, while a 30 Mb chromosome at 1,970 bp per marker has none.
+  n_before <- nrow(sub)
+  sub <- sub[is.finite(d) & d > 0]
+  if (!nrow(sub)) return(sub)
+  if (nrow(sub) < n_before)
+    message("  dropped ", n_before - nrow(sub), " of ", n_before,
+            " pairs at zero or non-finite distance (co-located markers)")
+
   if (nrow(sub) <= max_pairs) max_pairs <- nrow(sub)
   # log-distance strata
   log_d <- log(sub$d)
+  ## every surviving pair at one distance: there is nothing to stratify, and
+  ## seq() would return n_strata+1 copies of the same break
+  if (diff(range(log_d)) == 0)
+    return(sub[sample(.N, min(.N, max_pairs))])
   breaks <- seq(min(log_d), max(log_d), length.out = n_strata + 1)
 
   sub[, strata := cut(log_d, breaks = breaks, include.lowest = TRUE)]
