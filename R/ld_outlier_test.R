@@ -71,21 +71,9 @@ ld_outlier_test <- function(stage1, map, p_obs,
   if (assembly == "stage2_discovered" && (is.null(GTs) || is.null(LD_decay)))
     stop("assembly = \"stage2_discovered\" needs both GTs and LD_decay.")
 
-  units <- .ld_outlier_units(stage1, map, size_floor)
-
-  ## ---- per-unit p-value -------------------------------------------------
-  if (statistic == "simes") {
-    mp <- data.table::as.data.table(map)
-    p_by_marker <- stats::setNames(p_obs, mp$marker)
-    units$p <- vapply(units$members, function(mk) .simes(p_by_marker[mk]), 0)
-  } else {
-    if (length(p_obs) != nrow(units))
-      stop(sprintf("statistic = \"unit\": p_obs has %d values but %d units clear size_floor = %d.",
-                   length(p_obs), nrow(units), size_floor))
-    units$p <- p_obs
-  }
-  units <- .bh(units)
-  units$significant <- !is.na(units$q) & units$q <= alpha
+  ## per-unit p/q/significant, shared with ld_outlier_perm()'s "units"-level fast path --
+  ## see .ld_outlier_tested_units()'s own comment for why this is split out.
+  units <- .ld_outlier_tested_units(stage1, map, p_obs, statistic, size_floor, alpha)
   sig <- units[significant == TRUE]
 
   ## ---- assembly -----------------------------------------------------------
@@ -124,13 +112,17 @@ ld_outlier_test <- function(stage1, map, p_obs,
                             min_n_loci_flag = 1, cores = 1)
     g <- data.table::as.data.table(pr$groups)
     mp <- data.table::as.data.table(map)
-    pos_of <- stats::setNames(mp$Pos, mp$marker)
-    chr_of <- stats::setNames(as.character(mp$Chr), mp$marker)
-    regions <- g[, .(Chr = chr_of[members[[1]]][1],
-                     from = min(pos_of[unlist(members)]),
-                     to   = max(pos_of[unlist(members)]),
-                     n_units = NA_integer_,
-                     n_markers = length(unlist(members))), by = seq_len(nrow(g))][, seq_len := NULL]
+    ## .marker_positions(), not a per-region setNames()[...] lookup -- same fix as
+    ## .ld_outlier_units() and the Simes aggregation, applied here too so every
+    ## marker-name lookup in this package goes through the one fast path.
+    g_marker <- unlist(g$members, use.names = FALSE)
+    g_idx    <- .marker_positions(g_marker, mp$marker)
+    g_group  <- rep.int(seq_len(nrow(g)), lengths(g$members))
+    gs <- data.table::data.table(gid = g_group, Chr = as.character(mp$Chr[g_idx]),
+                                 Pos = mp$Pos[g_idx])[
+      , .(Chr = Chr[1], from = min(Pos), to = max(Pos), n_markers = .N), by = gid]
+    data.table::setkey(gs, gid)
+    regions <- gs[.(seq_len(nrow(g)))][, .(Chr, from, to, n_units = NA_integer_, n_markers)]
     ## n_units per region: how many of OUR significant units fall inside [from, to]
     regions[, n_units := vapply(seq_len(.N), function(i)
       sum(sig$Chr == Chr[i] & sig$from >= from[i] & sig$to <= to[i]), 0L)]

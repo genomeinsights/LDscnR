@@ -19,4 +19,4 @@ utils::globalVariables(c(
   "rho_slide_pred", "rho_slide_raw", "sig", "sig_stat", "significant",
   "slide_snp", "start", "strata",
   ## added for ld_outlier_test()/ld_outlier_perm()/ld_region_rotation()
-  "from", "to", "run", "n_markers", "occupancy", "n_units", "unit_id", "chr", "w"))
+  "from", "to", "run", "n_markers", "occupancy", "n_units", "unit_id", "chr", "w", "gid"))
