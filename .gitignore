@@ -18,11 +18,21 @@ tmp/
 *.gds
 Rplot*.png
 tst.png
-# Loose scratch scripts (not package source)
+# Loose scratch scripts (not package source) -- dev/ variants too, not just root
 /3sp.R
 /LDna.R
 /emmax.R
 /build.R
+dev/LDna.R
+dev/emmax.R
+dev/build.R
+dev/R/compute_ld_structure.R
+
+# pkgdown build output (regenerate with pkgdown::build_site())
+docs/
+
+# stray logs
+*.log
 
 # dev outlier workbench (regenerable)
 dev/outlier/cache.rds
