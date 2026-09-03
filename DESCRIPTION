@@ -1,18 +1,30 @@
 Package: LDscnR
-Title: Chromosome-wise LD-decay estimation for population genomic data
+Title: LD-Aware Complexity Reduction and Outlier-Region Detection for Genome Scans
 Version: 0.0.0.9000
 Authors@R: 
     person("Petri", "Kemppainen", , "petri@genomeinsights.fi", role = c("aut", "cre"))
-Description: Linkage-disequilibrium-aware genome scans. Estimates
-    chromosome-wise LD decay, derives a local-LD weight for every marker,
-    and turns a per-SNP association scan into LD-supported outlier regions.
-    Builds on the consistency C-score of Fang et al. (2021)
-    <doi:10.1093/molbev/msab144>, integrating continuously over the LD window
-    and stringency rather than over a menu of analyses, and keeping the score
-    per-SNP. Markers are clustered into regions by LD and each region is tested
-    at its own locus against surrogate scans that the user supplies, so the
-    method is independent of the association engine and of how the null is
-    constructed.
+Description: Linkage-disequilibrium-aware genome scans. Estimates chromosome-wise LD
+    decay and derives a local-LD weight for every marker, then partitions
+    markers into LD-coherent clusters from genotypes alone, without
+    reference to phenotype or environmental covariate, extending the linkage
+    disequilibrium network approach of Kemppainen et al. (2015, Molecular
+    Ecology Resources 15:1031-1045) and the complexity-reduction clustering
+    of Li et al. (2018) <doi:10.1111/1755-0998.12893>. Each retained cluster
+    is reduced to one coherent multilocus genotype pattern or cluster-level
+    statistic and tested as a unit in place of every constituent marker, so
+    that redundant markers in strong LD no longer dominate the test count or
+    the interpretation of the rejection set. Testing is engine-agnostic: the
+    user supplies observed and permuted association p-values from whatever
+    method they prefer, so the same clusters can be paired with different
+    engines and null-construction schemes. Significant clusters can
+    subsequently be assembled into regions for reporting, a post hoc step
+    kept distinct from the hypotheses subjected to multiple-testing
+    correction. This approach was benchmarked against simulated truth and
+    against an independent stickleback dataset and found to improve locus-
+    level precision without a fixed cost to recall; earlier applications of
+    LD clustering to this problem, including the consistency-C-score
+    formulation of Fang et al. (2021) <doi:10.1093/molbev/msab144>, remain
+    available in the package but are no longer the primary method.
 License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
