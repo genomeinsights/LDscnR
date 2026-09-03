@@ -42,7 +42,40 @@ ld_outlier_perm <- function(obs, stage1, map, p_perm,
   level <- match.arg(level)
   if (!inherits(obs, "ld_outlier_test"))
     stop("`obs` must be the result of ld_outlier_test().")
-  stop("ld_outlier_perm(): not yet implemented (signature under review)")
+  p <- obs$params
+
+  ## normalise p_perm to a get(b) accessor, same three forms ld_null_from_p() accepts
+  if (is.function(p_perm)) {
+    if (is.null(B)) stop("`B` is required when `p_perm` is a function.")
+    get_b <- p_perm
+  } else if (is.matrix(p_perm)) {
+    B <- ncol(p_perm)
+    get_b <- function(b) p_perm[, b]
+  } else if (is.list(p_perm)) {
+    B <- length(p_perm)
+    get_b <- function(b) p_perm[[b]]
+  } else stop("`p_perm` must be a matrix, a list of vectors, or a function(b).")
+
+  one <- function(b) {
+    r <- ld_outlier_test(stage1, map, get_b(b), statistic = p$statistic,
+                         size_floor = p$size_floor, alpha = p$alpha,
+                         assembly = p$assembly, GTs = GTs, LD_decay = LD_decay,
+                         score_threshold = p$score_threshold,
+                         distance_threshold = p$distance_threshold, gap = p$gap)
+    if (level == "units") sum(r$units$significant) else nrow(r$regions)
+  }
+  if (verbose) { cat(sprintf("[ld_outlier_perm] %d surrogates, level = %s\n", B, level))
+    utils::flush.console() }
+  surrogates <- if (cores > 1L) unlist(parallel::mclapply(seq_len(B), one, mc.cores = cores))
+                else vapply(seq_len(B), one, 0L)
+
+  observed <- if (level == "units") sum(obs$units$significant) else nrow(obs$regions)
+  structure(list(
+    observed = observed, surrogates = surrogates,
+    p = (1 + sum(surrogates >= observed)) / (B + 1),
+    realised_fdr = mean(surrogates) / max(observed, 1),
+    params = list(level = level, B = B, test_params = p)
+  ), class = "ld_outlier_perm")
 }
 
 #' @export

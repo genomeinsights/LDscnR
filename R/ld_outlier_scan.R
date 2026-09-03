@@ -50,8 +50,30 @@ ld_outlier_scan <- function(stage1, map, p_obs, p_perm = NULL,
   assembly <- match.arg(assembly)
   rotation_scheme <- match.arg(rotation_scheme)
   perm_level <- match.arg(perm_level)
-  stop("ld_outlier_scan(): not yet implemented (signature under review; composes ",
-       "ld_outlier_test/ld_outlier_perm/ld_region_rotation once those are written)")
+  if (!is.null(annotation) && is.null(chrom_lengths))
+    stop("`chrom_lengths` is required when `annotation` is supplied.")
+
+  test <- ld_outlier_test(stage1, map, p_obs, statistic = statistic,
+                          size_floor = size_floor, alpha = alpha, assembly = assembly,
+                          GTs = GTs, LD_decay = LD_decay,
+                          score_threshold = score_threshold,
+                          distance_threshold = distance_threshold, gap = gap)
+  if (verbose) print(test)
+
+  null <- if (is.null(p_perm)) NULL else
+    ld_outlier_perm(test, stage1, map, p_perm, GTs = GTs, LD_decay = LD_decay,
+                    B = B, level = perm_level, cores = cores, verbose = verbose)
+  if (verbose && !is.null(null)) print(null)
+
+  rotation <- if (is.null(annotation)) NULL else
+    ld_region_rotation(test$regions, annotation, chrom_lengths, scheme = rotation_scheme,
+                       n_rotations = n_rotations, seed = 1L)
+  if (verbose && !is.null(rotation)) print(rotation)
+
+  structure(list(test = test, null = null, rotation = rotation,
+                 params = c(test$params, list(n_rotations = n_rotations,
+                                               rotation_scheme = rotation_scheme))),
+            class = "ld_outlier_scan")
 }
 
 #' @export

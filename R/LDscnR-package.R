@@ -17,4 +17,6 @@ utils::globalVariables(c(
   "median_ld", "members", "n", "n_sig", "n_snp_chr", "n_snps", "n_w_used",
   "pos1", "pos2", "pv0", "q_snp", "r2_eMLG", "r2_median", "regime",
   "rho_slide_pred", "rho_slide_raw", "sig", "sig_stat", "significant",
-  "slide_snp", "start", "strata"))
+  "slide_snp", "start", "strata",
+  ## added for ld_outlier_test()/ld_outlier_perm()/ld_region_rotation()
+  "from", "to", "run", "n_markers", "occupancy", "n_units", "unit_id", "chr", "w"))

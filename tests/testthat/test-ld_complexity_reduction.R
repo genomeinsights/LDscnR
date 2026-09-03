@@ -30,7 +30,13 @@ test_that("ld_complexity_reduction returns a well-formed, self-consistent result
 
   res <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1)
 
-  expect_named(res, c("map_snp", "clusters", "pruned"))
+  expect_named(res, c("map_snp", "clusters", "pruned", "params"))
+
+  # params records the resolved call, so a downstream consumer (ld_outlier_test())
+  # can read the threshold back rather than take it as a second, separately-supplied
+  # argument that could silently disagree with what actually built this object
+  expect_equal(res$params$rho, 0.5)
+  expect_equal(res$params$cores, 1)
 
   # every marker retained exactly once, every marker assigned a cluster
   expect_equal(nrow(res$map_snp), nrow(map))

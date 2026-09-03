@@ -40,7 +40,62 @@ ld_region_rotation <- function(regions, annotation, chrom_lengths,
                                scheme = c("within", "genome"),
                                n_rotations = 10000L, seed = 1L) {
   scheme <- match.arg(scheme)
-  stop("ld_region_rotation(): not yet implemented (signature under review)")
+  R <- data.table::as.data.table(regions)
+  A <- data.table::as.data.table(annotation)
+  L <- data.table::as.data.table(chrom_lengths)
+  ## Accept "chr", "Chr" or "chr_num" -- whichever the caller's table already uses.
+  ## First bug found here: checking only for "Chr"/"chr_num" missed the (very common)
+  ## case where a column is already named "chr", which then errored trying to rename
+  ## "chr_num" onto a table that never had that name.
+  .chr_col <- function(d) intersect(c("chr", "Chr", "chr_num"), names(d))[1]
+  cR <- .chr_col(R); cA <- .chr_col(A); cL <- .chr_col(L)
+  if (is.na(cR) || is.na(cA) || is.na(cL))
+    stop("regions/annotation/chrom_lengths must each have a chr/Chr/chr_num column.")
+  if (cR != "chr") data.table::setnames(R, cR, "chr")
+  if (cA != "chr") data.table::setnames(A, cA, "chr")
+  if (cL != "chr") data.table::setnames(L, cL, "chr")
+  data.table::setkey(A, chr, start, end)
+
+  ## number of R's rows overlapping A, by any amount
+  n_overlap <- function(d) {
+    if (!nrow(d)) return(0L)
+    ov <- data.table::foverlaps(d[, .(chr, from, to)], A,
+                                by.x = c("chr", "from", "to"), by.y = c("chr", "start", "end"),
+                                type = "any", mult = "first", nomatch = NA)
+    sum(!is.na(ov$start))
+  }
+  observed <- n_overlap(R)
+
+  len_of <- stats::setNames(L$len, L$chr)
+  rot_once <- function() {
+    d <- data.table::copy(R)[, w := to - from]
+    if (scheme == "within") {
+      Lc <- len_of[d$chr]
+      off <- stats::runif(nrow(d), 0, Lc)
+      d[, `:=`(from = off, to = off + w)]
+    } else {
+      d[, chr := sample(names(len_of), .N, replace = TRUE)]
+      Lc <- len_of[d$chr]
+      off <- stats::runif(nrow(d), 0, Lc)
+      d[, `:=`(from = off, to = pmin(off + w, Lc))]
+    }
+    n_overlap(d)
+  }
+  set.seed(seed)
+  null <- vapply(seq_len(n_rotations), function(i) rot_once(), 0L)
+
+  ov <- data.table::foverlaps(R[, .(chr, from, to)], A, by.x = c("chr", "from", "to"),
+                              by.y = c("chr", "start", "end"), type = "any",
+                              mult = "first", nomatch = NA)
+  per_region <- data.table::data.table(chr = R$chr, from = R$from, to = R$to,
+                                       on_peak = !is.na(ov$start))
+
+  structure(list(
+    observed = observed, null_mean = mean(null), fold = observed / max(mean(null), 1e-9),
+    p = (1 + sum(null >= observed)) / (n_rotations + 1),
+    per_region = per_region,
+    params = list(scheme = scheme, n_rotations = n_rotations, seed = seed)
+  ), class = "ld_region_rotation")
 }
 
 #' @export

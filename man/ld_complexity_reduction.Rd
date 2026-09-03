@@ -60,6 +60,9 @@ median r2 to the rest of its cluster, \code{NA} for singletons) added.
 list-column of every marker in the cluster, including the core).}
 \item{pruned}{Character vector of representative marker names --
 \code{clusters$core_snp}, for direct use as a pruned marker set.}
+\item{params}{The resolved \code{rho} and \code{cores} this call used, so a
+downstream consumer can read the threshold back rather than have it
+passed a second time as a separate argument.}
 }
 }
 \description{
