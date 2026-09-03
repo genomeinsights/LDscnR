@@ -20,6 +20,8 @@
 
 - 🧩 **Two-stage LD complexity reduction** to LD-independent representatives -- the same clustering feeds either a pruned marker set or, optionally, one consensus genotype per block (an eMLG)
 
+- 🧭 **Outlier regions from any scan** (`ld_scan()`) -- give it your own observed and permuted p-values and it returns LD-aware regions with a significance statement; the engine stays yours
+
 - 🔎 **Diagnostic plotting** comparing raw vs. consolidated clusters chromosome-by-chromosome
 
 - 🎯 **Best single-SNP proxy per block** (`eMLG_best_snp()`) -- the consensus-optimal member SNP with missing calls filled from the consensus, for signals better kept at SNP resolution
@@ -191,12 +193,59 @@ best$geno
 
 ------------------------------------------------------------------------
 
+## 🎯 Outlier regions from your own scan (`ld_scan()`)
+
+Everything above builds LD structure and reduces markers. `ld_scan()` closes the loop: it
+takes **p-values you have already computed** and returns LD-aware outlier regions with a
+significance statement for each.
+
+It is **engine-agnostic by design**. You supply the scan; LDscnR supplies the LD structure,
+the region assembly and the null calibration. EMMAX, LFMM, BayPass, a GLM, an \(F_{ST}\)
+scan or anything else that produces one p-value per marker will do.
+
+```r
+res <- ld_scan(
+  p_obs  = p_observed,   # one p-value per marker, aligned to rows of ld_ws
+  p_perm = p_surrogate,  # SNPs x B matrix (or a list) from YOUR permutation scheme
+  ld_ws  = ld_ws,        # from compute_ld_w() / compute_LD_decay()
+  map    = map,          # marker, Chr, Pos
+  GTs    = GTs           # individuals x SNPs, colnames = markers
+)
+```
+
+**The surrogate p-values are yours, and that is the point.** `p_perm` is where your design
+enters: which unit you permute (individual, population, region), what you hold fixed, what
+structure the null is allowed to keep. LDscnR cannot know that and does not guess. A
+scheme that breaks the structure your model corrects for will produce an anticonservative
+null, and no amount of downstream machinery repairs it.
+
+Key arguments, all with defaults that work before they are tuned:
+
+| argument | what it controls |
+|---|---|
+| `tau`, `tau_grid` | consistency threshold for calling a region, and the grid swept for stability |
+| `l_min`, `lmin_grid` | minimum markers per region; the single strongest precision lever |
+| `rho_ld`, `rho_d` | LD and distance thresholds for assembling markers into regions |
+| `dcap` | distance cap on region assembly |
+| `qstar` | `ld_w` quantile grid for the local-LD filter |
+| `fdr`, `alpha` | FDR level for regions, significance level for markers |
+| `basis`, `engine` | free-text labels recorded in the output, so a result says where it came from |
+
+Full worked example, including how to build `p_perm` for several common designs:
+
+```r
+vignette("LDscnR_outlier_regions_from_pvalues")
+```
+
+------------------------------------------------------------------------
+
 ## 📚 Documentation
 
-See the vignette for a full workflow:
+Two vignettes, in the order most people need them:
 
 ```         
-vignette("LDscnR_quick_introduction")
+vignette("LDscnR_quick_introduction")            # LD decay, ld_w, pruning, eMLGs
+vignette("LDscnR_outlier_regions_from_pvalues")  # ld_scan(): regions from your own scan
 ```
 
 ------------------------------------------------------------------------
@@ -210,6 +259,10 @@ vignette("LDscnR_quick_introduction")
 - Parallelization is supported via the `cores` argument (`mclapply`).
 
 - For LD-pruning/eMLG generation (`ld_prune_and_eMLG()`), raise `ld_w_threshold` to flag fewer clusters during exploratory runs -- see the "🧩 From LD decay to pruned markers and eMLGs" section above.
+
+- `compute_LD_decay()` takes a `seed`. It subsamples the background, thins per chromosome and samples pairs within strata, so **an unseeded refit moves every quantity derived from it** -- `ld_w`, the pruned marker set, the clustering. Set `seed` on any run whose output will be compared with another's.
+
+- `ld_scan()` reports the p-values you give it. It does not check that `p_perm` came from a valid null, because it cannot: whether a permutation scheme is admissible depends on the design, not on the numbers. A near-1.0 genomic inflation factor is a **body** statistic and is not evidence that a cluster- or region-level statistic is usable with FDR control -- FDR lives in the tail. Measure the tail.
 
 ------------------------------------------------------------------------
 
