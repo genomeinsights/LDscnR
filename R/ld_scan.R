@@ -66,7 +66,6 @@
 #' fit$c2$regions               # the same regions ranked by C^(2)
 #' }
 #' @seealso [ld_null_from_p()], [ld_gate()], [ld_region_scan()], [ld_region_c2()]
-#' @export
 ld_scan <- function(p_obs, p_perm, ld_ws, map, GTs, decay_sum,
                     tau = 0.05, l_min = 3L, fdr = 0.05,
                     alpha = 0.05, rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05),
