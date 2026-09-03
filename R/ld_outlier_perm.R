@@ -56,13 +56,31 @@ ld_outlier_perm <- function(obs, stage1, map, p_perm,
     get_b <- function(b) p_perm[[b]]
   } else stop("`p_perm` must be a matrix, a list of vectors, or a function(b).")
 
+  ## THE FAST PATH: when level = "units", region assembly is never touched at all --
+  ## not run and thrown away, not run with a shortcut, simply never called. Assembly
+  ## cannot change which units are significant (it runs strictly after BH), so for a
+  ## unit-level null it is pure waste, and for assembly = "stage2_discovered" it was the
+  ## DOMINANT cost per surrogate (a full ld_prune_and_eMLG() call, eMLG computation
+  ## included). Only level = "regions" needs the real assembly, once per surrogate.
+  ##
+  ## `units_base` is built ONCE, outside the surrogate loop, and reused for every draw --
+  ## it depends only on (stage1, map, size_floor), never on the surrogate phenotype, so
+  ## rebuilding it per surrogate was pure waste even after .ld_outlier_units() itself was
+  ## fixed from 27.7s to 0.5s (a separate, more fundamental fix: a named-vector lookup by
+  ## marker name over ~790k names is a linear scan per lookup in base R, not a hash).
+  units_base <- .ld_outlier_units(stage1, map, p$size_floor)
   one <- function(b) {
+    if (level == "units") {
+      u <- .ld_outlier_tested_units(stage1, map, get_b(b), p$statistic, p$size_floor, p$alpha,
+                                    units = units_base)
+      return(sum(u$significant))
+    }
     r <- ld_outlier_test(stage1, map, get_b(b), statistic = p$statistic,
                          size_floor = p$size_floor, alpha = p$alpha,
                          assembly = p$assembly, GTs = GTs, LD_decay = LD_decay,
                          score_threshold = p$score_threshold,
                          distance_threshold = p$distance_threshold, gap = p$gap)
-    if (level == "units") sum(r$units$significant) else nrow(r$regions)
+    nrow(r$regions)
   }
   if (verbose) { cat(sprintf("[ld_outlier_perm] %d surrogates, level = %s\n", B, level))
     utils::flush.console() }
