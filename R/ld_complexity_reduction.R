@@ -158,6 +158,9 @@
 #'     list-column of every marker in the cluster, including the core).}
 #'   \item{pruned}{Character vector of representative marker names --
 #'     `clusters$core_snp`, for direct use as a pruned marker set.}
+#'   \item{params}{The resolved `rho` and `cores` this call used, so a
+#'     downstream consumer can read the threshold back rather than have it
+#'     passed a second time as a separate argument.}
 #' }
 #'
 #' @export
@@ -347,10 +350,15 @@ ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = N
     members   = list(marker)
   ), by = .(Chr, CL_id)]
 
+  ## `params` records the resolved call so a downstream consumer -- ld_outlier_test()
+  ## in particular -- can read `rho` back rather than have it passed a second time as a
+  ## separate argument that could silently disagree with what actually built this object.
+  ## Same pattern ld_prune_and_eMLG() already uses for its own resolved thresholds.
   out <- list(
     map_snp  = map_snp,
     clusters = clusters,
-    pruned   = clusters$core_snp
+    pruned   = clusters$core_snp,
+    params   = list(rho = rho, cores = cores)
   )
   class(out) <- "ld_complexity_reduction"
   print(out)
