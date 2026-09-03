@@ -82,12 +82,17 @@ ld_outlier_test <- function(stage1, map, p_obs,
                                       n_units = integer(), n_markers = integer(),
                                       occupancy = numeric())
   } else if (assembly == "physical") {
-    d <- data.table::copy(sig)[, c("Chr_num_order") := .GRP, by = Chr]
-    data.table::setorder(d, Chr, from)
-    d[, run := cumsum(c(TRUE, Chr[-1] != Chr[-.N] | from[-1] - cummax(to)[-.N] > gap))]
-    regions <- d[, .(from = min(from), to = max(to), n_units = .N,
-                     n_markers = sum(n_markers)), by = .(Chr, run)]
-    regions[, run := NULL]
+    regions <- .physical_merge(sig[, .(Chr, from, to)], gap)
+    ## n_units/n_markers per merged region: join the significant units back against the
+    ## now-correctly-merged spans (foverlaps by.x, so the region's OWN from/to survive
+    ## in the result, prefixed nothing -- the unit's original from/to get the "i." prefix
+    ## and are not kept) -- see .physical_merge()'s comment for why this used to be
+    ## computed inside the same buggy cumsum step instead.
+    data.table::setkey(regions, Chr, from, to)
+    ov <- data.table::foverlaps(sig[, .(Chr, from, to, n_markers)], regions,
+                                by.x = c("Chr","from","to"), type = "within")
+    agg <- ov[, .(n_units = .N, n_markers = sum(n_markers)), by = .(Chr, from, to)]
+    regions <- merge(regions, agg, by = c("Chr","from","to"), all.x = TRUE)
     ## occupancy: markers belonging to the region's units / markers physically in its span
     mp <- data.table::as.data.table(map)
     regions[, occupancy := vapply(seq_len(.N), function(i) {

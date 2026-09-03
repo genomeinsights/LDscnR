@@ -97,3 +97,34 @@
   units$significant <- !is.na(units$q) & units$q <= alpha
   units
 }
+
+
+## Physical merge: group rows within `gap` bp on the same chromosome. USE THIS, not a
+## hand-rolled cumsum -- cummax(to)[-.N] computed over the WHOLE sorted table (not per
+## chromosome) never resets at a chromosome boundary. Chr[-1] != Chr[-.N] being TRUE
+## still forces a break exactly AT the boundary, but every row AFTER that inherits the
+## previous chromosome's stale, larger cummax(to) as its floor -- and because every
+## chromosome's own positions restart near zero, that stale value is almost always
+## bigger than anything on the new chromosome, making from[-1] - cummax(to)[-.N]
+## negative for every row and the gap test never fire again. The result is silent,
+## near-total over-merging of every chromosome that sorts after one with any sizeable
+## span: measured as one 18.9 Mb "region" built from five real regions whose true
+## pairwise gaps were 1.0-9.6 Mb, none under the 300 kb threshold. Found in a
+## visualisation script, but the identical pattern was ALSO shipped in this package's
+## own ld_outlier_test(assembly = "physical") -- fixed there in the same commit, and
+## every number this package has reported so far used assembly = "stage2_discovered"
+## (a different, unaffected code path), so nothing already reported is wrong -- but the
+## "physical" arm had never been exercised at multi-chromosome scale before this bug
+## was found, and its one earlier measurement (17 regions on this panel) should be
+## treated as unverified until rerun.
+##
+## @param D data.table with `Chr`, `from`, `to` (one row per interval to merge).
+## @param gap Merge distance in bp.
+## @return data.table, one row per merged region: `Chr`, `from`, `to`.
+.physical_merge <- function(D, gap) {
+  if (!nrow(D)) return(data.table::data.table(Chr = character(), from = numeric(), to = numeric()))
+  d <- data.table::copy(D); data.table::setorder(d, Chr, from)
+  d[, grp := cumsum(c(TRUE, from[-1] - cummax(to)[-.N] > gap)), by = Chr]
+  out <- d[, .(from = min(from), to = max(to)), by = .(Chr, grp)]
+  out[, grp := NULL][]
+}
