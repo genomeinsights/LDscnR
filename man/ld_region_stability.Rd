@@ -94,11 +94,17 @@ the most permissive up to \code{maxC} where the last region vanishes, thinned to
 permissive \code{tau_C} (capped at \code{lmin_cap}). Supply explicit vectors to override.
 
 \strong{Null-aware value (supply \code{null}).} Given a structure-aware null bundle
-(\code{\link[=structured_null]{structured_null()}}), a cell \verb{(tau_C, l_min)} is \emph{clean} when its region-level
-FDR -- mean surrogate regions divided by observed regions -- is at or below
-\code{fdr}. (A strict "no surrogate region at all" rule is degenerate at \code{B >= 100},
-where the mean count is essentially never exactly zero; the FDR gate is its
-robust form.) The region then scores \strong{\code{stability_null}} = the number of cells
+(\code{\link[=structured_null]{structured_null()}}), a cell \verb{(tau_C, l_min)} is \emph{clean} when it has at
+least one observed region AND its region-level FDR -- mean surrogate regions
+divided by observed regions -- is at or below \code{fdr}. A cell with zero
+observed regions is never clean (same "zero observed is a failure, not a
+pass" rule as \code{\link[=ld_gate]{ld_gate()}}): there is nothing real there for the null to be
+judged against, and an \code{l_min} sweep drives observed regions to 0 quickly,
+so silently passing that case would inflate \code{stability_null} for cells with
+no genuine discovery. (A strict "no surrogate region at all" rule is
+degenerate at \code{B >= 100}, where the mean count is essentially never exactly
+zero; the FDR gate is its robust form.) The region then scores
+\strong{\code{stability_null}} = the number of cells
 where it is found \emph{and} the cell is clean, divided by \emph{all} grid cells. Keeping
 the denominator at all cells means that when the null lights up much of the
 parameter space the value drops for every region -- automatically discounting

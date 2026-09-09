@@ -83,11 +83,17 @@ ld_cscore_scan <- function(y = NULL, GTs, K = NULL, ld_ws, map, decay_sum,
 #' permissive `tau_C` (capped at `lmin_cap`). Supply explicit vectors to override.
 #'
 #' **Null-aware value (supply `null`).** Given a structure-aware null bundle
-#' ([structured_null()]), a cell `(tau_C, l_min)` is *clean* when its region-level
-#' FDR -- mean surrogate regions divided by observed regions -- is at or below
-#' `fdr`. (A strict "no surrogate region at all" rule is degenerate at `B >= 100`,
-#' where the mean count is essentially never exactly zero; the FDR gate is its
-#' robust form.) The region then scores **`stability_null`** = the number of cells
+#' ([structured_null()]), a cell `(tau_C, l_min)` is *clean* when it has at
+#' least one observed region AND its region-level FDR -- mean surrogate regions
+#' divided by observed regions -- is at or below `fdr`. A cell with zero
+#' observed regions is never clean (same "zero observed is a failure, not a
+#' pass" rule as [ld_gate()]): there is nothing real there for the null to be
+#' judged against, and an `l_min` sweep drives observed regions to 0 quickly,
+#' so silently passing that case would inflate `stability_null` for cells with
+#' no genuine discovery. (A strict "no surrogate region at all" rule is
+#' degenerate at `B >= 100`, where the mean count is essentially never exactly
+#' zero; the FDR gate is its robust form.) The region then scores
+#' **`stability_null`** = the number of cells
 #' where it is found *and* the cell is clean, divided by *all* grid cells. Keeping
 #' the denominator at all cells means that when the null lights up much of the
 #' parameter space the value drops for every region -- automatically discounting
@@ -193,7 +199,12 @@ ld_region_stability.default <- function(x, edges, regions = NULL,
       clean_L <- vapply(seq_along(l_min_grid), function(j) { L <- l_min_grid[j]
         nreg <- mean(vapply(ssz, function(s) sum(s >= L), numeric(1)))
         oreg <- sum(sz >= L)
-        nreg <= fdr * max(oreg, 1)
+        ## Zero observed regions at this cell is a failure, not a pass -- mirrors
+        ## ld_gate()'s "obs_regions > 0" requirement. max(oreg, 1) alone would
+        ## silently call the cell clean whenever nreg <= fdr (near-certain once
+        ## oreg hits 0, since l_min sweeps drive oreg to 0 fast), inflating
+        ## stability_null for cells with nothing real to be clean about.
+        oreg > 0 && nreg <= fdr * oreg
       }, logical(1))
     }
     for (i in seq_along(regions)) {
