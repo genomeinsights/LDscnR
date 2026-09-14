@@ -46,7 +46,6 @@
 #'   column, ordered by it), `landscape` (per-cell `tau`, `l_min`, `n_obs`,
 #'   `n_sig`), `n_usable` (`|U|`), `n_cells`, and `params`.
 #' @seealso [ld_region_scan()], [ld_gate()], [ld_scan()]
-#' @export
 ld_region_c2 <- function(null, edges, tau_grid = seq(0.02, 0.5, by = 0.02),
                          lmin_grid = c(1L, 2L, 3L, 5L, 10L, 15L, 20L), fdr = 0.05,
                          anchor_tau = 0.05, anchor_lmin = 3L, verbose = TRUE) {

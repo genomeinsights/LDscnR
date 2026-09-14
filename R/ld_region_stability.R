@@ -35,7 +35,6 @@
 #'   when `pvals` was supplied). Feed `C` and `edges` to [ld_region_stability()].
 #' @seealso [ld_region_stability()], [ld_cscore()], [ld_edges()],
 #'   [ld_outlier_regions()]
-#' @export
 ld_cscore_scan <- function(y = NULL, GTs, K = NULL, ld_ws, map, decay_sum,
                            alpha = 0.05, rho = colnames(ld_ws),
                            qstar = seq(0, 0.95, by = 0.05),

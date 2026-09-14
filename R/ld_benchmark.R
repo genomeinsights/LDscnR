@@ -41,7 +41,6 @@ flag_true_qtns <- function(map, va_col = "Va", maf_col = "MAF",
 #' @param max_bp Maximum candidate-QTN distance to retain (default 2e6).
 #' @param cores Cores for the per-chromosome loop.
 #' @return A data.table with `marker`, `qtn_marker`, `r2`, `dist_bp`.
-#' @export
 qtn_ld_table <- function(GTs, map, candidate_markers, max_bp = 2e6, cores = 1) {
   map <- data.table::as.data.table(map)
   chr_levels <- unique(map[marker %in% candidate_markers, Chr])
@@ -77,7 +76,6 @@ qtn_ld_table <- function(GTs, map, candidate_markers, max_bp = 2e6, cores = 1) {
 #'   0.75, 0.95).
 #' @param dmax_cap Cap on the match distance (default `Inf`).
 #' @return A list with `r2min` and `dmax`.
-#' @export
 score_thresholds <- function(decay_sum, rho_r2 = 0.75, rho_d = 0.95, dmax_cap = Inf) {
   ds <- data.table::as.data.table(decay_sum)
   list(r2min = ld_from_rho(stats::median(ds$b), stats::median(ds$c), rho_r2),
@@ -131,7 +129,6 @@ score_thresholds <- function(decay_sum, rho_r2 = 0.75, rho_d = 0.95, dmax_cap = 
 #' @param r2_match,d_match Match thresholds ([score_thresholds()]).
 #' @return A data.table: `CL_id`, `n_loci`, `qtn` (claimed QTN or `NA`),
 #'   `evidence` (r^2), `is_TP`.
-#' @export
 classify_ors <- function(regions, map, qtn_ld_table, r2_match, d_match) {
   map <- data.table::as.data.table(map)
   qtn_marker_set   <- map[type == "QTN", marker]
@@ -211,7 +208,6 @@ classify_ors <- function(regions, map, qtn_ld_table, r2_match, d_match) {
 #' @return A list: `TP`, `FP`, `FN`, `extras` (dedup losers, uncounted),
 #'   `Precision`, `Recall`, `PR` (= Precision x Recall).
 #' @seealso [classify_ors()], [pr_auc()], [score_thresholds()]
-#' @export
 evaluate_ors <- function(regions, map, qtn_ld_table, r2_match, d_match) {
   map <- data.table::as.data.table(map)
   n_true <- map[true_pos_QTN == TRUE, .N]
@@ -239,7 +235,6 @@ evaluate_ors <- function(regions, map, qtn_ld_table, r2_match, d_match) {
 #'
 #' @param recall,precision Equal-length numeric vectors of operating points.
 #' @return The trapezoidal PR-AUC (numeric scalar), or `NA` if empty.
-#' @export
 pr_auc <- function(recall, precision) {
   ok <- is.finite(recall) & is.finite(precision)
   if (sum(ok) < 1L) return(NA_real_)

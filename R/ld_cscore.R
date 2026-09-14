@@ -79,7 +79,6 @@
 #' clustering-based approach for association mapping with tightly linked
 #' genomewide data. *Molecular Ecology Resources*. \doi{10.1111/1755-0998.12893}
 #' @seealso [ld_regions()], [ld_region_c2()], [structured_null()]
-#' @export
 ld_cscore <- function(p, ld_ws, alpha = 0.05,
                       rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05)) {
   stopifnot(length(p) == nrow(ld_ws))

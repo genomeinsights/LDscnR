@@ -57,7 +57,6 @@
 #'
 #' @seealso [ld_scan()] (engine-agnostic entry point), [ld_cscore()],
 #'   [structured_null()], [ld_regions()], [gc_map_tauc()], [evaluate_ors()]
-#' @export
 ld_outlier_regions <- function(y, GTs, K, ld_ws, map, decay_sum,
                                alpha = 0.05, rho_ld = 0.75, dcap = 5e5, rho_d = NULL,
                                l_min = 2L, lmin_q = 0.99, lmin_tau = 0.05, fdr = 0.05,

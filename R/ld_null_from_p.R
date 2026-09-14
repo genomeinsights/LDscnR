@@ -62,7 +62,6 @@
 #'   settings. `lambda_surr` is recorded here because the C-score reduction
 #'   discards the surrogate p-values, so it cannot be recovered afterwards.
 #' @seealso [ld_gate()], [ld_region_scan()], [ld_scan()], [structured_null()]
-#' @export
 ld_null_from_p <- function(p_obs, p_perm, ld_ws, B = NULL, alpha = 0.05,
                            rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05),
                            basis = "user-supplied", engine = "user-supplied",

@@ -42,7 +42,6 @@
 #'   [calibrate_tauc()].
 #' @seealso [ld_null_from_p()] to build this bundle from your own p-values,
 #'   [ld_gate()], [ld_region_scan()], [ld_region_c2()]
-#' @export
 structured_null <- function(y, GTs, K, ld_ws, basis = c("genetic", "spatial"),
                             coords = NULL, B = 100L, alpha = 0.05,
                             rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05),
@@ -144,7 +143,6 @@ null_fdr <- function(bundle, edges, tau_grid = seq(0.05, 1, by = 0.05), l_min = 
 #' whether the null is usable at all.
 #'
 #' @seealso [null_fdr()], [gc_map_tauc()]
-#' @export
 calibrate_tauc <- function(bundle, edges, l_min = 2L, fdr = 0.05, tau_grid = seq(0.05, 1, by = 0.05)) {
   f <- null_fdr(bundle, edges, tau_grid, l_min)
   ok <- which(f$fdr <= fdr & f$n_obs > 0)
@@ -190,7 +188,6 @@ calibrate_tauc <- function(bundle, edges, l_min = 2L, fdr = 0.05, tau_grid = seq
 #' whether the null is usable at all.
 #'
 #' @seealso [calibrate_tauc()], [null_fdr()], [structured_null()]
-#' @export
 calibrate_lmin <- function(bundle, edges, tau = 0.05, q = 0.99) {
   maxsize <- vapply(bundle$C_surr, function(Csp) {
     mk <- names(Csp)[which(Csp >= tau)]          # which() drops NA entries
@@ -216,7 +213,6 @@ calibrate_lmin <- function(bundle, edges, tau = 0.05, q = 0.99) {
 #'
 #' @return The target method's `tau_C` on its own C-scale (numeric scalar).
 #' @seealso [calibrate_tauc()]
-#' @export
 gc_map_tauc <- function(tau_C, C_ref, C_target) {
   q <- mean(C_ref < tau_C)
   as.numeric(stats::quantile(C_target, q))

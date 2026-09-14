@@ -102,7 +102,6 @@
 #'   count stays below `warn_at` of it; zero observed regions is a failure, not
 #'   a pass, and leaves `ratio` as `NA`.
 #' @seealso [ld_region_scan()], [ld_null_from_p()]
-#' @export
 ld_gate <- function(null, edges, tau = 0.05, l_min = 3L, warn_at = 0.5) {
   if (inherits(null, "ld_null")) null <- list(null)
   if (is.null(names(null))) names(null) <- vapply(null, function(x) x$basis %||% "?", character(1))
@@ -179,7 +178,6 @@ ld_gate <- function(null, edges, tau = 0.05, l_min = 3L, warn_at = 0.5) {
 #'   `lo`, `hi`, `size`, `s_R`, `n_null_ge`, `p_R`, `q_R`, `sig`), the `p_floor`
 #'   `1/(1+B)`, and `params`.
 #' @seealso [ld_gate()], [ld_region_c2()], [ld_scan()], [ld_null_from_p()]
-#' @export
 ld_region_scan <- function(null, edges, tau = 0.05, l_min = 3L, fdr = 0.05) {
   stopifnot(inherits(null, "ld_null"))
   co <- .edge_coords(edges)

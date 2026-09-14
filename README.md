@@ -1,8 +1,8 @@
 # LDscnR
 
-**Chromosome-wise LD-decay estimation, LD-based marker pruning, and eMLG generation**
+**Chromosome-wise LD-decay estimation, LD-based marker pruning, eMLG generation, and LD-aware outlier-region detection**
 
-`LDscnR` provides tools for estimating linkage disequilibrium (LD) decay from genotype data, and for using that decay model to reduce a marker set to LD-independent representatives. The same clustering step can be used either to produce a pruned marker set (for a kinship/relatedness matrix, EMMAX's `K`, BayPass's `OMEGA`) or, from that same clustering, one consensus genotype per LD block (an "eMLG" -- expected multi-locus genotype -- for block-level analyses such as long-range LD or Ohta's D statistics). A tutorial PDF can be found in vignettes.
+`LDscnR` provides tools for estimating linkage disequilibrium (LD) decay from genotype data, and for using that decay model to reduce a marker set to LD-independent representatives. The same clustering step can be used to produce a pruned marker set (for a kinship/relatedness matrix, EMMAX's `K`, BayPass's `OMEGA`), one consensus genotype per LD block (an "eMLG" -- expected multi-locus genotype -- for block-level analyses such as long-range LD or Ohta's D statistics), or the test unit for LD-aware outlier-region detection: BH-test the clusters against p-values from your own association engine, then assemble the significant ones into reported regions. A tutorial PDF can be found in vignettes.
 
 ------------------------------------------------------------------------
 
@@ -359,9 +359,3 @@ MIT
 ## Author
 
 Petri Kemppainen - petri\@genomeinsights.fi
-
-------------------------------------------------------------------------
-
-## Citation
-
-If you use `LDscnR`, please cite: <https://www.biorxiv.org/content/10.64898/2026.01.19.700334v1>

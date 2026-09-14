@@ -42,7 +42,6 @@
 #'   edge list (a two-column character matrix of linked marker pairs). Consumed
 #'   by [ld_regions()].
 #' @seealso [ld_regions()]
-#' @export
 ld_edges <- function(markers, GTs, map, decay_sum, rho_ld = 0.75, dcap = 5e5,
                      r2_link = NULL, rho_d = NULL) {
   map <- data.table::as.data.table(map)
@@ -87,7 +86,6 @@ ld_edges <- function(markers, GTs, map, decay_sum, rho_ld = 0.75, dcap = 5e5,
 #'   markers). Apply the region-size filter with
 #'   `regions[lengths(regions) >= l_min]`.
 #' @seealso [ld_edges()], [ld_cscore()]
-#' @export
 ld_regions <- function(markers, edges) {
   markers <- unique(markers)
   out <- list()

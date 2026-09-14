@@ -42,10 +42,10 @@ The design collapses the usual thicket of tuning parameters to a principled few:
 
 | role | parameter(s) | handled by |
 |------|--------------|-----------|
-| **swept / integrated** (natural [0,1]) | `rho` (`ld_w` window), `q*` (local-LD quantile) | folded into the C-score `ld_cscore()` |
+| **swept / integrated** (natural [0,1]) | `rho` (`ld_w` window), `q*` (local-LD quantile) | folded into the C-score `LDscnR:::ld_cscore()` |
 | **fixed, principled** | `alpha` = 0.05 | the structure-aware null prices in any miscalibration |
-| **clustering, LD-informed** | `rho_ld` (r²-link; lower = stricter LD separation), 500 kb cap | `ld_edges()` |
-| **operational knobs** | `tau_C` (null-calibrated -- the hard one), `l_min` (null-floored post-filter; raise to focus) | `calibrate_tauc()` / `calibrate_lmin()` |
+| **clustering, LD-informed** | `rho_ld` (r²-link; lower = stricter LD separation), 500 kb cap | `LDscnR:::ld_edges()` |
+| **operational knobs** | `tau_C` (null-calibrated -- the hard one), `l_min` (null-floored post-filter; raise to focus) | `LDscnR:::calibrate_tauc()` / `LDscnR:::calibrate_lmin()` |
 
 The rest of the vignette shows both halves: **benchmarking** a scan against
 simulated truth (`sim_ex`), and **calling** ORs on real data with a
@@ -93,33 +93,33 @@ decay_sum <- ld_decay$decay_sum
 
 ### The C-score, clustering, and TP/FP
 
-`ld_cscore()` integrates over the `ld_w` window (`rho`) and the local-LD quantile
+`LDscnR:::ld_cscore()` integrates over the `ld_w` window (`rho`) and the local-LD quantile
 (`q*`) at fixed `alpha`: a SNP's score is the fraction of cells where it is both a
 local-LD candidate and FDR-significant. High-C SNPs are then clustered into ORs
-(`ld_edges()` builds the r²-graph once; `ld_regions()` clusters any gated subset),
-and scored against the QTN truth with `evaluate_ors()` (dedup-neutral: a duplicate
+(`LDscnR:::ld_edges()` builds the r²-graph once; `LDscnR:::ld_regions()` clusters any gated subset),
+and scored against the QTN truth with `LDscnR:::evaluate_ors()` (dedup-neutral: a duplicate
 region for an already-claimed QTN is counted as neither TP nor FP).
 
 ```{r sim-score}
-C_emx <- ld_cscore(map$emx_p, ld_ws)                       # per-SNP consistency
-edges <- ld_edges(names(C_emx)[C_emx > 0], GTs, map, decay_sum, rho_ld = 0.9)
-th    <- score_thresholds(decay_sum, rho_r2 = 0.75, rho_d = 0.95, dmax_cap = 5e5)
-qtab  <- qtn_ld_table(GTs, map, names(C_emx)[C_emx > 0], max_bp = 2e6)
+C_emx <- LDscnR:::ld_cscore(map$emx_p, ld_ws)                       # per-SNP consistency
+edges <- LDscnR:::ld_edges(names(C_emx)[C_emx > 0], GTs, map, decay_sum, rho_ld = 0.9)
+th    <- LDscnR:::score_thresholds(decay_sum, rho_r2 = 0.75, rho_d = 0.95, dmax_cap = 5e5)
+qtab  <- LDscnR:::qtn_ld_table(GTs, map, names(C_emx)[C_emx > 0], max_bp = 2e6)
 
-regions <- ld_regions(names(C_emx)[C_emx >= 0.3], edges)     # gate at tau_C = 0.3
+regions <- LDscnR:::ld_regions(names(C_emx)[C_emx >= 0.3], edges)     # gate at tau_C = 0.3
 regions <- regions[lengths(regions) >= 2]                    # l_min = 2
-ev <- evaluate_ors(regions, map, qtab, th$r2min, th$dmax)
+ev <- LDscnR:::evaluate_ors(regions, map, qtab, th$r2min, th$dmax)
 unlist(ev[c("TP", "FP", "Recall", "Precision")])
 ```
 
 The package ships a plotting helper, `ld_manhattan()`, that colours a per-marker
 value (here the C-score) either by outlier region / group or by a continuous column.
-Below we colour each region by whether it matches a true QTN (from `classify_ors()`)
+Below we colour each region by whether it matches a true QTN (from `LDscnR:::classify_ors()`)
 and mark the QTNs with crosses: a region on a cross is a **true positive**, one away
 from any cross is a **false positive**.
 
 ```{r sim-manhattan, fig.height = 2.6}
-cl  <- classify_ors(regions, map, qtab, th$r2min, th$dmax)
+cl  <- LDscnR:::classify_ors(regions, map, qtab, th$r2min, th$dmax)
 grp <- unlist(lapply(seq_along(regions), function(i)
   setNames(rep(if (cl$is_TP[i]) "TP" else "FP", length(regions[[i]])), regions[[i]])))
 
@@ -166,21 +166,21 @@ ld_manhattan(map, value = ldw, value_label = "ld_w (rho 0.95)",
 
 Because the C-score is one *ordered* knob (`tau_C`), a standard precision--recall
 curve applies. We compare it against the single-SNP baseline (sweep `alpha` on the
-raw p-values, same clustering and scoring), and summarise each with `pr_auc()`.
+raw p-values, same clustering and scoring), and summarise each with `LDscnR:::pr_auc()`.
 
 ```{r sim-prauc}
 pr_curve <- function(score_fun, grid) {
   rbindlist(lapply(grid, function(t) {
-    reg <- ld_regions(score_fun(t), edges); reg <- reg[lengths(reg) >= 2]
-    e <- evaluate_ors(reg, map, qtab, th$r2min, th$dmax)
+    reg <- LDscnR:::ld_regions(score_fun(t), edges); reg <- reg[lengths(reg) >= 2]
+    e <- LDscnR:::evaluate_ors(reg, map, qtab, th$r2min, th$dmax)
     data.table(recall = e$Recall, precision = if (is.na(e$Precision)) NA_real_ else e$Precision)
   }))
 }
 cscore  <- pr_curve(function(t) names(C_emx)[C_emx >= t], seq(0.05, 1, 0.05))[, method := "C-score"]
 singleS <- pr_curve(function(a) map$marker[p.adjust(map$emx_p, "BH") < a],
                     c(0.001, 0.005, 0.01, 0.05, 0.1))[, method := "single-SNP"]
-c(C_score = pr_auc(cscore$recall, cscore$precision),
-  single_SNP = pr_auc(singleS$recall, singleS$precision))
+c(C_score = LDscnR:::pr_auc(cscore$recall, cscore$precision),
+  single_SNP = LDscnR:::pr_auc(singleS$recall, singleS$precision))
 ```
 
 The curves themselves (this tiny example has only two QTNs, so they are coarse and
@@ -197,20 +197,20 @@ ggplot(prc, aes(recall, precision, colour = method)) +
 
 ### Calibrating a second method against EMMAX (genomic control)
 
-LFMM has no cheap structure-aware null. `gc_map_tauc()` transfers a threshold
+LFMM has no cheap structure-aware null. `LDscnR:::gc_map_tauc()` transfers a threshold
 calibrated on EMMAX onto LFMM's C-scale by quantile-matching -- genomic control on
 the C-score, so LFMM is operated at EMMAX's FDR anchor.
 
 ```{r sim-gc}
-C_lfmm  <- ld_cscore(map$lfmm_p, ld_ws)
-tau_lfmm <- gc_map_tauc(tau_C = 0.3, C_ref = C_emx, C_target = C_lfmm)
+C_lfmm  <- LDscnR:::ld_cscore(map$lfmm_p, ld_ws)
+tau_lfmm <- LDscnR:::gc_map_tauc(tau_C = 0.3, C_ref = C_emx, C_target = C_lfmm)
 signif(c(EMMAX_tau_C = 0.3, LFMM_tau_C = tau_lfmm), 3)
 ```
 
 ### The structure-aware null, checked against ground truth
 
-Part 2 calls `ld_outlier_regions()` on real data, where `tau_C` comes from a
-**structure-aware null** ([structured_null()]) rather than from truth. We can verify
+Part 2 calls `LDscnR:::ld_outlier_regions()` on real data, where `tau_C` comes from a
+**structure-aware null** ([LDscnR:::structured_null()]) rather than from truth. We can verify
 that machinery *here*, where the truth is known. `sim_ex` ships only association
 statistics, so we synthesise a phenotype with a known architecture -- the two QTNs'
 genetic value, a genetic **structure** axis (something for the null to correct
@@ -225,7 +225,7 @@ y_sim <- as.numeric(1.5 * scale(rowSums(GTs[, qtn, drop = FALSE])) +       # QTN
                     2.0 * scale(eigen(Ksim, symmetric = TRUE)$vectors[, 1]) + # structure axis
                     rnorm(n))                                             # noise
 
-res_sim <- ld_outlier_regions(
+res_sim <- LDscnR:::ld_outlier_regions(
   y = y_sim, GTs = GTs, K = Ksim, ld_ws = ld_ws, map = map, decay_sum = decay_sum,
   basis = "genetic", rho_ld = 0.9, l_min = 2, fdr = 0.05, B = 100, seed = 1)
 res_sim
@@ -244,8 +244,8 @@ region is a genuine QTN region (precision 1). As before, the two QTNs sit ~470 k
 apart and merge into one region, so recall is 0.5.
 
 ```{r sim-null-eval}
-qtab_null <- qtn_ld_table(GTs, map, names(res_sim$C)[res_sim$C > 0], max_bp = 2e6)
-unlist(evaluate_ors(res_sim$regions, map, qtab_null, th$r2min, th$dmax)[c("TP", "FP", "Recall", "Precision")])
+qtab_null <- LDscnR:::qtn_ld_table(GTs, map, names(res_sim$C)[res_sim$C > 0], max_bp = 2e6)
+unlist(LDscnR:::evaluate_ors(res_sim$regions, map, qtab_null, th$r2min, th$dmax)[c("TP", "FP", "Recall", "Precision")])
 ```
 
 ## Part 2 -- calling ORs on real data with a null-calibrated threshold
@@ -254,7 +254,7 @@ unlist(evaluate_ors(res_sim$regions, map, qtab_null, th$r2min, th$dmax)[c("TP", 
 ecotype phenotype and three regions (`?stickleback`): the **Chr1 inversion** and
 the **Chr4 *Eda*** locus (positive controls), and **Chr6** background (negative
 control). Here there is no ground truth, so instead of benchmarking we *call* ORs
-with `ld_outlier_regions()`, which calibrates `tau_C` from the structure-aware
+with `LDscnR:::ld_outlier_regions()`, which calibrates `tau_C` from the structure-aware
 null.
 
 The kinship should capture structure without absorbing the signal, so we build it
@@ -263,10 +263,10 @@ erases localised signals like *Eda*.
 
 The two operating knobs play different roles. **`tau_C` is the hard one to intuit**
 -- what counts as "consistent enough" on the C-scale -- and that is exactly what the
-**structured null is for**: `calibrate_tauc()` sets it truth-free (here it lands at
+**structured null is for**: `LDscnR:::calibrate_tauc()` sets it truth-free (here it lands at
 the grid floor 0.05 because the structure surrogates are so clean; on the simulation
 null-demo above it was 0.65). **`l_min` is the softer, post-filtering knob** -- how
-large a region must be to be worth reporting. `calibrate_lmin()` gives a principled
+large a region must be to be worth reporting. `LDscnR:::calibrate_lmin()` gives a principled
 *floor* for it from the same null (the largest region structure-only noise ever
 builds, +1): here the null never clusters more than **2** SNPs, so the floor is
 **`l_min = 3`** (`l_min = "auto"`). And that floor has a nice external check -- the
@@ -274,7 +274,7 @@ number of regions on the negative-control **Chr6 drops to exactly zero at `l_min
 3`** (17 at l_min 1, 1 at l_min 2, 0 at l_min 3).
 
 Above that floor, `l_min` is a **focusing** control, not an FDR device -- and the
-floor itself is only a *lower bound*, because `calibrate_lmin()` is **anti-conservative
+floor itself is only a *lower bound*, because `LDscnR:::calibrate_lmin()` is **anti-conservative
 by construction**. The null assumes **every SNP is neutral**: it has no true positives,
 so it cannot reproduce the *satellite* clusters that real selected loci throw off --
 small extra correlated blocks in the neighbourhood of, and often **driven by**, the
@@ -330,7 +330,7 @@ K <- snpgdsGRM(sgds, snp.id = neutral, method = "GCTA", autosome.only = FALSE, v
 ```
 
 ```{r stickle-call}
-res <- ld_outlier_regions(
+res <- LDscnR:::ld_outlier_regions(
   y = eco, GTs = sGTs, K = K, ld_ws = sld_ws, map = smap, decay_sum = sdecay$decay_sum,
   basis = "genetic",              # confounding is genetic (ecotype ~ structure)
   rho_ld = 0.75, dcap = 5e5, l_min = "auto", fdr = 0.05, B = 50, seed = 1,
@@ -341,14 +341,14 @@ res
 # the l_min the null chose, and the null's max-region-size distribution behind it
 c(l_min_auto = res$params$l_min,
   null_max_region = max(vapply(res$null$C_surr, function(Csp)
-    max(c(0, lengths(ld_regions(names(Csp)[which(Csp >= 0.05)], res$edges)))), numeric(1))))
+    max(c(0, lengths(LDscnR:::ld_regions(names(Csp)[which(Csp >= 0.05)], res$edges)))), numeric(1))))
 
 # the same engine's per-SNP q-values (BH-FDR of the low-ld_w-GRM EMMAX p), for the
 # -log10(q) Manhattan below
 q_emx <- p.adjust(emmax_fast(emmax_setup(sGTs, K), eco), "BH")
 ```
 
-`ld_outlier_regions()` ran the whole pipeline -- fast EMMAX, C-score, a genetic
+`LDscnR:::ld_outlier_regions()` ran the whole pipeline -- fast EMMAX, C-score, a genetic
 structure-aware null, the null-driven `l_min`, `tau_C` calibrated to FDR ≤ 0.05, and
 clustering -- and returned the surviving ORs with their chromosome, extent and peak
 C. The positive controls dominate: the Chr1 inversion comes through as one big region
@@ -375,7 +375,7 @@ If that reads as too busy, **raise `l_min` to focus on the largest regions**. Th
 a pure post-filter on the cached clustering (no recomputation), so it is instant:
 
 ```{r stickle-focus, fig.height = 2.8}
-reg10 <- ld_regions(names(res$C)[res$C >= res$tau_C], res$edges)   # reuse cached edges
+reg10 <- LDscnR:::ld_regions(names(res$C)[res$C >= res$tau_C], res$edges)   # reuse cached edges
 reg10 <- reg10[lengths(reg10) >= 10]
 ld_manhattan(smap, value = setNames(as.numeric(res$C), names(res$C)), value_label = "C-score",
              regions = reg10, hline = res$tau_C,
@@ -393,13 +393,13 @@ sub-500 kb steps. Shortening the cap breaks that chain -- below ~100 kb those st
 detach, become sub-`l_min` satellites and drop out, so the region **tightens (769 ->
 47 kb) with no change in region count** (200 kb only does this halfway on these data).
 Crucially the **structure null is not rebuilt**: `dcap` enters only the clustering, so
-this is a fresh `ld_edges()` (a `cor()`, ~0.4 s) over the *cached* C-scores -- no new
+this is a fresh `LDscnR:::ld_edges()` (a `cor()`, ~0.4 s) over the *cached* C-scores -- no new
 EMMAX, no new surrogates.
 
 ```{r stickle-dcap, fig.height = 2.8}
-edges100 <- ld_edges(res$null$universe, sGTs, smap, sdecay$decay_sum,   # re-cluster only:
+edges100 <- LDscnR:::ld_edges(res$null$universe, sGTs, smap, sdecay$decay_sum,   # re-cluster only:
                      rho_ld = 0.75, dcap = 1e5)                          # 500 kb -> 100 kb cap
-reg100 <- ld_regions(names(res$C)[res$C >= res$tau_C], edges100)
+reg100 <- LDscnR:::ld_regions(names(res$C)[res$C >= res$tau_C], edges100)
 reg100 <- reg100[lengths(reg100) >= 10]
 ld_manhattan(smap, value = setNames(as.numeric(res$C), names(res$C)), value_label = "C-score",
              regions = reg100, hline = res$tau_C,
@@ -435,17 +435,17 @@ ld_manhattan(smap, value = neglogq, value_label = expression(-log[10](italic(q))
 
 ## Summary
 
-- **`ld_cscore()`** integrates the two [0,1] nuisance parameters (`rho`, `q*`) at
+- **`LDscnR:::ld_cscore()`** integrates the two [0,1] nuisance parameters (`rho`, `q*`) at
   fixed `alpha` into one per-SNP consistency score.
-- **`ld_edges()` / `ld_regions()`** cluster the survivors with an LD-decay-informed
+- **`LDscnR:::ld_edges()` / `LDscnR:::ld_regions()`** cluster the survivors with an LD-decay-informed
   r² link and a 500 kb cap; **`l_min`** is a region-size post-filter.
-- **`structured_null()` / `calibrate_tauc()`** set the hard-to-intuit `tau_C`
-  truth-free; **`calibrate_lmin()`** gives a data-driven floor for the `l_min`
-  post-filter (raise it to focus on the largest regions); **`gc_map_tauc()`**
+- **`LDscnR:::structured_null()` / `LDscnR:::calibrate_tauc()`** set the hard-to-intuit `tau_C`
+  truth-free; **`LDscnR:::calibrate_lmin()`** gives a data-driven floor for the `l_min`
+  post-filter (raise it to focus on the largest regions); **`LDscnR:::gc_map_tauc()`**
   transfers the threshold to a second method.
 - **`ld_manhattan()`** draws the faceted region / continuous-coloured Manhattans.
-- **`ld_outlier_regions()`** chains all of the above into one call for real data.
-- The **`evaluate_ors()` / `pr_auc()`** benchmark scores any caller against
+- **`LDscnR:::ld_outlier_regions()`** chains all of the above into one call for real data.
+- The **`LDscnR:::evaluate_ors()` / `LDscnR:::pr_auc()`** benchmark scores any caller against
   simulated truth on a common OR frame -- a method-agnostic gold standard.
 
 See `?ld_outlier_regions` and the individual function help pages for the full
