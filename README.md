@@ -20,7 +20,7 @@
 
 - **Two-stage LD complexity reduction** to LD-independent representatives -- the same clustering feeds either a pruned marker set or, optionally, one consensus genotype per block (an eMLG)
 
-- **Outlier regions from any scan** (`ld_scan()`) -- give it your own observed and permuted p-values and it returns LD-aware regions with a significance statement; the engine stays yours
+- **Outlier regions from Stage-1 units** (`ld_outlier_test()` / `ld_outlier_perm()`) -- BH-test Stage-1 clusters against p-values from your own association engine (consensus dosage or Simes-combined marker p-values), assemble the significant clusters into reported regions, and calibrate with a permutation or annotation-rotation null
 
 - **Diagnostic plotting** comparing raw vs. consolidated clusters chromosome-by-chromosome
 
@@ -193,60 +193,132 @@ best$geno
 
 ------------------------------------------------------------------------
 
-## Outlier regions from your own scan (`ld_scan()`)
+## Outlier regions from Stage-1 units (`ld_outlier_test()`)
 
-Everything above builds LD structure and reduces markers. `ld_scan()` closes the loop: it
-takes **p-values you have already computed** and returns LD-aware outlier regions with a
-significance statement for each.
+Everything above builds LD structure and reduces markers to Stage-1 clusters. This section
+tests those clusters directly -- BH across cluster-level p-values, then assembles the
+significant clusters into reported regions. It is the design behind every reported result in
+the LDscnR manuscript: the simulation benchmark and both stickleback panels.
 
-It is **engine-agnostic by design**. You supply the scan; LDscnR supplies the LD structure,
-the region assembly and the null calibration. EMMAX, LFMM, BayPass, a GLM, an \(F_{ST}\)
-scan or anything else that produces one p-value per marker will do.
+It stays **engine-agnostic**: LDscnR does not fit your association model. You supply p-values
+from whatever engine you like -- EMMAX, LFMM, BayPass, a GLM, an $F_{ST}$ scan; the package
+also ships a fast EMMAX implementation (`emmax_setup()` + `emmax_fast()`) purely for
+convenience, not because anything below requires it.
+
+### 1. Build a per-unit variable to test
+
+A Stage-1 cluster is not itself something an association model can take. `ld_unit_matrix()`
+turns each cluster into one variable per individual:
 
 ```r
-res <- ld_scan(
-  p_obs  = p_observed,   # one p-value per marker, aligned to rows of ld_ws
-  p_perm = p_surrogate,  # SNPs x B matrix (or a list) from YOUR permutation scheme
-  ld_ws  = ld_ws,        # from compute_ld_w() / compute_LD_decay()
-  map    = map,          # marker, Chr, Pos
-  GTs    = GTs           # individuals x SNPs, colnames = markers
-)
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cores = 4)
+
+# consensus dosage -- one averaged genotype per unit, no cluster-size penalty; the arm used
+# for every reported EMMAX-consensus result in the manuscript
+um <- ld_unit_matrix(GTs, stage1, map, size_floor = 8L, repr = "consensus_dosage")
+P     <- emmax_setup(um, K)          # K = your relationship matrix
+p_obs <- emmax_fast(P, y)            # one p-value per unit
 ```
 
-**The surrogate p-values are yours, and that is the point.** `p_perm` is where your design
-enters: which unit you permute (individual, population, region), what you hold fixed, what
-structure the null is allowed to keep. LDscnR cannot know that and does not guess. A
-scheme that breaks the structure your model corrects for will produce an anticonservative
-null, and no amount of downstream machinery repairs it.
+`repr` also accepts `"eMLG"` (`make_eMLGs()`'s own block consensus), `"representative"` (the
+cluster's most central marker), and `"best_snp"` (the member most correlated with the
+consensus, missing calls filled -- needs an `ld_prune_and_eMLG()` result via `prune_result`).
 
-Key arguments, all with defaults that work before they are tuned:
+**Or skip `ld_unit_matrix()` entirely** and combine ordinary marker-wise p-values with Simes
+instead -- the comparator arm in the manuscript, and the only option when an engine can't be
+refit to a reduced matrix at all (e.g. LFMM, which estimates its latent factors from the full
+marker set):
+
+```r
+Pm    <- emmax_setup(GTs, K)
+p_obs <- emmax_fast(Pm, y)           # one p-value per marker
+```
+
+### 2. Test units and assemble regions
+
+```r
+test <- ld_outlier_test(
+  stage1, map, p_obs,
+  statistic  = "unit",                # "unit" for a matrix built above, "simes" for marker p-values
+  size_floor = 8L, alpha = 0.05,
+  assembly   = "stage2_discovered",   # re-examine only the significant clusters from genotypes
+  GTs = GTs, LD_decay = ld_decay
+)
+test                                  # units tested / significant -> regions assembled
+```
+
+BH is applied to `test$units` -- one p-value per tested cluster, never per marker.
+`assembly = "stage2_discovered"` then re-runs `ld_prune_and_eMLG()` over only the significant
+clusters, directly from genotypes (the same Stage-2 step used for pruning/eMLGs above), so a
+reported region can only span discovered signal. `assembly = "physical"`, a plain merge of
+significant clusters within `gap`, is retained only as a near-free check against that
+motivated rule, not as an equally preferred alternative.
+
+### 3. Calibrate against a null
+
+Two nulls answer different questions, and both are typically worth running.
+
+**Permutation** -- how many discoveries this same pipeline would make under no signal:
+
+```r
+p_perm <- function(b) { set.seed(b); emmax_fast(P, sample(y)) }   # your own permutation scheme
+null <- ld_outlier_perm(test, stage1, map, p_perm, GTs = GTs, LD_decay = ld_decay,
+                        B = 1000, level = "units")
+null                                  # observed vs. surrogate discovery counts, one-sided p
+```
+
+`p_perm` is where your design enters -- which unit you permute (individual, population,
+region), what you hold fixed. LDscnR cannot know that and does not guess; a scheme that
+breaks the structure your model corrects for produces an anticonservative null, and no amount
+of downstream machinery repairs it. `ld_outlier_perm()` reruns this same pipeline once per
+surrogate rather than reimplementing a null, so it is calibrated under exactly the settings
+`test` used.
+
+**Rotation** -- whether the resulting regions overlap an external annotation (EcoPeaks, a QTL
+panel, a gene list) more than a span-preserving null predicts:
+
+```r
+rot <- ld_region_rotation(test$regions, annotation, chrom_lengths, scheme = "within",
+                          n_rotations = 10000)
+rot                                   # observed overlaps, fold enrichment, rotation p
+```
+
+Key arguments:
 
 | argument | what it controls |
 |---|---|
-| `tau`, `tau_grid` | consistency threshold for calling a region, and the grid swept for stability |
-| `l_min`, `lmin_grid` | minimum markers per region; the single strongest precision lever |
-| `rho_ld`, `rho_d` | LD and distance thresholds for assembling markers into regions |
-| `dcap` | distance cap on region assembly |
-| `qstar` | `ld_w` quantile grid for the local-LD filter |
-| `fdr`, `alpha` | FDR level for regions, significance level for markers |
-| `basis`, `engine` | free-text labels recorded in the output, so a result says where it came from |
+| `size_floor` | minimum markers per tested Stage-1 unit |
+| `statistic` | `"unit"` (pre-built matrix from `ld_unit_matrix()`) or `"simes"` (combine marker p-values per unit) |
+| `assembly` | `"stage2_discovered"` (genotype-based, the inferential path) or `"physical"` (gap merge, a sanity check) |
+| `alpha` | BH level for unit significance; `ld_outlier_perm()`/`ld_region_rotation()` reuse `test$params` rather than take their own copy |
+| `level` (`ld_outlier_perm()`) | count `"units"` (cheap -- skips region assembly entirely) or `"regions"` |
+| `scheme` (`ld_region_rotation()`) | `"within"` (preserve each region's chromosome, rotate only position) or `"genome"` |
 
-Full worked example, including how to build `p_perm` for several common designs:
+### An older, separate method
 
-```r
-vignette("LDscnR_outlier_regions_from_pvalues")
-```
+`LDscnR` also still ships an earlier approach to the same problem, the consistency C-score of
+Fang et al. (2021) -- `ld_cscore()`, `ld_region_scan()`, `ld_outlier_regions()` and related
+functions, documented in `vignette("LDscnR_outlier_analysis")`. It is a genuinely different
+design (one integrated per-SNP score, rather than a Stage-1-cluster BH test) and is no longer
+the primary method: every number in the manuscript comes from the pipeline above. `ld_scan()`
+specifically has been unexported (`LDscnR:::ld_scan()` still reaches it) because it belongs to
+that older family, not because it is a synonym for `ld_outlier_test()`.
 
 ------------------------------------------------------------------------
 
 ## Documentation
 
-Two vignettes, in the order most people need them:
+```
+vignette("LDscnR_quick_introduction")       # LD decay, ld_w, pruning, eMLGs
+vignette("LDscnR_complexity_reduction")     # LD decay and complexity reduction on real stickleback data
+vignette("LDscnR_outlier_analysis")         # the older C-score approach (still available, no longer primary)
+```
 
-```
-vignette("LDscnR_quick_introduction")            # LD decay, ld_w, pruning, eMLGs
-vignette("LDscnR_outlier_regions_from_pvalues")  # ld_scan(): regions from your own scan
-```
+There is no dedicated vignette yet for the current Stage-1-cluster outlier pipeline
+(`ld_unit_matrix()` / `ld_outlier_test()` / `ld_outlier_perm()` / `ld_region_rotation()`) --
+the worked example is the "Outlier regions from Stage-1 units" section above, and mirrors the
+real call sequence used to produce the manuscript's results. `vignette("LDscnR_outlier_regions_from_pvalues")`
+still exists but documents `ld_scan()`, the older method above, not this one.
 
 ------------------------------------------------------------------------
 
@@ -262,7 +334,7 @@ vignette("LDscnR_outlier_regions_from_pvalues")  # ld_scan(): regions from your 
 
 - `compute_LD_decay()` takes a `seed`. It subsamples the background, thins per chromosome and samples pairs within strata, so **an unseeded refit moves every quantity derived from it** -- `ld_w`, the pruned marker set, the clustering. Set `seed` on any run whose output will be compared with another's.
 
-- `ld_scan()` reports the p-values you give it. It does not check that `p_perm` came from a valid null, because it cannot: whether a permutation scheme is admissible depends on the design, not on the numbers. A near-1.0 genomic inflation factor is a **body** statistic and is not evidence that a cluster- or region-level statistic is usable with FDR control -- FDR lives in the tail. Measure the tail.
+- `ld_outlier_test()`/`ld_outlier_perm()` report the p-values you give them. They do not check that `p_perm` came from a valid null, because they cannot: whether a permutation scheme is admissible depends on the design, not on the numbers. A near-1.0 genomic inflation factor is a **body** statistic and is not evidence that a cluster- or region-level statistic is usable with FDR control -- FDR lives in the tail. Measure the tail.
 
 ------------------------------------------------------------------------
 
