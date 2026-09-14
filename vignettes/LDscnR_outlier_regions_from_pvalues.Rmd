@@ -199,6 +199,9 @@ scan, generates its own MVN surrogates, and calibrates a single `tau_C` against 
 pooled count-FDR. It is still there and still works. Prefer `ld_scan()` when you
 want to choose the engine, choose the surrogates, or compare two engines.
 
-`null_fdr()`, `calibrate_tauc()` and `calibrate_lmin()` remain exported as
-**diagnostics** for describing a null's clustering propensity. They are no longer
-the recommended way to pick an operating point.
+`null_fdr()`, `calibrate_tauc()` and `calibrate_lmin()` are no longer exported --
+this whole family (`ld_scan()` included) has been superseded by the Stage-1-
+cluster pipeline documented in the package README (`ld_unit_matrix()` /
+`ld_outlier_test()` / `ld_outlier_perm()` / `ld_region_rotation()`). They remain
+reachable via `LDscnR:::` as **diagnostics** for describing a null's clustering
+propensity, not as the recommended way to pick an operating point.

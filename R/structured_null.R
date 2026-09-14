@@ -104,7 +104,6 @@ structured_null <- function(y, GTs, K, ld_ws, basis = c("genetic", "spatial"),
 #' whether the null is usable at all.
 #'
 #' @seealso [structured_null()], [calibrate_tauc()], [ld_edges()]
-#' @export
 null_fdr <- function(bundle, edges, tau_grid = seq(0.05, 1, by = 0.05), l_min = 2L) {
   n_reg <- function(Csp, tau) { mk <- names(Csp)[Csp >= tau]
     if (!length(mk)) return(0L); sum(lengths(ld_regions(mk, edges)) >= l_min) }

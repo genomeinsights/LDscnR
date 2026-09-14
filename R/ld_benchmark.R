@@ -16,7 +16,6 @@
 #' @param p_va_min Minimum per-chromosome Va share for a QTN to count as a true
 #'   positive (default 0.05).
 #' @return `map` (copied) with `true_pos_QTN` (and helper `sum_Va_ok`/`p_Va_ok`).
-#' @export
 flag_true_qtns <- function(map, va_col = "Va", maf_col = "MAF",
                            maf_min = 0.1, p_va_min = 0.05) {
   map <- data.table::copy(data.table::as.data.table(map))

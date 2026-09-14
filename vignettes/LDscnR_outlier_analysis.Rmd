@@ -70,7 +70,7 @@ map[, lfmm_p := pf(lfmm_F, 1, n - 2, lower.tail = FALSE)]
 af <- colMeans(GTs) / 2
 map[, MAF := pmin(af, 1 - af)[marker]]
 map[, Va  := p_Va]
-map <- flag_true_qtns(map, va_col = "Va", maf_col = "MAF", maf_min = 0.1, p_va_min = 0.05)
+map <- LDscnR:::flag_true_qtns(map, va_col = "Va", maf_col = "MAF", maf_min = 0.1, p_va_min = 0.05)
 
 # per-marker max r^2 to any QTN (used by the diagnostic Manhattans below)
 R2_qtn <- suppressWarnings(cor(GTs, GTs[, map[type == "QTN", marker], drop = FALSE],
