@@ -136,3 +136,30 @@ test_that("the other three repr options are unaffected by the best_snp changes",
   expect_true(is.character(v_rep))
   expect_true(all(v_rep %in% colnames(d$GTs)))
 })
+
+test_that("consensus_dosage/eMLG error informatively when a tested unit's marker is missing from GTs", {
+  d <- build_stage1()
+  bad_GTs <- d$GTs[, colnames(d$GTs) != "cl1_1"]  # cl1_1 is CL1's core member, CL1 clears size_floor=2
+  expect_error(
+    ld_unit_matrix(bad_GTs, d$stage1, d$map, size_floor = 2L, repr = "consensus_dosage"),
+    "missing from `colnames\\(GTs\\)`"
+  )
+  expect_error(
+    ld_unit_matrix(bad_GTs, d$stage1, d$map, size_floor = 2L, repr = "eMLG"),
+    "missing from `colnames\\(GTs\\)`"
+  )
+  ## "representative" never touches GTs, so it is unaffected
+  expect_no_error(
+    ld_unit_matrix(bad_GTs, d$stage1, d$map, size_floor = 2L, repr = "representative")
+  )
+})
+
+test_that("duplicate map markers are rejected before any expensive computation", {
+  d <- build_stage1()
+  bad_map <- data.table::copy(d$map)
+  bad_map$marker[2] <- bad_map$marker[1]
+  expect_error(
+    ld_unit_matrix(d$GTs, d$stage1, bad_map, size_floor = 2L, repr = "consensus_dosage"),
+    "duplicate"
+  )
+})

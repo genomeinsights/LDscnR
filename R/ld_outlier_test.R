@@ -41,9 +41,14 @@
 #'   alternative.
 #' @param GTs,LD_decay Required only when `assembly = "stage2_discovered"`.
 #' @param score_threshold,distance_threshold [ld_prune_and_eMLG()] parameters
-#'   for `"stage2_discovered"`. `ld_w_threshold` is fixed at 0 internally, not
-#'   exposed: used only to merge already-significant clusters it is not a
-#'   gate, only a speed filter, and 0 filters nothing.
+#'   for `"stage2_discovered"`. `ld_w_col`/`ld_w_threshold` are fixed
+#'   internally, not exposed: used only to merge already-significant
+#'   clusters it is not a gate, only a speed filter, and this call flags
+#'   every significant cluster regardless (`ld_w_col = "n_loci"`,
+#'   `ld_w_threshold = 0`, and `min_n_loci_flag = 1` -- `n_loci` is always
+#'   present and always positive, so this needs nothing beyond what
+#'   [ld_complexity_reduction()] itself always produces; it deliberately
+#'   does not require an `ld_w_*` column to exist on `stage1$map_snp`).
 #' @param gap Physical merge distance in bp, used only when
 #'   `assembly = "physical"`.
 #'
@@ -105,11 +110,32 @@ ld_outlier_test <- function(stage1, map, p_obs,
     nl <- if ("n_loci" %in% names(cl)) cl$n_loci else cl$n_snps
     cl_sig <- cl[nl >= size_floor][sig$unit_id]
     mk_sig <- unlist(cl_sig$members, use.names = FALSE)
+    missing_gt <- setdiff(mk_sig, colnames(GTs))
+    if (length(missing_gt))
+      stop(sprintf("%d marker(s) in the significant clusters are missing from ",
+                   length(missing_gt)), "`colnames(GTs)` (e.g. ",
+           paste(utils::head(missing_gt, 5), collapse = ", "), ").")
     ms_sig <- data.table::as.data.table(stage1$map_snp)[marker %chin% mk_sig]
     sub <- structure(list(map_snp = ms_sig, clusters = cl_sig, pruned = cl_sig$core_snp),
                      class = "ld_complexity_reduction")
+    ## ld_w_col/ld_w_threshold only need to flag EVERY significant cluster for
+    ## the merge pass (see @details/@param ld_w_threshold above) -- with
+    ## min_n_loci_flag = 1 already guaranteeing that on its own (every
+    ## cluster clears n_snps >= 1), the ld_w_col > ld_w_threshold condition's
+    ## own contribution to the flagged set is provably redundant, not a
+    ## second, independent gate. Hardcoding ld_w_col = "ld_w_095" here
+    ## therefore required a column this function has no other reason to need
+    ## -- ld_complexity_reduction() only computes ld_w columns when asked to
+    ## separately, so a `stage1` built without that step (a fully valid,
+    ## documented ld_outlier_test() input) errored inside ld_prune_and_eMLG()
+    ## on a missing column, for a value that was never going to change the
+    ## outcome. Using "n_loci" instead -- always present on map_snp, always a
+    ## positive integer -- keeps ld_w_threshold = 0 exactly as much of a
+    ## structural no-op (n_loci > 0 is guaranteed true, not just empirically
+    ## true of real ld_w values) while requiring nothing beyond what
+    ## ld_complexity_reduction() itself always produces.
     pr <- ld_prune_and_eMLG(GTs = GTs[, mk_sig, drop = FALSE], stage1 = sub,
-                            ld_w_col = "ld_w_095", ld_w_threshold = 0,
+                            ld_w_col = "n_loci", ld_w_threshold = 0,
                             LD_decay = LD_decay, min_r2_rho = stage1$params$rho,
                             score_threshold = score_threshold,
                             distance_threshold = distance_threshold,

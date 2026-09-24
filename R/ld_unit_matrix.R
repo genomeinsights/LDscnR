@@ -87,6 +87,18 @@ ld_unit_matrix <- function(GTs, stage1, map, size_floor = 8L,
   if (repr != "best_snp") {
     units <- .ld_outlier_units(stage1, map, size_floor)
     units_summary <- units[, .(unit_id, Chr, from, to, n_markers)]
+    if (repr %in% c("consensus_dosage", "eMLG")) {
+      ## Checked once, here, before either arm's per-unit loop: GTs[, mk]
+      ## on a marker absent from colnames(GTs) throws R's own "subscript out
+      ## of bounds", which does not say which marker or which unit, and (for
+      ## "eMLG") would otherwise fail partway through an expensive
+      ## make_eMLGs() call instead of immediately.
+      missing_gt <- setdiff(unlist(units$members, use.names = FALSE), colnames(GTs))
+      if (length(missing_gt))
+        stop(sprintf("%d marker(s) in the tested units are missing from `colnames(GTs)` ",
+                     length(missing_gt)), "(e.g. ",
+             paste(utils::head(missing_gt, 5), collapse = ", "), ").")
+    }
   }
 
   out <- switch(repr,

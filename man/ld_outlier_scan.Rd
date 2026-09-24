@@ -61,9 +61,14 @@ alternative.}
 \item{GTs, LD_decay}{Required only when \code{assembly = "stage2_discovered"}.}
 
 \item{score_threshold, distance_threshold}{\code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}} parameters
-for \code{"stage2_discovered"}. \code{ld_w_threshold} is fixed at 0 internally, not
-exposed: used only to merge already-significant clusters it is not a
-gate, only a speed filter, and 0 filters nothing.}
+for \code{"stage2_discovered"}. \code{ld_w_col}/\code{ld_w_threshold} are fixed
+internally, not exposed: used only to merge already-significant
+clusters it is not a gate, only a speed filter, and this call flags
+every significant cluster regardless (\code{ld_w_col = "n_loci"},
+\code{ld_w_threshold = 0}, and \code{min_n_loci_flag = 1} -- \code{n_loci} is always
+present and always positive, so this needs nothing beyond what
+\code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}} itself always produces; it deliberately
+does not require an \verb{ld_w_*} column to exist on \code{stage1$map_snp}).}
 
 \item{gap}{Physical merge distance in bp, used only when
 \code{assembly = "physical"}.}

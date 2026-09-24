@@ -37,8 +37,26 @@
   if (!any(keep)) stop("No clusters clear size_floor = ", size_floor, ".")
   cl <- cl[keep]
   mp <- data.table::as.data.table(map)
+  ## Both checked HERE, the one choke point every caller (ld_unit_matrix(),
+  ## ld_outlier_test(), ld_outlier_perm()) passes through before any
+  ## expensive work (eMLG computation, ld_prune_and_eMLG(), an association
+  ## test loop) -- a problem here should never surface as a wrong answer or
+  ## a cryptic failure three steps downstream.
+  dup <- unique(mp$marker[duplicated(mp$marker)])
+  if (length(dup))
+    stop(sprintf("`map$marker` has %d duplicate name(s) (e.g. %s) -- every lookup ",
+                 length(dup), paste(utils::head(dup, 5), collapse = ", ")),
+         "in this package matches by name and silently keeps only the first row of a ",
+         "duplicate, which can misattribute Chr/Pos to the wrong marker.")
   flat_marker <- unlist(cl$members, use.names = FALSE)
   flat_idx    <- .marker_positions(flat_marker, mp$marker)
+  if (anyNA(flat_idx)) {
+    missing <- unique(flat_marker[is.na(flat_idx)])
+    stop(sprintf("%d marker(s) referenced by `stage1`'s clusters are missing from ",
+                 length(missing)), "`map$marker` (e.g. ",
+         paste(utils::head(missing, 5), collapse = ", "), ") -- `map` must cover every ",
+         "marker `stage1` was built from.")
+  }
   flat_unit   <- rep.int(seq_len(nrow(cl)), lengths(cl$members))
   flat_pos    <- mp$Pos[flat_idx]
   span <- data.table::data.table(unit_id = flat_unit, Pos = flat_pos)[
@@ -82,6 +100,19 @@
                                      units = NULL) {
   if (is.null(units)) units <- .ld_outlier_units(stage1, map, size_floor)
   if (statistic == "simes") {
+    mp <- data.table::as.data.table(map)
+    if (length(p_obs) != nrow(mp))
+      stop(sprintf("statistic = \"simes\": p_obs has %d values but `map` has %d markers.",
+                   length(p_obs), nrow(mp)))
+    ## A right-length p_obs in the WRONG order is not caught by the length
+    ## check above and would otherwise be used positionally without any
+    ## error -- checked only when p_obs is named, since an unnamed vector's
+    ## required order (map$marker) is documented and has no other signal to
+    ## check it against.
+    if (!is.null(names(p_obs)) && !identical(names(p_obs), mp$marker))
+      stop("`p_obs` is named but its names do not match `map$marker`'s order -- ",
+           "reorder it to `map$marker` before calling (or pass an unnamed vector, ",
+           "documented to already be in that order).")
     ## integer indexing into p_obs (aligned to map$marker by contract), not a
     ## character-name lookup -- see .ld_outlier_units()'s comment for why this
     ## matters. member_idx is precomputed once and carried on `units`, so every
@@ -91,6 +122,11 @@
     if (length(p_obs) != nrow(units))
       stop(sprintf("statistic = \"unit\": p_obs has %d values but %d units clear size_floor = %d.",
                    length(p_obs), nrow(units), size_floor))
+    if (!is.null(names(p_obs)) && !identical(as.character(names(p_obs)), as.character(units$unit_id)))
+      stop("`p_obs` is named but its names do not match the tested units' `unit_id` order -- ",
+           "build it from ld_unit_matrix()'s own column names / attr(, \"units\")$unit_id at ",
+           "the same `size_floor` (or pass an unnamed vector, documented to already be in ",
+           "that order).")
     units$p <- p_obs
   }
   units <- .bh(units)
