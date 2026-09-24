@@ -35,6 +35,16 @@ build_obs_and_perm <- function(d, B = 20) {
   list(d = d, obs = obs, p_perm = p_perm, B = B)
 }
 
+test_that("null_obs_ratio is the primary field and realised_fdr is an identical, deprecated alias", {
+  x <- build_obs_and_perm(build_real_stage1())
+  null_u <- ld_outlier_perm(x$obs, x$d$stage1, x$d$map, x$p_perm, B = x$B,
+                            level = "units", verbose = FALSE)
+  expect_identical(null_u$null_obs_ratio, null_u$realised_fdr)
+  expect_identical(null_u$null_obs_ratio, mean(null_u$surrogates) / max(null_u$observed, 1))
+  expect_output(print(null_u), "null/obs ratio")
+  expect_false(grepl("FDR", capture.output(print(null_u)), ignore.case = TRUE))
+})
+
 test_that("level = 'units' and level = 'regions' both run and count sensibly, and need not agree", {
   x <- build_obs_and_perm(build_real_stage1())
   null_u <- ld_outlier_perm(x$obs, x$d$stage1, x$d$map, x$p_perm, B = x$B,

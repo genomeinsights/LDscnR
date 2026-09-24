@@ -30,8 +30,20 @@
 #'
 #' @return An `ld_outlier_perm` object: `observed` (the count from `obs`,
 #'   at `level`), `surrogates` (integer vector, length `B`), `p` (one-sided,
-#'   `(1 + #surrogates >= observed) / (B + 1)`), `realised_fdr`
-#'   (`mean(surrogates) / observed`), `params`.
+#'   `(1 + #surrogates >= observed) / (B + 1)`), `null_obs_ratio`
+#'   (`mean(surrogates) / observed` -- a null-to-observed DISCOVERY-COUNT
+#'   ratio, not an observed false-discovery rate: it says how many
+#'   discoveries a structure-preserving null generates relative to how many
+#'   were actually found, nothing about which of the observed discoveries,
+#'   if any, are real. A value near or above 1 warns that the observed count
+#'   is unremarkable next to this null; a value well below 1 does not by
+#'   itself establish that individual reported regions are genuine, or that
+#'   the nominal BH false-discovery rate is calibrated -- both `p` and
+#'   `null_obs_ratio` describe the AGGREGATE discovery count, at `level`,
+#'   under whatever structure `p_perm`'s surrogates were built to preserve;
+#'   neither is a per-region statement), `realised_fdr` (deprecated alias
+#'   for `null_obs_ratio`, identical value, kept for scripts written against
+#'   the old name -- new code should read `null_obs_ratio`), `params`.
 #'
 #' @seealso [ld_outlier_test()], [ld_region_rotation()]
 #' @export
@@ -88,17 +100,19 @@ ld_outlier_perm <- function(obs, stage1, map, p_perm,
                 else vapply(seq_len(B), one, 0L)
 
   observed <- if (level == "units") sum(obs$units$significant) else nrow(obs$regions)
+  null_obs_ratio <- mean(surrogates) / max(observed, 1)
   structure(list(
     observed = observed, surrogates = surrogates,
     p = (1 + sum(surrogates >= observed)) / (B + 1),
-    realised_fdr = mean(surrogates) / max(observed, 1),
+    null_obs_ratio = null_obs_ratio,
+    realised_fdr = null_obs_ratio,  ## deprecated alias -- see @return
     params = list(level = level, B = B, test_params = p)
   ), class = "ld_outlier_perm")
 }
 
 #' @export
 print.ld_outlier_perm <- function(x, ...) {
-  cat(sprintf("<ld_outlier_perm> observed %d | surrogate mean %.2f | p = %.4f | realised FDR %.1f%%\n",
-              x$observed, mean(x$surrogates), x$p, 100 * x$realised_fdr))
+  cat(sprintf("<ld_outlier_perm> observed %d | surrogate mean %.2f | p = %.4f | null/obs ratio %.1f%%\n",
+              x$observed, mean(x$surrogates), x$p, 100 * x$null_obs_ratio))
   invisible(x)
 }

@@ -43,8 +43,20 @@ agree, since assembly can merge several significant units into one region.}
 \value{
 An \code{ld_outlier_perm} object: \code{observed} (the count from \code{obs},
 at \code{level}), \code{surrogates} (integer vector, length \code{B}), \code{p} (one-sided,
-\verb{(1 + #surrogates >= observed) / (B + 1)}), \code{realised_fdr}
-(\code{mean(surrogates) / observed}), \code{params}.
+\verb{(1 + #surrogates >= observed) / (B + 1)}), \code{null_obs_ratio}
+(\code{mean(surrogates) / observed} -- a null-to-observed DISCOVERY-COUNT
+ratio, not an observed false-discovery rate: it says how many
+discoveries a structure-preserving null generates relative to how many
+were actually found, nothing about which of the observed discoveries,
+if any, are real. A value near or above 1 warns that the observed count
+is unremarkable next to this null; a value well below 1 does not by
+itself establish that individual reported regions are genuine, or that
+the nominal BH false-discovery rate is calibrated -- both \code{p} and
+\code{null_obs_ratio} describe the AGGREGATE discovery count, at \code{level},
+under whatever structure \code{p_perm}'s surrogates were built to preserve;
+neither is a per-region statement), \code{realised_fdr} (deprecated alias
+for \code{null_obs_ratio}, identical value, kept for scripts written against
+the old name -- new code should read \code{null_obs_ratio}), \code{params}.
 }
 \description{
 Not separate machinery. This runs the SAME \code{\link[=ld_outlier_test]{ld_outlier_test()}} pipeline once
