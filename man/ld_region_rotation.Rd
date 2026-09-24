@@ -2,8 +2,8 @@
 % Please edit documentation in R/ld_region_rotation.R
 \name{ld_region_rotation}
 \alias{ld_region_rotation}
-\title{Span-preserving rotation null: do these regions overlap an annotation more
-than chance?}
+\title{Span-preserving random-relocation null: do these regions overlap an
+annotation more than chance?}
 \usage{
 ld_region_rotation(
   regions,
@@ -25,15 +25,22 @@ a gene list, anything).}
 \item{chrom_lengths}{data.table with the same chromosome column and \code{len}.}
 
 \item{scheme}{\code{"within"} (default) preserves each region's chromosome
-assignment and rotates only its position on that chromosome -- the right
-default whenever the annotation is non-uniformly distributed among
-chromosomes, since \code{"genome"} would then credit a region merely for
-landing on an annotation-rich chromosome. \code{"genome"} rotates across the
-whole concatenated genome, reassigning chromosome as well as position.}
+assignment and draws its new position uniformly from every offset at
+which its full span still fits on that chromosome -- the right default
+whenever the annotation is non-uniformly distributed among chromosomes,
+since \code{"genome"} would then credit a region merely for landing on an
+annotation-rich chromosome. \code{"genome"} also reassigns chromosome: for
+each region, a chromosome is drawn with probability proportional to its
+OWN valid placement space for that region's span, \code{max(chrom_len - span, 0)} -- not uniformly among chromosomes, which would over-place
+regions on short chromosomes relative to the room they actually offer,
+and under-place them on long ones. A region whose span exceeds every
+available chromosome (or, under \code{"within"}, its own chromosome) cannot be
+placed at all and raises an error identifying the offending region rather
+than truncating its span or silently dropping it.}
 
-\item{n_rotations}{Rotation draws (default 10000L).}
+\item{n_rotations}{Relocation draws (default 10000L).}
 
-\item{seed}{Seed for the rotation draws (default 1L).}
+\item{seed}{Seed for the relocation draws (default 1L).}
 }
 \value{
 An \code{ld_region_rotation} object: \code{observed} (regions overlapping the
@@ -51,10 +58,18 @@ intervals.
 A raw overlap RATE is not interpretable on its own: a wider region overlaps a
 fixed annotation more readily regardless of whether it is better localised,
 so a set of wide, poorly-localised regions can show a higher raw rate than a
-set of narrow, well-localised ones. The rotation preserves each region's
-OBSERVED SPAN and only randomises its position, so that advantage is present
-in the null exactly as in the observation and cannot inflate the result --
-read the fold and the rotation p-value, not the raw rate.
+set of narrow, well-localised ones. Each null draw relocates every region to
+an independently and uniformly chosen new position that still preserves its
+OBSERVED SPAN and keeps it entirely on a valid chromosome, so that advantage
+is present in the null exactly as in the observation and cannot inflate the
+result -- read the fold and the null p-value, not the raw rate. This is a
+random-relocation null (as in \verb{bedtools shuffle} or GAT), not a circular
+rotation: each region is placed independently, not shifted together as one
+configuration, so it does not preserve the spacing between regions. That
+independence matches how these regions are generated -- each is its own
+discovery from an independently significant Stage-1/Stage-2 unit, not one
+jointly-patterned point process whose internal geometry should be held
+fixed.
 }
 \seealso{
 \code{\link[=ld_outlier_test]{ld_outlier_test()}}, \code{\link[=ld_outlier_perm]{ld_outlier_perm()}}

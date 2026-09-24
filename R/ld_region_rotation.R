@@ -1,5 +1,69 @@
-#' Span-preserving rotation null: do these regions overlap an annotation more
-#' than chance?
+## Builds a zero-argument closure that returns one span-preserving,
+## bounds-respecting relocation of `R` (a data.table with `chr`, `from`, `to`)
+## for the given scheme. `len_of` is a named numeric vector, chromosome ->
+## length. Not exported; factored out of ld_region_rotation() so its
+## placement logic can be unit-tested directly (via `LDscnR:::.build_relocator`)
+## on the raw relocated coordinates, not only on downstream overlap counts.
+.build_relocator <- function(R, len_of, scheme) {
+  n_reg <- nrow(R)
+  w <- R$to - R$from
+
+  if (n_reg == 0L) {
+    ## Guard explicitly rather than relying on apply()/max.col() on a
+    ## zero-row matrix in the "genome" branch below, which does not degrade
+    ## to a zero-length result the way the rest of this function's vectorised
+    ## operations do.
+    return(function() R)
+  }
+
+  if (scheme == "within") {
+    Lc <- len_of[R$chr]
+    if (anyNA(Lc))
+      stop("region chromosome(s) not found in `chrom_lengths`: ",
+           paste(unique(R$chr[is.na(Lc)]), collapse = ", "))
+    space <- Lc - w
+    if (any(bad <- space < 0))
+      stop(sprintf(
+        "region %d spans %.0f bp but its chromosome (%s) is only %.0f bp long -- ",
+        which(bad)[1], w[which(bad)[1]], R$chr[which(bad)[1]], Lc[which(bad)[1]]),
+        "cannot place under scheme = \"within\".")
+    function() {
+      off <- stats::runif(n_reg, 0, space)
+      data.table::copy(R)[, `:=`(from = off, to = off + w)]
+    }
+  } else {
+    chr_names <- names(len_of)
+    if (anyNA(len_of))
+      stop("`chrom_lengths` contains NA length(s) for: ",
+           paste(chr_names[is.na(len_of)], collapse = ", "))
+    ## Placement space for region i on chromosome j is max(len_j - w_i, 0):
+    ## the number of offsets at which the region's full span still fits.
+    ## Sampling chromosomes with probability proportional to this (not
+    ## uniformly) is what "reflects the available placement space" means --
+    ## a region is more likely to land on a chromosome that actually offers
+    ## more room for it, and chromosomes it cannot fit on get probability 0
+    ## rather than truncating the region there.
+    space_mat <- outer(w, len_of, function(wi, Lj) pmax(Lj - wi, 0))
+    row_tot <- rowSums(space_mat)
+    if (any(bad <- row_tot <= 0))
+      stop(sprintf(
+        "region %d (span %.0f bp) does not fit on any chromosome in `chrom_lengths` ",
+        which(bad)[1], w[which(bad)[1]]),
+        "under scheme = \"genome\".")
+    cum_mat <- t(apply(space_mat, 1L, cumsum))
+    function() {
+      u <- stats::runif(n_reg) * row_tot
+      col_idx <- max.col(cum_mat >= u, ties.method = "first")
+      chosen_chr <- chr_names[col_idx]
+      chosen_space <- space_mat[cbind(seq_len(n_reg), col_idx)]
+      off <- stats::runif(n_reg, 0, chosen_space)
+      data.table::copy(R)[, `:=`(chr = chosen_chr, from = off, to = off + w)]
+    }
+  }
+}
+
+#' Span-preserving random-relocation null: do these regions overlap an
+#' annotation more than chance?
 #'
 #' General-purpose, not tied to any one outlier-detection method: `regions` can
 #' come from [ld_outlier_test()], from [ld_scan()]/[ld_outlier_regions()]'s
@@ -9,10 +73,18 @@
 #' A raw overlap RATE is not interpretable on its own: a wider region overlaps a
 #' fixed annotation more readily regardless of whether it is better localised,
 #' so a set of wide, poorly-localised regions can show a higher raw rate than a
-#' set of narrow, well-localised ones. The rotation preserves each region's
-#' OBSERVED SPAN and only randomises its position, so that advantage is present
-#' in the null exactly as in the observation and cannot inflate the result --
-#' read the fold and the rotation p-value, not the raw rate.
+#' set of narrow, well-localised ones. Each null draw relocates every region to
+#' an independently and uniformly chosen new position that still preserves its
+#' OBSERVED SPAN and keeps it entirely on a valid chromosome, so that advantage
+#' is present in the null exactly as in the observation and cannot inflate the
+#' result -- read the fold and the null p-value, not the raw rate. This is a
+#' random-relocation null (as in `bedtools shuffle` or GAT), not a circular
+#' rotation: each region is placed independently, not shifted together as one
+#' configuration, so it does not preserve the spacing between regions. That
+#' independence matches how these regions are generated -- each is its own
+#' discovery from an independently significant Stage-1/Stage-2 unit, not one
+#' jointly-patterned point process whose internal geometry should be held
+#' fixed.
 #'
 #' @param regions data.table with `Chr`/`chr_num`, `from`, `to` (one row per
 #'   region).
@@ -21,13 +93,21 @@
 #'   a gene list, anything).
 #' @param chrom_lengths data.table with the same chromosome column and `len`.
 #' @param scheme `"within"` (default) preserves each region's chromosome
-#'   assignment and rotates only its position on that chromosome -- the right
-#'   default whenever the annotation is non-uniformly distributed among
-#'   chromosomes, since `"genome"` would then credit a region merely for
-#'   landing on an annotation-rich chromosome. `"genome"` rotates across the
-#'   whole concatenated genome, reassigning chromosome as well as position.
-#' @param n_rotations Rotation draws (default 10000L).
-#' @param seed Seed for the rotation draws (default 1L).
+#'   assignment and draws its new position uniformly from every offset at
+#'   which its full span still fits on that chromosome -- the right default
+#'   whenever the annotation is non-uniformly distributed among chromosomes,
+#'   since `"genome"` would then credit a region merely for landing on an
+#'   annotation-rich chromosome. `"genome"` also reassigns chromosome: for
+#'   each region, a chromosome is drawn with probability proportional to its
+#'   OWN valid placement space for that region's span, `max(chrom_len -
+#'   span, 0)` -- not uniformly among chromosomes, which would over-place
+#'   regions on short chromosomes relative to the room they actually offer,
+#'   and under-place them on long ones. A region whose span exceeds every
+#'   available chromosome (or, under `"within"`, its own chromosome) cannot be
+#'   placed at all and raises an error identifying the offending region rather
+#'   than truncating its span or silently dropping it.
+#' @param n_rotations Relocation draws (default 10000L).
+#' @param seed Seed for the relocation draws (default 1L).
 #'
 #' @return An `ld_region_rotation` object: `observed` (regions overlapping the
 #'   annotation), `null_mean`, `fold` (`observed / null_mean`), `p` (one-sided),
@@ -67,22 +147,9 @@ ld_region_rotation <- function(regions, annotation, chrom_lengths,
   observed <- n_overlap(R)
 
   len_of <- stats::setNames(L$len, L$chr)
-  rot_once <- function() {
-    d <- data.table::copy(R)[, w := to - from]
-    if (scheme == "within") {
-      Lc <- len_of[d$chr]
-      off <- stats::runif(nrow(d), 0, Lc)
-      d[, `:=`(from = off, to = off + w)]
-    } else {
-      d[, chr := sample(names(len_of), .N, replace = TRUE)]
-      Lc <- len_of[d$chr]
-      off <- stats::runif(nrow(d), 0, Lc)
-      d[, `:=`(from = off, to = pmin(off + w, Lc))]
-    }
-    n_overlap(d)
-  }
+  relocate_once <- .build_relocator(R, len_of, scheme)
   set.seed(seed)
-  null <- vapply(seq_len(n_rotations), function(i) rot_once(), 0L)
+  null <- vapply(seq_len(n_rotations), function(i) n_overlap(relocate_once()), 0L)
 
   ov <- data.table::foverlaps(R[, .(chr, from, to)], A, by.x = c("chr", "from", "to"),
                               by.y = c("chr", "start", "end"), type = "any",
