@@ -20,7 +20,7 @@ Description: Linkage-disequilibrium-aware genome scans. Estimates chromosome-wis
     subsequently be assembled into regions for reporting, a post hoc step
     kept distinct from the hypotheses subjected to multiple-testing
     correction. This approach was benchmarked against simulated truth and
-    against an independent stickleback dataset and found to improve locus-
+    against an independent stickleback dataset and found to improve region-
     level precision without a fixed cost to recall; earlier applications of
     LD clustering to this problem, including the consistency-C-score
     formulation of Fang et al. (2021) <doi:10.1093/molbev/msab144>, remain

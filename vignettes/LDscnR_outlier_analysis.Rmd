@@ -25,6 +25,18 @@ library(SNPRelate)
 theme_set(theme_bw(base_size = 10) + theme(strip.background = element_blank()))
 ```
 
+> **Older, non-primary method.** This vignette documents the consistency
+> C-score family (`ld_cscore()`, `ld_outlier_regions()`, `ld_region_c2()`
+> and related functions), an earlier, genuinely different approach to the
+> same problem. It is not the method behind any current manuscript result,
+> and most of the functions it calls are no longer exported (reached here
+> via `LDscnR:::` on purpose). For the current, primary workflow --
+> phenotype-blind Stage-1 clustering, one p-value per unit, BH correction,
+> Stage-2 assembly, and a structure-aware discovery-count null -- see
+> `vignette("LDscnR_stage1_outlier_regions")`. This vignette is kept
+> buildable and correct as a record of the earlier design, not as a
+> tutorial recommendation.
+
 ## The idea
 
 Genome scans for selection produce noisy single-SNP signals. LDscnR turns them

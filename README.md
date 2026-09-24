@@ -198,12 +198,20 @@ best$geno
 Everything above builds LD structure and reduces markers to Stage-1 clusters. This section
 tests those clusters directly -- BH across cluster-level p-values, then assembles the
 significant clusters into reported regions. It is the design behind every reported result in
-the LDscnR manuscript: the simulation benchmark and both stickleback panels.
+the LDscnR manuscript: the simulation benchmark and both stickleback panels. See
+`vignette("LDscnR_stage1_outlier_regions")` for the full, executable walkthrough this section
+summarises, including the structure-aware permutation null and the separate annotation-overlap
+check.
 
 It stays **engine-agnostic**: LDscnR does not fit your association model. You supply p-values
-from whatever engine you like -- EMMAX, LFMM, BayPass, a GLM, an $F_{ST}$ scan; the package
-also ships a fast EMMAX implementation (`emmax_setup()` + `emmax_fast()`) purely for
-convenience, not because anything below requires it.
+from whatever engine you like -- EMMAX, LFMM, a GLM, an $F_{ST}$ scan; the package also ships
+a fast EMMAX implementation (`emmax_setup()` + `emmax_fast()`) purely for convenience, not
+because anything below requires it. This does **not** include BayPass out of the box: BayPass
+reports Bayes factors and XtX differentiation statistics, not p-values, so `ld_outlier_test()`
+cannot take its output directly. BayPass fits into the earlier, clustering half of this
+workflow instead -- Stage-1's LD-reduced marker groups (`stage1$pruned`, or an eMLG per group)
+can serve as BayPass's marker set or feed its `OMEGA` covariance estimate -- not into this
+p-value-testing step.
 
 ### 1. Build a per-unit variable to test
 
@@ -309,16 +317,21 @@ that older family, not because it is a synonym for `ld_outlier_test()`.
 ## Documentation
 
 ```
+vignette("LDscnR_stage1_outlier_regions")   # PRIMARY: the current Stage-1-cluster outlier pipeline, executable end to end
 vignette("LDscnR_quick_introduction")       # LD decay, ld_w, pruning, eMLGs
 vignette("LDscnR_complexity_reduction")     # LD decay and complexity reduction on real stickleback data
-vignette("LDscnR_outlier_analysis")         # the older C-score approach (still available, no longer primary)
+vignette("LDscnR_outlier_analysis")         # OLDER, non-primary: the C-score approach
+vignette("LDscnR_outlier_regions_from_pvalues")  # OLDER, non-primary: ld_scan(), the same older method
 ```
 
-There is no dedicated vignette yet for the current Stage-1-cluster outlier pipeline
-(`ld_unit_matrix()` / `ld_outlier_test()` / `ld_outlier_perm()` / `ld_region_rotation()`) --
-the worked example is the "Outlier regions from Stage-1 units" section above, and mirrors the
-real call sequence used to produce the manuscript's results. `vignette("LDscnR_outlier_regions_from_pvalues")`
-still exists but documents `ld_scan()`, the older method above, not this one.
+`vignette("LDscnR_stage1_outlier_regions")` is the primary outlier-analysis vignette: it runs
+the current pipeline (`ld_unit_matrix()` / `ld_outlier_test()` / `ld_outlier_perm()` /
+`ld_region_rotation()`) end to end on the bundled `stickleback` panel, executable as written,
+and mirrors the real call sequence used to produce the manuscript's results. The two vignettes
+marked "older, non-primary" above document the consistency-C-score family
+(`ld_scan()`/`ld_outlier_regions()` and related functions): a genuinely different, earlier
+design, kept in the package and buildable, but not the method behind any current manuscript
+result -- see the "An older, separate method" section above.
 
 ------------------------------------------------------------------------
 

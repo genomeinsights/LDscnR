@@ -15,6 +15,15 @@ vignette: >
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>", eval = FALSE)
 ```
 
+> **Older, non-primary method.** This vignette documents `ld_scan()` and the
+> consistency C-score family it wraps -- an earlier, genuinely different
+> approach to the same problem, and not the method behind any current
+> manuscript result. For the current, primary workflow -- phenotype-blind
+> Stage-1 clustering, one p-value per unit, BH correction, Stage-2
+> assembly, and a structure-aware discovery-count null -- see
+> `vignette("LDscnR_stage1_outlier_regions")`. This vignette is kept as a
+> record of the earlier design, not as a tutorial recommendation.
+
 ## What this does
 
 You have run a genome scan and have a p-value per marker. You want the
@@ -140,9 +149,14 @@ C-score and region-size stages.
 ## When everything sits at the p-floor
 
 With a permutation null, the regions worth reporting usually all land at
-`1/(1+B)`. That is not a failure — `q_R` is telling you "not a structure
-artifact" — but it cannot rank them, and it is worth saying so plainly rather
-than implying a resolution the null does not have.
+`1/(1+B)`. That is not a failure -- it means none of the `B` structure-
+preserving surrogates matched them, which is what the null was built to
+check -- but it cannot rank them, and it does not by itself establish that
+a region is not structure-generated: that conclusion is only as good as
+the null actually preserving the structure of concern (see "Read the gate
+first" above), and is bounded by `B` regardless. It is worth saying so
+plainly rather than implying a resolution, or a certainty, the null does
+not have.
 
 Ranking is a separate job:
 
