@@ -29,7 +29,8 @@ ld_unit_matrix(
 typical \code{size_floor} -- this function passes \code{l_min = 1} to \code{\link[=make_eMLGs]{make_eMLGs()}}
 internally so filtering happens once, here, at \code{size_floor}; override via
 \code{emlg_args$l_min} only if you want a second, stricter gate inside eMLG
-itself.}
+itself. For \code{repr = "best_snp"}, filters \code{prune_result$groups} by
+\code{n_loci} instead of \code{stage1}'s own units (see \verb{@return}).}
 
 \item{repr}{One of \code{"consensus_dosage"}, \code{"eMLG"}, \code{"representative"},
 \code{"best_snp"}.}
@@ -41,19 +42,34 @@ itself.}
 \code{repr = "best_snp"}); note it is a post-processing step over
 \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}}'s result, not over \code{stage1} directly, so this arm needs
 that result supplied via \code{prune_result} rather than being derivable from
-\code{stage1} alone.}
+\code{stage1} alone. Must not set \code{fill = FALSE} -- this arm needs the filled
+genotype matrix, not just \code{eMLG_best_snp()}'s stats table.}
 
 \item{prune_result}{An \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}} result, required only when
-\code{repr = "best_snp"}.}
+\code{repr = "best_snp"}. Its \code{groups} are NOT guaranteed to be the same
+partition as \code{stage1}'s units: an unflagged Stage-1 cluster maps 1:1 onto
+one group, but a flagged cluster can be MERGED with physically-nearby,
+correlated neighbours into one group spanning several Stage-1 clusters
+(see \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}}'s distance-restricted dynamic cut). There is
+then no single \code{stage1} unit a merged column corresponds to, so this arm
+reports \code{prune_result}'s own groups as the unit table (see \verb{@return})
+rather than forcing its columns onto \code{stage1}'s independently-filtered
+units.}
 }
 \value{
 For \code{repr \%in\% c("consensus_dosage", "eMLG")}: an individuals x units
 numeric matrix. For \code{repr = "representative"}: a character vector of marker
 names (one per unit; index into \code{GTs} yourself). For \code{repr = "best_snp"}: an
 individuals x units matrix (each column is an observed SNP with gaps filled
-from its block's consensus). Every return carries \code{attr(, "units")}, the
-\code{\link[=ld_outlier_test]{ld_outlier_test()}}-shaped units table (\code{unit_id}, \code{Chr}, \code{from}, \code{to},
-\code{n_markers}), aligned to columns (or to the vector, for \code{"representative"}).
+from its block's consensus). For the first three, every return carries
+\code{attr(, "units")}, the \code{\link[=ld_outlier_test]{ld_outlier_test()}}-shaped units table (\code{unit_id},
+\code{Chr}, \code{from}, \code{to}, \code{n_markers}), aligned to columns (or to the vector, for
+\code{"representative"}), built from \code{stage1}. For \code{"best_snp"}, \code{attr(, "units")}
+is instead built from \code{prune_result$groups}: \code{unit_id} is \code{group_id} (a
+character id, e.g. \code{"U12"} for an unmerged Stage-1 cluster or \code{"F3"} for a
+merged run -- not \code{stage1}'s own integer \code{unit_id}), plus \code{Chr}, \code{from},
+\code{to}, \code{n_markers} (\verb{= n_loci}) and one extra column, \code{best_marker}, the
+underlying SNP each column actually is.
 }
 \description{
 \code{ld_outlier_test()} tests clusters, not markers, and a cluster is not itself
@@ -80,6 +96,8 @@ signal. A real, single SNP, at whatever centrality picked it.
 \item \code{"best_snp"}: \code{\link[=eMLG_best_snp]{eMLG_best_snp()}} -- the member SNP most correlated with the
 block consensus, missing calls filled from the consensus. A real SNP, but
 chosen by agreement with the block rather than by structural centrality.
+Unlike the other three, its columns are \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}}'s OWN
+groups, not \code{stage1}'s units -- see \verb{@return} and \code{prune_result} below.
 }
 }
 \seealso{
