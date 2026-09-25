@@ -228,9 +228,13 @@ P     <- emmax_setup(um, K)          # K = your relationship matrix
 p_obs <- emmax_fast(P, y)            # one p-value per unit
 ```
 
-`repr` also accepts `"eMLG"` (`make_eMLGs()`'s own block consensus), `"representative"` (the
-cluster's most central marker), and `"best_snp"` (the member most correlated with the
-consensus, missing calls filled -- needs an `ld_prune_and_eMLG()` result via `prune_result`).
+`repr` also accepts `"eMLG"` (`make_eMLGs()`'s own block consensus) and `"representative"`
+(the cluster's most central marker). A fourth SNP-level choice, the member most correlated
+with a block's consensus, is available via `ld_group_matrix()` instead -- not as a
+`ld_unit_matrix()` option, because it operates on `ld_prune_and_eMLG()`'s groups, a
+different (and possibly coarser) partition from this function's Stage-1 units; its output
+cannot be substituted for a `ld_unit_matrix()` column when testing with `ld_outlier_test()`.
+See `?ld_group_matrix`.
 
 **Or skip `ld_unit_matrix()` entirely** and combine ordinary marker-wise p-values with Simes
 instead -- the comparator arm in the manuscript, and the only option when an engine can't be

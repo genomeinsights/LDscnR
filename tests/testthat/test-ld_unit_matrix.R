@@ -40,93 +40,15 @@ build_stage1 <- function() {
   list(GTs = GTs, map = map, stage1 = list(map_snp = map_snp, clusters = clusters))
 }
 
-build_prune_result <- function(d) {
-  ld_prune_and_eMLG(
-    GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
-  )
-}
-
-test_that("best_snp errors without prune_result", {
+test_that("repr is restricted to the three Stage-1-unit representations", {
   d <- build_stage1()
   expect_error(
     ld_unit_matrix(d$GTs, d$stage1, d$map, size_floor = 2L, repr = "best_snp"),
-    "prune_result"
+    "'arg' should be one of"
   )
 })
 
-test_that("best_snp errors if fill = FALSE is passed through best_snp_args", {
-  d <- build_stage1()
-  pr <- build_prune_result(d)
-  expect_error(
-    ld_unit_matrix(d$GTs, d$stage1, d$map, size_floor = 2L, repr = "best_snp",
-                   prune_result = pr, best_snp_args = list(fill = FALSE)),
-    "fill = TRUE"
-  )
-})
-
-test_that("best_snp reports prune_result's own groups, not stage1's units, with exact column alignment", {
-  d <- build_stage1()
-  pr <- build_prune_result(d)
-  ## sanity on the fixture: CL1+CL2 merged into one 6-locus group (spans two
-  ## Stage-1 clusters), CL4 passed through unflagged (1:1 with Stage-1 CL4)
-  merged_id <- pr$groups[startsWith(group_id, "F") & n_loci == 6, group_id]
-  expect_length(merged_id, 1)
-  unflagged_id <- pr$groups[startsWith(group_id, "U") & n_loci == 2, group_id]
-  expect_length(unflagged_id, 1)
-
-  m <- ld_unit_matrix(d$GTs, d$stage1, d$map, size_floor = 2L, repr = "best_snp", prune_result = pr)
-  u <- attr(m, "units")
-
-  ## column order matches attr(,"units") row order exactly
-  expect_identical(colnames(m), u$unit_id)
-  expect_identical(nrow(m), nrow(d$GTs))
-
-  ## unit_id is prune_result's group_id (a character id, e.g. "F1"/"U3"),
-  ## not stage1's own integer unit_id
-  expect_type(u$unit_id, "character")
-  expect_true(merged_id %in% u$unit_id)
-  expect_true(unflagged_id %in% u$unit_id)
-
-  ## the merged group's reported span covers BOTH constituent Stage-1
-  ## clusters (Pos 1000-1012), not just one of them
-  merged_row <- u[unit_id == merged_id]
-  expect_equal(merged_row$from, 1000)
-  expect_equal(merged_row$to, 1012)
-  expect_equal(merged_row$n_markers, 6L)
-
-  ## every reported unit's best_marker is an actual column of GTs, and that
-  ## column's genotype matches the returned matrix column exactly
-  expect_true(all(u$best_marker %in% colnames(d$GTs)))
-  for (id in u$unit_id) {
-    bm <- u[unit_id == id, best_marker]
-    expect_equal(unname(m[, id]), unname(d$GTs[, bm]), tolerance = 1e-8)
-  }
-})
-
-test_that("best_snp's size_floor filters prune_result's groups by n_loci, independent of stage1's own filtering", {
-  d <- build_stage1()
-  pr <- build_prune_result(d)
-
-  ## size_floor = 5 exceeds stage1's largest RAW cluster (3), which would
-  ## make .ld_outlier_units() error -- but the merged 6-locus "F" group
-  ## still clears it, so best_snp must not fail here.
-  m <- ld_unit_matrix(d$GTs, d$stage1, d$map, size_floor = 5L, repr = "best_snp", prune_result = pr)
-  u <- attr(m, "units")
-  expect_true(all(u$n_markers >= 5L))
-  expect_true(all(startsWith(u$unit_id, "F")))  # the 2-locus "U" group is filtered out
-})
-
-test_that("best_snp errors informatively when no prune_result group clears size_floor", {
-  d <- build_stage1()
-  pr <- build_prune_result(d)
-  expect_error(
-    ld_unit_matrix(d$GTs, d$stage1, d$map, size_floor = 1000L, repr = "best_snp", prune_result = pr),
-    "size_floor"
-  )
-})
-
-test_that("the other three repr options are unaffected by the best_snp changes", {
+test_that("the three repr options are unaffected by moving best_snp out to ld_group_matrix()", {
   d <- build_stage1()
   m_cons <- ld_unit_matrix(d$GTs, d$stage1, d$map, size_floor = 2L, repr = "consensus_dosage")
   expect_equal(nrow(m_cons), nrow(d$GTs))
