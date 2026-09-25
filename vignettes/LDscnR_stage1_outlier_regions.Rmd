@@ -244,14 +244,22 @@ discoveries would this same pipeline make?
 table(pheno$pop_locality, pheno$ecotype)
 ```
 
+B surrogates are drawn once, up front, into a fixed matrix rather than
+generated fresh inside each `ld_outlier_perm()` call. That matters here
+because we compare the unit-level and region-level counts below: a
+function re-invoked separately by each call would consume different
+random draws for each, making that comparison two independent
+experiments rather than the same B surrogates counted two ways.
+
 ```{r perm-run}
 B <- 40L
 set.seed(1)
-p_perm <- function(b) {
+p_perm <- vapply(seq_len(B), function(b) {
   eco_perm <- ave(eco, pheno$pop_locality, FUN = sample)
   emmax_fast(prep_cons, eco_perm)
-}
-null_units <- ld_outlier_perm(out_unit, stage1, map, p_perm, B = B,
+}, numeric(ncol(m_cons)))
+
+null_units <- ld_outlier_perm(out_unit, stage1, map, p_perm,
                               level = "units", verbose = FALSE)
 null_units
 ```
@@ -265,15 +273,28 @@ relative to this null; it does not, by itself, certify any one reported
 region, and a differently-specified null (a different grouping, a
 continuous structure axis) could reasonably give a different answer.
 
-Counting at the **region** level instead of the unit level need not agree,
-since assembly can merge several significant units into one region or
-leave them separate:
+Counting at the **region** level instead of the unit level need not agree
+with the unit-level count, since assembly can merge several significant
+units into one region or leave them separate. Reusing the same `p_perm`
+matrix keeps this a genuinely paired comparison -- both counts come from
+the same B surrogate phenotypes, not two independently-drawn sets:
 
 ```{r perm-regions}
 null_regions <- ld_outlier_perm(out_unit, stage1, map, p_perm, GTs = GTs, LD_decay = ld_decay,
-                                B = B, level = "regions", verbose = FALSE)
+                                level = "regions", verbose = FALSE)
 null_regions
+identical(null_units$surrogates, null_regions$surrogates)
 ```
+
+In this particular run the two surrogate counts turn out identical, draw
+for draw: with a signal this sparse, no surrogate ever produces more than
+one significant unit, so there is never a chance for assembly to actually
+merge anything, and the region count trivially tracks the unit count.
+That is a property of this small example, not a general guarantee --
+with several simultaneously significant units, a surrogate could easily
+produce a different region count than unit count (units merged into
+fewer regions, or vice versa across chromosomes), which is exactly why
+both levels are computed rather than assumed to agree.
 
 ## A separate question: does this overlap external evidence?
 
