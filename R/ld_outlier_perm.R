@@ -30,7 +30,8 @@
 #'
 #' @return An `ld_outlier_perm` object: `observed` (the count from `obs`,
 #'   at `level`), `surrogates` (integer vector, length `B`), `p` (one-sided,
-#'   `(1 + #surrogates >= observed) / (B + 1)`), `null_obs_ratio`
+#'   `(1 + #surrogates >= observed) / (B + 1)`, always well-defined, including
+#'   when `observed = 0`), `null_obs_ratio`
 #'   (`mean(surrogates) / observed` -- a null-to-observed DISCOVERY-COUNT
 #'   ratio, not an observed false-discovery rate: it says how many
 #'   discoveries a structure-preserving null generates relative to how many
@@ -41,9 +42,13 @@
 #'   the nominal BH false-discovery rate is calibrated -- both `p` and
 #'   `null_obs_ratio` describe the AGGREGATE discovery count, at `level`,
 #'   under whatever structure `p_perm`'s surrogates were built to preserve;
-#'   neither is a per-region statement), `realised_fdr` (deprecated alias
-#'   for `null_obs_ratio`, identical value, kept for scripts written against
-#'   the old name -- new code should read `null_obs_ratio`), `params`.
+#'   neither is a per-region statement. `NA` when `observed = 0`: the ratio
+#'   is undefined there, not zero -- there is no observed count for the
+#'   null to be a fraction of, regardless of the surrogate mean. `p`
+#'   remains valid and interpretable in that case), `realised_fdr`
+#'   (deprecated alias for `null_obs_ratio`, identical value including the
+#'   `NA` case, kept for scripts written against the old name -- new code
+#'   should read `null_obs_ratio`), `params`.
 #'
 #' @seealso [ld_outlier_test()], [ld_region_rotation()]
 #' @export
@@ -100,7 +105,13 @@ ld_outlier_perm <- function(obs, stage1, map, p_perm,
                 else vapply(seq_len(B), one, 0L)
 
   observed <- if (level == "units") sum(obs$units$significant) else nrow(obs$regions)
-  null_obs_ratio <- mean(surrogates) / max(observed, 1)
+  ## Undefined, not zero, when nothing was observed: 0/0 is not "the null
+  ## found nothing relative to the observed count", it is "there was no
+  ## observed count to compare the null to" -- a different, degenerate
+  ## case. The count-tail p-value stays well-defined either way (surrogates
+  ## >= 0 is true whenever observed = 0, correctly giving p close to 1) and
+  ## is not touched by this.
+  null_obs_ratio <- if (observed > 0) mean(surrogates) / observed else NA_real_
   structure(list(
     observed = observed, surrogates = surrogates,
     p = (1 + sum(surrogates >= observed)) / (B + 1),
@@ -112,7 +123,8 @@ ld_outlier_perm <- function(obs, stage1, map, p_perm,
 
 #' @export
 print.ld_outlier_perm <- function(x, ...) {
-  cat(sprintf("<ld_outlier_perm> observed %d | surrogate mean %.2f | p = %.4f | null/obs ratio %.1f%%\n",
-              x$observed, mean(x$surrogates), x$p, 100 * x$null_obs_ratio))
+  ratio_str <- if (is.na(x$null_obs_ratio)) "NA (0 observed)" else sprintf("%.1f%%", 100 * x$null_obs_ratio)
+  cat(sprintf("<ld_outlier_perm> observed %d | surrogate mean %.2f | p = %.4f | null/obs ratio %s\n",
+              x$observed, mean(x$surrogates), x$p, ratio_str))
   invisible(x)
 }

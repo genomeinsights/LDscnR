@@ -40,9 +40,31 @@ test_that("null_obs_ratio is the primary field and realised_fdr is an identical,
   null_u <- ld_outlier_perm(x$obs, x$d$stage1, x$d$map, x$p_perm, B = x$B,
                             level = "units", verbose = FALSE)
   expect_identical(null_u$null_obs_ratio, null_u$realised_fdr)
-  expect_identical(null_u$null_obs_ratio, mean(null_u$surrogates) / max(null_u$observed, 1))
+  expect_identical(null_u$null_obs_ratio, mean(null_u$surrogates) / null_u$observed)
   expect_output(print(null_u), "null/obs ratio")
   expect_false(grepl("FDR", capture.output(print(null_u)), ignore.case = TRUE))
+})
+
+test_that("null_obs_ratio is NA, not 0, when nothing was observed", {
+  d <- build_real_stage1()
+  p_flat <- stats::setNames(rep(0.9, nrow(d$map)), d$map$marker)   # no discoveries
+  obs0 <- ld_outlier_test(d$stage1, d$map, p_flat, statistic = "simes", size_floor = 8L,
+                          assembly = "physical")
+  expect_identical(sum(obs0$units$significant), 0L)
+
+  set.seed(1)
+  p_perm_flat <- matrix(stats::runif(nrow(d$map) * 20, 0.5, 1), nrow(d$map), 20,
+                        dimnames = list(d$map$marker, NULL))
+  null0 <- ld_outlier_perm(obs0, d$stage1, d$map, p_perm_flat, level = "units", verbose = FALSE)
+
+  expect_identical(null0$observed, 0L)
+  expect_true(is.na(null0$null_obs_ratio))
+  expect_true(is.na(null0$realised_fdr))
+  ## the count-tail p-value stays well-defined and interpretable -- surrogates
+  ## >= 0 is true whenever observed = 0, so p is close to 1, not NA or an error
+  expect_false(is.na(null0$p))
+  expect_true(null0$p > 0.9)
+  expect_output(print(null0), "NA \\(0 observed\\)")
 })
 
 test_that("level = 'units' and level = 'regions' both run and count sensibly, and need not agree", {

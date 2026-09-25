@@ -43,7 +43,8 @@ agree, since assembly can merge several significant units into one region.}
 \value{
 An \code{ld_outlier_perm} object: \code{observed} (the count from \code{obs},
 at \code{level}), \code{surrogates} (integer vector, length \code{B}), \code{p} (one-sided,
-\verb{(1 + #surrogates >= observed) / (B + 1)}), \code{null_obs_ratio}
+\verb{(1 + #surrogates >= observed) / (B + 1)}, always well-defined, including
+when \code{observed = 0}), \code{null_obs_ratio}
 (\code{mean(surrogates) / observed} -- a null-to-observed DISCOVERY-COUNT
 ratio, not an observed false-discovery rate: it says how many
 discoveries a structure-preserving null generates relative to how many
@@ -54,9 +55,13 @@ itself establish that individual reported regions are genuine, or that
 the nominal BH false-discovery rate is calibrated -- both \code{p} and
 \code{null_obs_ratio} describe the AGGREGATE discovery count, at \code{level},
 under whatever structure \code{p_perm}'s surrogates were built to preserve;
-neither is a per-region statement), \code{realised_fdr} (deprecated alias
-for \code{null_obs_ratio}, identical value, kept for scripts written against
-the old name -- new code should read \code{null_obs_ratio}), \code{params}.
+neither is a per-region statement. \code{NA} when \code{observed = 0}: the ratio
+is undefined there, not zero -- there is no observed count for the
+null to be a fraction of, regardless of the surrogate mean. \code{p}
+remains valid and interpretable in that case), \code{realised_fdr}
+(deprecated alias for \code{null_obs_ratio}, identical value including the
+\code{NA} case, kept for scripts written against the old name -- new code
+should read \code{null_obs_ratio}), \code{params}.
 }
 \description{
 Not separate machinery. This runs the SAME \code{\link[=ld_outlier_test]{ld_outlier_test()}} pipeline once
