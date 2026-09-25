@@ -325,17 +325,21 @@ vignette("LDscnR_stage1_outlier_regions")   # PRIMARY: the current Stage-1-clust
 vignette("LDscnR_quick_introduction")       # LD decay, ld_w, pruning, eMLGs
 vignette("LDscnR_complexity_reduction")     # LD decay and complexity reduction on real stickleback data
 vignette("LDscnR_outlier_analysis")         # OLDER, non-primary: the C-score approach
-vignette("LDscnR_outlier_regions_from_pvalues")  # OLDER, non-primary: ld_scan(), the same older method
 ```
 
 `vignette("LDscnR_stage1_outlier_regions")` is the primary outlier-analysis vignette: it runs
 the current pipeline (`ld_unit_matrix()` / `ld_outlier_test()` / `ld_outlier_perm()` /
 `ld_region_rotation()`) end to end on the bundled `stickleback` panel, executable as written,
-and mirrors the real call sequence used to produce the manuscript's results. The two vignettes
-marked "older, non-primary" above document the consistency-C-score family
+and mirrors the real call sequence used to produce the manuscript's results. The vignette
+marked "older, non-primary" above documents the consistency-C-score family
 (`ld_scan()`/`ld_outlier_regions()` and related functions): a genuinely different, earlier
 design, kept in the package and buildable, but not the method behind any current manuscript
-result -- see the "An older, separate method" section above.
+result -- see the "An older, separate method" section above. A second, related vignette
+(`LDscnR_outlier_regions_from_pvalues`, documenting `ld_scan()` specifically) is no longer
+installed: it had accumulated its own factual issues beyond being non-primary (an inaccurate
+BayPass claim, a leftover "prefer `ld_scan()`" recommendation, undercaveated `q_R`
+presentation), corrected and archived outside the built package at
+[`vignettes-archive/`](vignettes-archive/) rather than left in the installed tutorial set.
 
 ------------------------------------------------------------------------
 

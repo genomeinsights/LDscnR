@@ -36,8 +36,11 @@ LD-supported regions, each with a p-value obtained by asking how often a
 surrogate produced something as strong *at that same locus*.
 
 Nothing about your phenotype, covariates or association model enters the
-pipeline — only p-values. EMMAX, LFMM, BayPass, a plain GLM: all work, and two
-engines can be compared on identical footing.
+pipeline — only p-values. EMMAX, LFMM, a plain GLM: all work, and two
+engines can be compared on identical footing. This does **not** include
+BayPass out of the box: BayPass reports Bayes factors and XtX
+differentiation statistics, not p-values, so it cannot supply `p_obs`/
+`p_perm` directly.
 
 ## Where the C-score comes from
 
@@ -144,7 +147,11 @@ any one observed locus.
 
 `q_R` is the multiple-testing correction this method reports. A Bonferroni
 correction over every marker would double-count a burden already carried at the
-C-score and region-size stages.
+C-score and region-size stages. Like the region p-value it corrects, `q_R` is
+only as trustworthy as the null it was calibrated against -- see "Read the gate
+first" above. A small `q_R` from a null that itself failed the gate is not a
+small false-discovery rate; check the gate before reading `q_R` with
+confidence, not after.
 
 ## When everything sits at the p-floor
 
@@ -210,8 +217,10 @@ false positives: chance clusters rarely grow large.
 
 `ld_outlier_regions()` is the older, self-contained route: it runs its own EMMAX
 scan, generates its own MVN surrogates, and calibrates a single `tau_C` against a
-pooled count-FDR. It is still there and still works. Prefer `ld_scan()` when you
-want to choose the engine, choose the surrogates, or compare two engines.
+pooled count-FDR. It is still there and still works. Within this C-score family,
+`ld_scan()` is the more flexible of the two when you want to choose the engine,
+choose the surrogates, or compare two engines -- but neither is the primary
+method any more; see the banner at the top of this vignette.
 
 `null_fdr()`, `calibrate_tauc()` and `calibrate_lmin()` are no longer exported --
 this whole family (`ld_scan()` included) has been superseded by the Stage-1-
