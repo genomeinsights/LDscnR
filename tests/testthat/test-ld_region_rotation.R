@@ -73,6 +73,30 @@ test_that("a region exactly as long as a chromosome is placeable, not an error",
   expect_s3_class(out, "ld_region_rotation")
 })
 
+test_that("genome: a region that exactly fills its only fitting chromosome is placeable, not an error", {
+  ## Regression test: space = len - span = 0 exactly at a tight fit was
+  ## previously treated as zero SELECTION weight (not just zero offset
+  ## freedom), which could make every candidate chromosome's weight zero and
+  ## incorrectly raise "does not fit on any chromosome" for a region that
+  ## does fit -- reproduced directly with a single chromosome exactly the
+  ## region's own length.
+  R_tight <- data.table::data.table(chr = "1", from = 0, to = 200)  # chr1 len = 200, exact fit
+  L_one <- data.table::data.table(chr = "1", len = 200)
+  expect_silent(
+    out <- ld_region_rotation(R_tight, make_annotation(), L_one, scheme = "genome", n_rotations = 50)
+  )
+  expect_s3_class(out, "ld_region_rotation")
+
+  ## direct check on the relocator: every draw lands at from = 0 on the one
+  ## chromosome that fits, never errors, never drawn with zero probability
+  relocate <- LDscnR:::.build_relocator(R_tight, c("1" = 200), "genome")
+  set.seed(1)
+  draws <- data.table::rbindlist(lapply(1:200, function(i) relocate()))
+  expect_true(all(draws$chr == "1"))
+  expect_true(all(draws$from == 0))
+  expect_true(all(draws$to == 200))
+})
+
 test_that("zero regions is handled without error and gives a well-defined result", {
   R0 <- make_regions()[0]
   for (sc in c("within", "genome")) {

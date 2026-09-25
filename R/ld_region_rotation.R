@@ -43,14 +43,32 @@
     ## a region is more likely to land on a chromosome that actually offers
     ## more room for it, and chromosomes it cannot fit on get probability 0
     ## rather than truncating the region there.
+    ##
+    ## Selection WEIGHT is space + 1 on every chromosome the region actually
+    ## fits on (len_j >= w_i), not space itself: space alone is exactly 0
+    ## when a region's span exactly equals a chromosome's length -- the
+    ## tightest possible fit, with exactly one valid placement (off = 0),
+    ## not zero. Treating that as zero probability wrongly excluded the
+    ## chromosome from selection, and could make row_tot = 0 for a region
+    ## that DOES fit somewhere, raising the "does not fit anywhere" error on
+    ## a region that fits everywhere it was checked -- reproduced directly:
+    ## a single chromosome exactly the length of the region errored before
+    ## this fix. The "+1" is the same add-one convention this package
+    ## already uses for its p-values (never let a real possibility be
+    ## weighted at exactly zero); for any chromosome with real headroom
+    ## (space >> 1) it is negligible. The offset actually drawn still uses
+    ## the real `space_mat` (0 at an exact fit, forcing off = 0), never the
+    ## weight -- only chromosome SELECTION uses the smoothed weight.
+    fits_mat <- outer(w, len_of, function(wi, Lj) Lj >= wi)
     space_mat <- outer(w, len_of, function(wi, Lj) pmax(Lj - wi, 0))
-    row_tot <- rowSums(space_mat)
+    weight_mat <- ifelse(fits_mat, space_mat + 1, 0)
+    row_tot <- rowSums(weight_mat)
     if (any(bad <- row_tot <= 0))
       stop(sprintf(
         "region %d (span %.0f bp) does not fit on any chromosome in `chrom_lengths` ",
         which(bad)[1], w[which(bad)[1]]),
         "under scheme = \"genome\".")
-    cum_mat <- t(apply(space_mat, 1L, cumsum))
+    cum_mat <- t(apply(weight_mat, 1L, cumsum))
     function() {
       u <- stats::runif(n_reg) * row_tot
       col_idx <- max.col(cum_mat >= u, ties.method = "first")
