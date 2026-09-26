@@ -1,4 +1,4 @@
-# LDscnR 0.0.0.9000
+# LDscnR 0.9.0
 
 ## Current outlier workflow
 

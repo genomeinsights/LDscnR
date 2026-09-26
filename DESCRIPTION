@@ -1,6 +1,6 @@
 Package: LDscnR
 Title: LD-Aware Complexity Reduction and Outlier-Region Detection for Genome Scans
-Version: 0.0.0.9000
+Version: 0.9.0
 Authors@R: 
     person("Petri", "Kemppainen", , "petri@genomeinsights.fi", role = c("aut", "cre"))
 Description: Linkage-disequilibrium-aware genome scans. Estimates chromosome-wise LD
