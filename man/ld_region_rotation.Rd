@@ -30,8 +30,10 @@ which its full span still fits on that chromosome -- the right default
 whenever the annotation is non-uniformly distributed among chromosomes,
 since \code{"genome"} would then credit a region merely for landing on an
 annotation-rich chromosome. \code{"genome"} also reassigns chromosome: for
-each region, a chromosome is drawn with probability proportional to its
-OWN valid placement space for that region's span, \code{max(chrom_len - span, 0)} -- not uniformly among chromosomes, which would over-place
+each region, a chromosome is drawn with weight based on its available
+placement space for that span, \code{max(chrom_len - span, 0) + 1} on
+chromosomes where it fits (the added 1 retains exact fits) -- not
+uniformly among chromosomes, which would over-place
 regions on short chromosomes relative to the room they actually offer,
 and under-place them on long ones. A region whose span exceeds every
 available chromosome (or, under \code{"within"}, its own chromosome) cannot be
@@ -66,10 +68,10 @@ result -- read the fold and the null p-value, not the raw rate. This is a
 random-relocation null (as in \verb{bedtools shuffle} or GAT), not a circular
 rotation: each region is placed independently, not shifted together as one
 configuration, so it does not preserve the spacing between regions. That
-independence matches how these regions are generated -- each is its own
-discovery from an independently significant Stage-1/Stage-2 unit, not one
-jointly-patterned point process whose internal geometry should be held
-fixed.
+independence is a property of the relocation draws, not of the discoveries:
+observed regions may themselves be correlated or spatially clustered. This
+null answers a span- and chromosome-adjusted overlap question, not whether
+individual regions are independently supported.
 }
 \seealso{
 \code{\link[=ld_outlier_test]{ld_outlier_test()}}, \code{\link[=ld_outlier_perm]{ld_outlier_perm()}}

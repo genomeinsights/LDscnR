@@ -1,4 +1,4 @@
-#' One representative SNP per `ld_prune_and_eMLG()` group -- a different
+#' One consensus-optimal SNP per `ld_prune_and_eMLG()` group -- a different
 #' scale from `ld_unit_matrix()`
 #'
 #' [eMLG_best_snp()] picks, per group, the member SNP most correlated with
@@ -29,7 +29,7 @@
 #'   non-empty `eMLG` matrix and its `groups` table).
 #' @param map data.frame/data.table with `marker`, `Chr`, `Pos`, covering
 #'   every marker `prune_result`'s groups reference.
-#' @param size_floor Minimum raw loci per group to be included (default
+#' @param size_floor Minimum markers per group to be included (default
 #'   8L), applied to `prune_result$groups$n_loci` -- independent of
 #'   whether the Stage-1 clusters that fed `prune_result` themselves
 #'   cleared any size floor.

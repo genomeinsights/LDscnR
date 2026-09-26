@@ -1,19 +1,14 @@
 #' LD-aware outlier regions from stage-1 clusters, end to end
 #'
-#' The sibling entry point to [ld_scan()], composing [ld_outlier_test()],
-#' [ld_outlier_perm()] and [ld_region_rotation()] the same way [ld_scan()]
-#' composes its own C-score sub-functions -- for one-call convenience, while
-#' each piece stays independently usable for anyone who wants to reuse region
-#' assembly on a different region set, or run the rotation null on regions from
-#' elsewhere.
+#' A one-call wrapper around [ld_outlier_test()], optional
+#' [ld_outlier_perm()] discovery-count calibration and optional
+#' [ld_region_rotation()] annotation-overlap testing. Each component remains
+#' independently usable.
 #'
-#' This is a genuinely different method from [ld_scan()], not an alternative
-#' parameterisation of it: that one computes a consistency C-score (Fang et al.
-#' 2021) over an `ld_w` quantile grid and thresholds it; this one tests
-#' [ld_complexity_reduction()] clusters directly (Simes over members, or your
-#' own test on an [ld_unit_matrix()] variable), BH-corrects, and assembles
-#' significant units into regions. Both turn p-values plus LD structure into
-#' significant regions; pick one rather than have it picked for you.
+#' This is the current Stage-1-unit workflow: it tests
+#' [ld_complexity_reduction()] clusters directly (Simes over their markers or
+#' a separately tested [ld_unit_matrix()] variable), applies BH correction
+#' across tested units and assembles significant units into reported regions.
 #'
 #' @inheritParams ld_outlier_test
 #' @param p_perm Optional surrogate p-values (same shape `p_obs` had) --
@@ -31,7 +26,7 @@
 #'   `units`, `regions`), `null` (the `ld_outlier_perm` result, or `NULL`),
 #'   `rotation` (the `ld_region_rotation` result, or `NULL`), `params`.
 #'
-#' @seealso [ld_scan()], [ld_unit_matrix()], [ld_outlier_test()],
+#' @seealso [ld_unit_matrix()], [ld_outlier_test()],
 #'   [ld_outlier_perm()], [ld_region_rotation()]
 #' @export
 ld_outlier_scan <- function(stage1, map, p_obs, p_perm = NULL,

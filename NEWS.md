@@ -1,6 +1,31 @@
 # LDscnR 0.0.0.9000
 
-## Breaking changes
+## Current outlier workflow
+
+* `ld_unit_matrix()` builds one testable variable per phenotype-blind Stage-1
+  unit. `ld_outlier_test()` applies multiple-testing correction to unit-level
+  p-values and assembles significant units into reported regions.
+  `ld_outlier_perm()` repeats the same analysis under user-supplied surrogate
+  p-values to compare discovery counts with a study-appropriate null.
+
+* `ld_region_rotation()` separately tests overlap with external annotations
+  by independently relocating regions while preserving their spans. This is
+  not a phenotype null or a test of individual-region significance.
+
+* The C-score tutorials have been moved outside the installed vignette set.
+  The earlier implementation remains available for reproducibility, but the
+  Stage-1 workflow is the method described in the current manuscript.
+
+* Documentation now distinguishes LD reduction from independence, clarifies
+  the dataset-specific size floor and the LFMM/Simes route, and avoids
+  treating independent relocation draws as independent discoveries.
+
+## Historical changes to retained C-score code
+
+The items below describe the earlier implementation, not the recommended
+Stage-1 outlier workflow.
+
+### Breaking changes
 
 * The default `rho_ld` is now **0.75** everywhere (`ld_edges()`, `ld_scan()`,
   `ld_outlier_regions()`, `ld_region_stability()`), replacing 0.9. The package
@@ -17,7 +42,7 @@
   a lower r^2 link and more merging) and the range over which it was checked,
   in place of the previous unqualified "shown insensitive" claim.
 
-## Bug fixes
+### Bug fixes
 
 * `ld_cscore()` no longer errors on NA p-values. `p.adjust()` propagates NA, so
   the hit index contained NA and assignment failed with "NAs are not allowed in
@@ -33,7 +58,7 @@
   produced no regions. "Observed found nothing, surrogates found plenty" is a
   gate failure, and was previously reported as a pass because the ratio was `NA`.
 
-## New features
+### New features
 
 * `ld_scan()` and its four stages -- `ld_null_from_p()`, `ld_gate()`,
   `ld_region_scan()`, `ld_region_c2()` -- take p-values from the observed data

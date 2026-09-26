@@ -2,7 +2,7 @@
 % Please edit documentation in R/ld_complexity_reduction.R
 \name{ld_complexity_reduction}
 \alias{ld_complexity_reduction}
-\title{Reduce a Marker Set to LD-Independent Representatives}
+\title{Reduce a Marker Set to Less-Redundant LD Representatives}
 \usage{
 ld_complexity_reduction(
   map,
@@ -84,20 +84,22 @@ inversion -- is exactly where pruning needs to be MORE aggressive, since
 those markers are the most redundant; adapting the threshold to expect
 high local LD there and tolerate it would defeat the purpose of pruning.
 
-Clustering is two-stage, using a per-chromosome edge list of pairwise
-\eqn{r^2}. That edge list is taken from \code{LD_decay$by_chr[[ch]]$el} when it
+Stage-1 clustering has two internal passes, using a per-chromosome edge
+list of pairwise \eqn{r^2}. These are not the manuscript's Stage 1 and
+Stage 2: manuscript Stage 2 assembles significant units after testing.
+The edge list is taken from \code{LD_decay$by_chr[[ch]]$el} when it
 is there (the same precomputed edges \code{\link[=compute_ld_w]{compute_ld_w()}} uses, built with
 \code{keep_el = TRUE}, so no pairwise LD is recomputed); otherwise, if \code{gds} is
 supplied, it is rebuilt from the genotypes ONE CHROMOSOME AT A TIME and
 discarded again, so a caller can run \code{compute_LD_decay(keep_el = FALSE)} --
 saving nothing to disk and carrying no edges in the returned object -- and
-still use this function. The two stages are:
+still use this function. The two internal passes are:
 \enumerate{
 \item Connected components on the sparse thresholded graph (single
 linkage; cheap).
 \item WITHIN each component, refined to true complete-linkage
 sub-clusters via \code{hclust()} on a small dense sub-matrix built from
-\code{el}'s already-available r2 values. This second stage matters:
+\code{el}'s already-available r2 values. This refinement matters:
 single linkage alone is vulnerable to "chaining" through a mosaic LD
 pattern -- marker A uncorrelated with C, but both bridged into one
 component via an intermediate B that's correlated with each -- which
@@ -113,7 +115,7 @@ is fragile to inconsistent allele-coding direction within a cluster (a
 genuinely central marker coded on the opposite reference allele shows a
 spuriously negative correlation with the mean and gets passed over for a
 noisier marker); r2 is sign-agnostic, so median r2 doesn't have that
-problem, and -- since Stage 2 already builds the pairwise r2 sub-matrix
+problem, and -- since complete-linkage refinement already builds the pairwise r2 sub-matrix
 for \code{hclust()} -- costs nothing extra to compute.
 
 Chromosomes are processed with a \code{txtProgressBar} each, labelled by
@@ -128,7 +130,7 @@ Known limitation: \code{el} itself is built from a sliding window, so a pair
 of markers farther apart than that window was never evaluated at all
 (not "below threshold" -- absent, which behaves as r2 = 0 here). Stage 1
 tolerates this fine, since single-linkage components only need a chain of
-overlapping-window edges to link distant markers together. Stage 2 does
+overlapping-window edges to link distant markers together. Complete-linkage refinement does
 not: complete linkage requires every pairwise r2 within a final cluster
 to individually clear the threshold, so a genuinely one-block region
 whose extent exceeds the window gets fragmented into more than one

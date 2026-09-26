@@ -1,12 +1,11 @@
 #' Test LD-complexity-reduction clusters and assemble significant ones into regions
 #'
-#' The core detection step of the stage-1-cluster outlier-region method: one of
-#' two genuinely different algorithms in this package for turning per-marker
-#' p-values plus LD structure into significant regions (the other is the
-#' consistency C-score family behind [ld_scan()]/[ld_outlier_regions()]). No
-#' null here -- see [ld_outlier_perm()] for the permutation null and
-#' [ld_region_rotation()] for annotation-overlap validation, both of which
-#' reuse this function's result rather than duplicate its logic.
+#' The core detection step of the current Stage-1-unit outlier workflow.
+#' It tests units and assembles significant ones into reported regions.
+#' It does not construct a null: [ld_outlier_perm()] compares discovery counts
+#' with user-supplied surrogate phenotypes, whereas [ld_region_rotation()]
+#' asks whether reported intervals overlap external annotations more than
+#' their span and chromosome assignment would predict.
 #'
 #' `statistic = "simes"` aggregates marker-level `p_obs` (`min(n * p_(i) / i)`
 #' per cluster, so the penalty scales with cluster size); `statistic = "unit"`
@@ -29,7 +28,9 @@
 #'   aligned to the units [ld_unit_matrix()] would return at the same
 #'   `size_floor`).
 #' @param statistic `"simes"` or `"unit"`.
-#' @param size_floor Minimum markers per tested unit (default 8L).
+#' @param size_floor Minimum markers per tested unit (default 8L). This
+#'   software default is not a universal support threshold; select it without
+#'   reference to association results and assess sensitivity to the choice.
 #' @param alpha BH level (default 0.05).
 #' @param assembly `"stage2_discovered"` (default) -- re-run
 #'   [ld_prune_and_eMLG()] over the significant clusters only, so a region can
@@ -59,7 +60,7 @@
 #'   (everything above, resolved).
 #'
 #' @seealso [ld_unit_matrix()], [ld_outlier_perm()], [ld_region_rotation()],
-#'   [ld_scan()] (the C-score alternative), [ld_complexity_reduction()]
+#'   [ld_complexity_reduction()]
 #' @export
 ld_outlier_test <- function(stage1, map, p_obs,
                             statistic = c("simes", "unit"),

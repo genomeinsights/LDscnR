@@ -2,7 +2,7 @@
 % Please edit documentation in R/ld_group_matrix.R
 \name{ld_group_matrix}
 \alias{ld_group_matrix}
-\title{One representative SNP per \code{ld_prune_and_eMLG()} group -- a different
+\title{One consensus-optimal SNP per \code{ld_prune_and_eMLG()} group -- a different
 scale from \code{ld_unit_matrix()}}
 \usage{
 ld_group_matrix(
@@ -22,7 +22,7 @@ non-empty \code{eMLG} matrix and its \code{groups} table).}
 \item{map}{data.frame/data.table with \code{marker}, \code{Chr}, \code{Pos}, covering
 every marker \code{prune_result}'s groups reference.}
 
-\item{size_floor}{Minimum raw loci per group to be included (default
+\item{size_floor}{Minimum markers per group to be included (default
 8L), applied to \code{prune_result$groups$n_loci} -- independent of
 whether the Stage-1 clusters that fed \code{prune_result} themselves
 cleared any size floor.}

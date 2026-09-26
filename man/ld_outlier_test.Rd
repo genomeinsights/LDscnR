@@ -32,7 +32,9 @@ aligned to the units \code{\link[=ld_unit_matrix]{ld_unit_matrix()}} would retur
 
 \item{statistic}{\code{"simes"} or \code{"unit"}.}
 
-\item{size_floor}{Minimum markers per tested unit (default 8L).}
+\item{size_floor}{Minimum markers per tested unit (default 8L). This
+software default is not a universal support threshold; select it without
+reference to association results and assess sensitivity to the choice.}
 
 \item{alpha}{BH level (default 0.05).}
 
@@ -68,13 +70,12 @@ unit -- \code{unit_id}, \code{Chr}, \code{from}, \code{to}, \code{n_markers}, \c
 (everything above, resolved).
 }
 \description{
-The core detection step of the stage-1-cluster outlier-region method: one of
-two genuinely different algorithms in this package for turning per-marker
-p-values plus LD structure into significant regions (the other is the
-consistency C-score family behind \code{\link[=ld_scan]{ld_scan()}}/\code{\link[=ld_outlier_regions]{ld_outlier_regions()}}). No
-null here -- see \code{\link[=ld_outlier_perm]{ld_outlier_perm()}} for the permutation null and
-\code{\link[=ld_region_rotation]{ld_region_rotation()}} for annotation-overlap validation, both of which
-reuse this function's result rather than duplicate its logic.
+The core detection step of the current Stage-1-unit outlier workflow.
+It tests units and assembles significant ones into reported regions.
+It does not construct a null: \code{\link[=ld_outlier_perm]{ld_outlier_perm()}} compares discovery counts
+with user-supplied surrogate phenotypes, whereas \code{\link[=ld_region_rotation]{ld_region_rotation()}}
+asks whether reported intervals overlap external annotations more than
+their span and chromosome assignment would predict.
 }
 \details{
 \code{statistic = "simes"} aggregates marker-level \code{p_obs} (\code{min(n * p_(i) / i)}
@@ -92,5 +93,5 @@ rather than guessing.
 }
 \seealso{
 \code{\link[=ld_unit_matrix]{ld_unit_matrix()}}, \code{\link[=ld_outlier_perm]{ld_outlier_perm()}}, \code{\link[=ld_region_rotation]{ld_region_rotation()}},
-\code{\link[=ld_scan]{ld_scan()}} (the C-score alternative), \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}}
+\code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}}
 }

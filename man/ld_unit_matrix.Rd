@@ -23,6 +23,8 @@ ld_unit_matrix(
 \code{stage1}'s marker universe.}
 
 \item{size_floor}{Minimum markers per cluster to be included (default 8L).
+Eight is a software default, not a generally validated biological
+threshold; choose a floor for the dataset and examine its sensitivity.
 \code{"eMLG"}'s own default inside \code{\link[=make_eMLGs]{make_eMLGs()}} is \code{l_min = 10}, LARGER than a
 typical \code{size_floor} -- this function passes \code{l_min = 1} to \code{\link[=make_eMLGs]{make_eMLGs()}}
 internally so filtering happens once, here, at \code{size_floor}; override via
@@ -46,18 +48,20 @@ names (one per unit; index into \code{GTs} yourself). Every return carries
 \code{ld_outlier_test()} tests clusters, not markers, and a cluster is not itself
 something you can hand to an association test -- it has to become ONE variable
 per individual first. This builds that variable, three ways, and stops there:
-running the test on it (EMMAX, LFMM, a GLM, whatever) is your job, exactly as
-with the per-marker p-values \code{\link[=ld_scan]{ld_scan()}} expects. The package supplies LD
-structure and region assembly; it does not run your scan.
+running a suitable association test on it is the caller's job. EMMAX can
+test a consensus dosage directly. For LFMM, whose latent factors are
+estimated from genome-wide markers, retain the full-marker fit and combine
+its marker p-values within Stage-1 units using \code{\link[=ld_outlier_test]{ld_outlier_test()}} with
+\code{statistic = "simes"}; do not re-estimate factors from the reduced candidate
+matrix. The package supplies LD structure and region assembly here.
 }
 \details{
 The three representations answer different questions and are not
 interchangeable in general, only observed to be close on some panels:
 \itemize{
 \item \code{"consensus_dosage"}: polarise every member to a common allele, then
-row-mean. No size penalty -- a larger cluster is a BETTER-ESTIMATED
-consensus, so size helps rather than hurts. Averages away signal that is
-genuinely SNP-specific (differing even between strongly linked markers).
+row-mean. This representation does not impose Simes' cluster-size
+penalty, but averaging can dilute signal that differs among members.
 \item \code{"eMLG"}: \code{\link[=make_eMLGs]{make_eMLGs()}}'s own block consensus. Conceptually close to
 \code{consensus_dosage} but not verified identical; included so that question is
 answered empirically rather than assumed.

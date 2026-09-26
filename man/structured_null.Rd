@@ -25,7 +25,7 @@ structured_null(
 \item{GTs}{Genotype dosage matrix (individuals x SNPs; column names = markers).}
 
 \item{K}{Kinship / GRM used both to correct EMMAX and as the genetic structure
-basis. For empirical data prefer a GRM built from LD-independent markers so it
+basis. For empirical data prefer a GRM built from LD-reduced markers so it
 captures structure without absorbing the signal.}
 
 \item{ld_ws}{Local-LD support matrix for the C-score (see \code{\link[=ld_cscore]{ld_cscore()}}).}

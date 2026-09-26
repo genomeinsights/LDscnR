@@ -2,7 +2,7 @@
 
 **Chromosome-wise LD-decay estimation, LD-based marker pruning, eMLG generation, and LD-aware outlier-region detection**
 
-`LDscnR` provides tools for estimating linkage disequilibrium (LD) decay from genotype data, and for using that decay model to reduce a marker set to LD-independent representatives. The same clustering step can be used to produce a pruned marker set (for a kinship/relatedness matrix, EMMAX's `K`, BayPass's `OMEGA`), one consensus genotype per LD block (an "eMLG" -- expected multi-locus genotype -- for block-level analyses such as long-range LD or Ohta's D statistics), or the test unit for LD-aware outlier-region detection: BH-test the clusters against p-values from your own association engine, then assemble the significant ones into reported regions. A tutorial PDF can be found in vignettes.
+`LDscnR` estimates linkage disequilibrium (LD) decay and groups correlated markers without using the phenotype. These Stage-1 groups can supply a less redundant marker set for a relationship matrix, a consensus genotype for each group, or the units for association testing. Significant Stage-1 units can then be assembled into outlier regions for reporting. Grouping reduces redundancy; it does not prove that different groups are statistically independent. See the vignettes for worked examples.
 
 ------------------------------------------------------------------------
 
@@ -18,9 +18,9 @@
 
 - **Built-in plotting** of decay summaries, per-chromosome fits, and window recommendations
 
-- **Two-stage LD complexity reduction** to LD-independent representatives -- the same clustering feeds either a pruned marker set or, optionally, one consensus genotype per block (an eMLG)
+- **Two-stage LD complexity reduction** to less redundant representatives -- the same clustering feeds either a pruned marker set or, optionally, one consensus genotype per block (an eMLG)
 
-- **Outlier regions from Stage-1 units** (`ld_outlier_test()` / `ld_outlier_perm()`) -- BH-test Stage-1 clusters against p-values from your own association engine (consensus dosage or Simes-combined marker p-values), assemble the significant clusters into reported regions, and calibrate with a permutation or annotation-rotation null
+- **Outlier regions from Stage-1 units** (`ld_outlier_test()` / `ld_outlier_perm()`) -- test Stage-1 clusters using consensus-dosage or Simes-combined marker p-values, assemble significant units into reported regions, and compare discovery counts with a study-appropriate phenotype null. A separate region-relocation test asks whether the reported intervals overlap external annotations more often than their spans predict.
 
 - **Diagnostic plotting** comparing raw vs. consolidated clusters chromosome-by-chromosome
 
@@ -34,7 +34,7 @@
 # install from GitHub
 pak::pak("genomeinsights/LDscnR")
 
-# or (if you don't have a GitHub account)
+# or use devtools
 devtools::install_github(repo = "genomeinsights/LDscnR")
 ```
 
@@ -49,13 +49,15 @@ library(data.table)
 data("sim_ex")
 
 map <- sim_ex$map
+GTs <- sim_ex$GTs
+colnames(GTs) <- map$marker  # the bundled matrix and map use different marker labels
 
 # Create a GDS object from the genotype matrix
 gds_path <- tempfile(fileext = ".gds")
-gds <- create_gds_from_geno(sim_ex$GTs, map, gds_path)
+gds <- create_gds_from_geno(GTs, map, gds_path)
 
 # Estimate chromosome-wise LD decay
-ld_decay <- compute_LD_decay(gds, keep_el = TRUE)
+ld_decay <- compute_LD_decay(gds, keep_el = TRUE, seed = 1)
 
 # Inspect the fitted decay parameters and window recommendations
 ld_decay
@@ -124,7 +126,7 @@ ld_w <- compute_ld_w(ld_decay, rho = c(0.90, 0.95, 0.99), cores = 4)
 map[, ld_w_095 := ld_w[, "rho_0.95"]]
 ```
 
-### 2. Stage 1 -- reduce markers to LD-independent representatives
+### 2. Stage 1 -- reduce marker redundancy
 
 `ld_complexity_reduction()` clusters markers within each chromosome (connected components, then complete-linkage refinement within each) and picks one representative marker per cluster. This single call is the shared starting point for **both** downstream uses:
 
@@ -137,18 +139,22 @@ stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cor
 
 **Why complete linkage on real pairwise values?** Standard sliding-window LD pruning -- including SNPRelate's own `snpgdsLDpruning()` (the GDS backend `LDscnR` itself builds on) and PLINK's `--indep-pairwise` -- makes a single greedy, order-dependent pass along the chromosome: starting from a (by default, semi-random) position, it admits a candidate marker only if it doesn't exceed the LD threshold against any marker already retained within the window, then moves on without ever revisiting that decision as more of the chromosome is seen. Two consequences, the first checked directly on the bundled `sim_ex` data (`snpgdsLDpruning(..., ld.threshold = 0.2, method = "corr")`, three `set.seed()` values): the retained set is not deterministic -- three seeds retained 93, 96, and 95 markers respectively, with only \~39% overlap between two of those runs on *identical* input -- and the output is just a flat list of retained marker IDs, with no record of which markers were considered redundant with which survivor, so nothing downstream (an eMLG-style consensus genotype, or even just knowing a pruned marker's effective "weight") can be built from it. Neither property is a bug in `snpgdsLDpruning()` -- both are direct, expected consequences of a single greedy walk that never double-checks its own earlier decisions, which is exactly the design LDscnR's Stage 1 avoids.
 
-Stage 1 avoids this by construction: within each connected component, `hclust()` clusters on the real pairwise r² sub-matrix using complete linkage, so a marker only joins a cluster if it clears the threshold against *every* existing member, not just its nearest neighbour -- a deterministic result with no dependence on traversal order or starting position (checked directly: identical `stage1$pruned` across different seeds on the same input). That also directly rules out single linkage's "chaining" failure (A uncorrelated with C, but both pulled into one group via an intermediate B correlated with each) -- the same failure mode that undermines greedy sequential pruning, since a candidate is never re-checked once an earlier, unrelated decision has already shaped the retained set. The representative marker for each cluster is chosen the same principled way: highest median r² to the rest of its own cluster, not whichever marker the walk happened to reach first. The result is markers in *different* final clusters are, by construction, never verified as mutually redundant with each other -- about as close to "each retained marker is a genuinely independent test unit" as a threshold-based method gets. The full cluster membership is retained too (not just the representative), which is what makes the eMLG option (below) possible at all.
+Stage 1 avoids an order-dependent greedy choice: within each connected component, it refines markers by complete linkage using their pairwise r² values. This prevents a chain of pairwise connections from joining markers that are weakly correlated at opposite ends of the chain. The representative has the highest median r² to other members of its cluster. Cluster membership is retained for downstream consensus genotypes. Separate final clusters can still be correlated, however; Stage 1 reduces redundant tests without certifying their independence.
 
 (Stage 1 alone still has one honest caveat: its edge list comes from a sliding window, so a genuinely one-block region can fragment into adjacent clusters whose representatives were simply never directly compared at all. Stage 2 below exists specifically to close that gap.)
 
 ### 3. Stage 2 (optional) -- consolidate and summarise as eMLGs
 
+This optional full-genome use of Stage 2 supports pruning and eMLG analyses.
+In the manuscript's outlier scans, Stage-1 clusters remain the test units:
+Stage 2 is applied only to significant units, after testing, to assemble
+reported regions.
+
 `ld_prune_and_eMLG()` closes the sliding-window gap above, but only for the clusters that need it: those flagged by high local LD support (`ld_w_col`/`ld_w_threshold`) are re-compared directly from genotypes -- with no window restriction -- and consolidated via a distance-restricted, quality-gated dynamic cut. This produces a refined pruned marker set and an eMLG matrix from the same pass; unflagged clusters (usually the large majority) pass straight through unchanged. `distance_threshold` -- the max physical gap allowed within one mergeable, contiguous block -- defaults to a per-chromosome value derived from `rho` and `LD_decay` (`d_from_rho(a_pred, rho)`), reusing the same `rho` that `ld_w_col`'s naming already implies, rather than one fixed bp constant:
 
 ```
-# ld_w_threshold = 0.05 here is a "final run" value (see the speed tip
-# below) -- flag more generously so that as many genuine mergers as
-# possible actually happen; raise it for a faster preliminary look
+# Illustrative full-genome flagging threshold for this example; inspect the
+# flagged fraction and sensitivity before choosing a value for new data.
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.05,
   LD_decay = ld_decay, rho = 0.95,
@@ -172,7 +178,7 @@ plot_pruning_comparison(chr = "Chr3", pruned_stage1 = stage1, result = result, m
 `ld_prune_and_eMLG()`'s cost is dominated by an all-pairs correlation among the *flagged* clusters, which scales roughly quadratically with how many clusters get flagged (on real data: \~0.01s at 292 flagged clusters, \~31s at 15,000). `ld_w_threshold` is the lever that matters, and it should move in different directions depending on the run:
 
 - **Preliminary/exploratory runs**: use a high `ld_w_threshold` to flag only the most obviously redundant clusters -- fast, good enough for a first look at cluster counts and eMLG behaviour.
-- **Final run**: lower `ld_w_threshold` toward `~0.05` (optionally combined with `min_n_loci_flag`, to also pull in large-but-low-`ld_w` clusters) so that as many genuine mergers as possible actually happen -- slower, but this only needs to be run once.
+- **Final run**: examine the fraction of clusters flagged and lower `ld_w_threshold` where broader consolidation is needed (optionally combined with `min_n_loci_flag`). The value `0.05` in this example is not a general cutoff. This optional full-genome consolidation is distinct from outlier-region assembly, which re-examines all significant units.
 - **`compute_unflagged_eMLG = FALSE`** skips eMLG computation for the unflagged clusters entirely (usually the large majority) if you only need the pruned marker set, independent of `ld_w_threshold`.
 
 ### 5. Best single-SNP proxy per block (optional)
@@ -202,6 +208,13 @@ the LDscnR manuscript: the simulation benchmark and both stickleback panels. See
 `vignette("LDscnR_stage1_outlier_regions")` for the full, executable walkthrough this section
 summarises, including the structure-aware permutation null and the separate annotation-overlap
 check.
+
+The snippets below show how the functions fit together; `K`, `y`,
+`annotation`, `chrom_lengths` and the surrogate p-values must come from the
+study being analysed.
+For a self-contained example, run the primary vignette. The default
+`size_floor = 8` is not a universal cutoff: the manuscript set empirical
+floors by filtered marker density and examined their sensitivity.
 
 It stays **engine-agnostic**: LDscnR does not fit your association model. You supply p-values
 from whatever engine you like -- EMMAX, LFMM, a GLM, an $F_{ST}$ scan; the package also ships
@@ -266,27 +279,28 @@ reported region can only span discovered signal. `assembly = "physical"`, a plai
 significant clusters within `gap`, is retained only as a near-free check against that
 motivated rule, not as an equally preferred alternative.
 
-### 3. Calibrate against a null
+### 3. Check the discovery burden and external overlap
 
-Two nulls answer different questions, and both are typically worth running.
+These checks answer different questions; neither validates the other.
 
-**Permutation** -- how many discoveries this same pipeline would make under no signal:
+**Structure-aware phenotype null** -- how many discoveries the same pipeline
+makes when the study's relevant population or spatial structure is preserved:
 
 ```r
-p_perm <- function(b) { set.seed(b); emmax_fast(P, sample(y)) }   # your own permutation scheme
+# p_perm is a units-by-surrogates matrix from re-running the association
+# model on study-appropriate surrogate phenotypes.
 null <- ld_outlier_perm(test, stage1, map, p_perm, GTs = GTs, LD_decay = ld_decay,
-                        B = 1000, level = "units")
+                        level = "units")
 null                                  # observed vs. surrogate discovery counts, one-sided p
 ```
 
-`p_perm` is where your design enters -- which unit you permute (individual, population,
-region), what you hold fixed. LDscnR cannot know that and does not guess; a scheme that
-breaks the structure your model corrects for produces an anticonservative null, and no amount
-of downstream machinery repairs it. `ld_outlier_perm()` reruns this same pipeline once per
-surrogate rather than reimplementing a null, so it is calibrated under exactly the settings
-`test` used.
+Constructing `p_perm` is a study-design decision: which unit is exchangeable,
+which structure is held fixed, and whether the surrogates reproduce the
+confounding pattern of concern. A null that breaks that structure can give
+false reassurance. The function repeats the same LDscnR testing and reporting
+steps for every surrogate. The primary vignette shows a concrete example.
 
-**Rotation** -- whether the resulting regions overlap an external annotation (EcoPeaks, a QTL
+**Region relocation** -- whether the resulting regions overlap an external annotation (EcoPeaks, a QTL
 panel, a gene list) more than a span-preserving null predicts:
 
 ```r
@@ -299,22 +313,20 @@ Key arguments:
 
 | argument | what it controls |
 |---|---|
-| `size_floor` | minimum markers per tested Stage-1 unit |
+| `size_floor` | minimum markers per tested Stage-1 unit; choose for the dataset and examine sensitivity |
 | `statistic` | `"unit"` (pre-built matrix from `ld_unit_matrix()`) or `"simes"` (combine marker p-values per unit) |
 | `assembly` | `"stage2_discovered"` (genotype-based, the inferential path) or `"physical"` (gap merge, a sanity check) |
-| `alpha` | BH level for unit significance; `ld_outlier_perm()`/`ld_region_rotation()` reuse `test$params` rather than take their own copy |
+| `alpha` | BH level for unit significance; `ld_outlier_perm()` reuses `test$params`. Region relocation is a separate annotation-overlap analysis. |
 | `level` (`ld_outlier_perm()`) | count `"units"` (cheap -- skips region assembly entirely) or `"regions"` |
-| `scheme` (`ld_region_rotation()`) | `"within"` (preserve each region's chromosome, rotate only position) or `"genome"` |
+| `scheme` (`ld_region_rotation()`) | `"within"` (preserve each region's chromosome and randomly relocate it) or `"genome"` (allow reassignment among chromosomes) |
 
-### An older, separate method
+### Earlier method retained in the source
 
-`LDscnR` also still ships an earlier approach to the same problem, the consistency C-score of
-Fang et al. (2021) -- `ld_cscore()`, `ld_region_scan()`, `ld_outlier_regions()` and related
-functions, documented in `vignette("LDscnR_outlier_analysis")`. It is a genuinely different
-design (one integrated per-SNP score, rather than a Stage-1-cluster BH test) and is no longer
-the primary method: every number in the manuscript comes from the pipeline above. `ld_scan()`
-specifically has been unexported (`LDscnR:::ld_scan()` still reaches it) because it belongs to
-that older family, not because it is a synonym for `ld_outlier_test()`.
+Earlier C-score code remains in the package for reproducibility, but it is not
+the current outlier workflow and has no installed tutorial. Its former
+vignettes are retained in [`vignettes-archive/`](vignettes-archive/) for
+historical reference. The Stage-1 workflow above is the one used in the
+current LDscnR manuscript.
 
 ------------------------------------------------------------------------
 
@@ -324,22 +336,15 @@ that older family, not because it is a synonym for `ld_outlier_test()`.
 vignette("LDscnR_stage1_outlier_regions")   # PRIMARY: the current Stage-1-cluster outlier pipeline, executable end to end
 vignette("LDscnR_quick_introduction")       # LD decay, ld_w, pruning, eMLGs
 vignette("LDscnR_complexity_reduction")     # LD decay and complexity reduction on real stickleback data
-vignette("LDscnR_outlier_analysis")         # OLDER, non-primary: the C-score approach
 ```
 
 `vignette("LDscnR_stage1_outlier_regions")` is the primary outlier-analysis vignette: it runs
 the current pipeline (`ld_unit_matrix()` / `ld_outlier_test()` / `ld_outlier_perm()` /
-`ld_region_rotation()`) end to end on the bundled `stickleback` panel, executable as written,
-and mirrors the real call sequence used to produce the manuscript's results. The vignette
-marked "older, non-primary" above documents the consistency-C-score family
-(`ld_scan()`/`ld_outlier_regions()` and related functions): a genuinely different, earlier
-design, kept in the package and buildable, but not the method behind any current manuscript
-result -- see the "An older, separate method" section above. A second, related vignette
-(`LDscnR_outlier_regions_from_pvalues`, documenting `ld_scan()` specifically) is no longer
-installed: it had accumulated its own factual issues beyond being non-primary (an inaccurate
-BayPass claim, a leftover "prefer `ld_scan()`" recommendation, undercaveated `q_R`
-presentation), corrected and archived outside the built package at
-[`vignettes-archive/`](vignettes-archive/) rather than left in the installed tutorial set.
+`ld_region_rotation()`) end to end on the bundled `stickleback` panel,
+executable as written. `ld_outlier_scan()` wraps these steps when a single
+call is convenient; the component functions make each check easier to inspect.
+The archived C-score vignettes are not installed or
+recommended for current analyses.
 
 ------------------------------------------------------------------------
 

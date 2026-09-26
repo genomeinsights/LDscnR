@@ -140,8 +140,15 @@ returns p-values works. Here we use `emmax_fast()`, LDscnR's own EMMAX
 implementation, for both.
 
 ```{r size-floor}
-size_floor <- 8L   # ignore units represented by fewer than this many markers
+size_floor <- 8L   # illustrative floor for this three-chromosome subset
 ```
+
+Eight is not a general cutoff. The full three-spined analysis in the
+manuscript set its floor of eight from the density of the complete filtered
+marker panel (approximately one required member per 100,000 markers), before
+examining associations or EcoPeak overlap, and then checked sensitivity to
+the floor. This subset is used to demonstrate the workflow, not to reselect
+that full-panel setting.
 
 ```{r phenotype}
 eco <- as.integer(pheno$ecotype == "Marine")

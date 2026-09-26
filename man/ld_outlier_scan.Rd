@@ -45,7 +45,9 @@ supplying this runs \code{\link[=ld_outlier_perm]{ld_outlier_perm()}} and adds \
 
 \item{statistic}{\code{"simes"} or \code{"unit"}.}
 
-\item{size_floor}{Minimum markers per tested unit (default 8L).}
+\item{size_floor}{Minimum markers per tested unit (default 8L). This
+software default is not a universal support threshold; select it without
+reference to association results and assess sensitivity to the choice.}
 
 \item{alpha}{BH level (default 0.05).}
 
@@ -91,23 +93,18 @@ An \code{ld_outlier_scan} object: \code{test} (the \code{ld_outlier_test} result
 \code{rotation} (the \code{ld_region_rotation} result, or \code{NULL}), \code{params}.
 }
 \description{
-The sibling entry point to \code{\link[=ld_scan]{ld_scan()}}, composing \code{\link[=ld_outlier_test]{ld_outlier_test()}},
-\code{\link[=ld_outlier_perm]{ld_outlier_perm()}} and \code{\link[=ld_region_rotation]{ld_region_rotation()}} the same way \code{\link[=ld_scan]{ld_scan()}}
-composes its own C-score sub-functions -- for one-call convenience, while
-each piece stays independently usable for anyone who wants to reuse region
-assembly on a different region set, or run the rotation null on regions from
-elsewhere.
+A one-call wrapper around \code{\link[=ld_outlier_test]{ld_outlier_test()}}, optional
+\code{\link[=ld_outlier_perm]{ld_outlier_perm()}} discovery-count calibration and optional
+\code{\link[=ld_region_rotation]{ld_region_rotation()}} annotation-overlap testing. Each component remains
+independently usable.
 }
 \details{
-This is a genuinely different method from \code{\link[=ld_scan]{ld_scan()}}, not an alternative
-parameterisation of it: that one computes a consistency C-score (Fang et al.
-2021) over an \code{ld_w} quantile grid and thresholds it; this one tests
-\code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}} clusters directly (Simes over members, or your
-own test on an \code{\link[=ld_unit_matrix]{ld_unit_matrix()}} variable), BH-corrects, and assembles
-significant units into regions. Both turn p-values plus LD structure into
-significant regions; pick one rather than have it picked for you.
+This is the current Stage-1-unit workflow: it tests
+\code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}} clusters directly (Simes over their markers or
+a separately tested \code{\link[=ld_unit_matrix]{ld_unit_matrix()}} variable), applies BH correction
+across tested units and assembles significant units into reported regions.
 }
 \seealso{
-\code{\link[=ld_scan]{ld_scan()}}, \code{\link[=ld_unit_matrix]{ld_unit_matrix()}}, \code{\link[=ld_outlier_test]{ld_outlier_test()}},
+\code{\link[=ld_unit_matrix]{ld_unit_matrix()}}, \code{\link[=ld_outlier_test]{ld_outlier_test()}},
 \code{\link[=ld_outlier_perm]{ld_outlier_perm()}}, \code{\link[=ld_region_rotation]{ld_region_rotation()}}
 }

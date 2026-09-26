@@ -22,7 +22,7 @@
 #' @param y Observed phenotype vector (length = number of individuals).
 #' @param GTs Genotype dosage matrix (individuals x SNPs; column names = markers).
 #' @param K Kinship / GRM used both to correct EMMAX and as the genetic structure
-#'   basis. For empirical data prefer a GRM built from LD-independent markers so it
+#'   basis. For empirical data prefer a GRM built from LD-reduced markers so it
 #'   captures structure without absorbing the signal.
 #' @param ld_ws Local-LD support matrix for the C-score (see [ld_cscore()]).
 #' @param basis Structure basis, `"genetic"` (default) or `"spatial"`.
