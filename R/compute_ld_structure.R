@@ -185,9 +185,15 @@ compute_LD_decay <- function(
   }
 
   if (!is.null(el_data_folder)) {
+    ## Strip any trailing separator(s) BEFORE first use: every path built from
+    ## `el_data_folder` below goes through file.path(el_data_folder, ...), and
+    ## a caller-supplied trailing "/" (or "\\") would otherwise still work but
+    ## leave a doubled separator in the result. Normalising once here, rather
+    ## than at each call site, is what makes both of them agree.
+    el_data_folder <- sub("[/\\\\]+$", "", el_data_folder)
     if (!dir.exists(el_data_folder)) dir.create(el_data_folder, recursive = TRUE)
     keep_el = FALSE # don't keep if saved
-    message("Savinge edge list to folder ",el_data_folder)
+    message("Saving edge list to folder ", el_data_folder)
   }
 
   ids  <- .read_gds_ids(gds)
@@ -289,8 +295,13 @@ compute_LD_decay <- function(
 
 
     if(!is.null(el_data_folder)){
-      ## save as text file to el_data_folder
-      fwrite(el, paste0(el_data_folder,ch,".el"))
+      ## save as text file to el_data_folder. file.path(), not paste0() with
+      ## the chromosome name glued straight on -- that previously wrote a
+      ## SIBLING of el_data_folder (its own name reused as a string prefix,
+      ## e.g. "cache/edge_listsChr1.el" instead of "cache/edge_lists/Chr1.el"),
+      ## leaving the directory this function itself creates permanently
+      ## empty. Found via LDscnR-multi, whose cache/ showed exactly that.
+      fwrite(el, file.path(el_data_folder, paste0(ch, ".el")))
     }
 
     decay[, contrast := c - b]
@@ -338,7 +349,7 @@ compute_LD_decay <- function(
       ## time from `gds` and discards each after use, so the peak is one edge
       ## list regardless of how many chromosomes there are.
       el        = if (keep_el) el
-                  else if (!is.null(el_data_folder)) paste0(el_data_folder, ch, ".el")
+                  else if (!is.null(el_data_folder)) file.path(el_data_folder, paste0(ch, ".el"))
                   else NULL,
       decay     = decay,
       decay_sum = decay_sum_chr
