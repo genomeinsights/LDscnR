@@ -231,7 +231,7 @@ away), and noise -- and run the whole pipeline on it.
 ```{r sim-null}
 qtn  <- map[type == "QTN", marker]
 Ksim <- snpgdsGRM(gds, snp.id = map$marker[ld_ws[, "0.95"] < 0.05],   # low-ld_w (neutral) GRM
-                  method = "GCTA", autosome.only = FALSE, verbose = FALSE)$grm
+                  method = "GCTA", autosome.only = FALSE, verbose = FALSE, missing.rate = 1)$grm
 set.seed(7)
 y_sim <- as.numeric(1.5 * scale(rowSums(GTs[, qtn, drop = FALSE])) +       # QTN genetic value
                     2.0 * scale(eigen(Ksim, symmetric = TRUE)$vectors[, 1]) + # structure axis
@@ -338,7 +338,7 @@ colnames(sld_ws) <- as.character(srho); sld_ws <- sld_ws[smap$marker, ]
 
 # neutral-background GRM: GCTA on the low-ld_w (LD-independent) markers
 neutral <- smap$marker[sld_ws[, "0.95"] < 0.05]
-K <- snpgdsGRM(sgds, snp.id = neutral, method = "GCTA", autosome.only = FALSE, verbose = FALSE)$grm
+K <- snpgdsGRM(sgds, snp.id = neutral, method = "GCTA", autosome.only = FALSE, verbose = FALSE, missing.rate = 1)$grm
 ```
 
 ```{r stickle-call}

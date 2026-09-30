@@ -46,7 +46,7 @@ gp <- tempfile(fileext = ".gds"); gds <- create_gds_from_geno(GTs, map, gp)
 pruned_chr <- map$Chr[match(o$pruned, map$marker)]
 Kloco <- setNames(lapply(chrs, function(ch)
   snpgdsGRM(gds, snp.id = o$pruned[pruned_chr != ch], method = "GCTA",
-            autosome.only = FALSE, verbose = FALSE)$grm), chrs)
+            autosome.only = FALSE, verbose = FALSE, missing.rate = 1)$grm), chrs)
 snpgdsClose(gds); unlink(gp)
 
 ## ---- permutation loop ------------------------------------------------------

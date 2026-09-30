@@ -115,7 +115,7 @@ otherwise be over-weighted in the relationship estimate.
 
 ```{r grm}
 K <- snpgdsGRM(gds, snp.id = stage1$pruned, method = "GCTA",
-               autosome.only = FALSE, verbose = FALSE)$grm
+               autosome.only = FALSE, verbose = FALSE, missing.rate = 1)$grm
 rownames(K) <- colnames(K) <- rownames(GTs)
 ```
 

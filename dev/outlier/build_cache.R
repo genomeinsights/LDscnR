@@ -35,7 +35,7 @@ g <- as.data.table(result$groups)[has_eMLG == TRUE]
 ## ---- LOCO GRMs + scans (consensus only -- the Li et al. 2018 analog) ------
 Kloco <- setNames(lapply(chrs, function(ch)
   snpgdsGRM(gds, snp.id = result$pruned[pruned_chr != ch], method = "GCTA",
-            autosome.only = FALSE, verbose = FALSE)$grm), chrs)
+            autosome.only = FALSE, verbose = FALSE, missing.rate = 1)$grm), chrs)
 
 # single-SNP LOCO (F + p per marker)
 p_snp <- setNames(rep(NA_real_, nrow(map)), map$marker); F_snp <- p_snp
