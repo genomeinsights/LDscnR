@@ -20,9 +20,8 @@ compute_ld_w(
 vector of multiple thresholds -- each chromosome's edge list is read
 (or pulled from memory) and symmetrized once and reused for every
 \code{rho}, rather than repeating that work once per threshold. This
-matters most when \code{keep_el = FALSE} was used in
-\code{compute_LD_decay()}, so each chromosome's edge list has to be
-re-read from disk.}
+matters most when the edge list is not held in memory, i.e. it has to be
+re-read from an \code{el_data_folder} or rebuilt from \code{gds}.}
 
 \item{cores}{Number of CPU cores.}
 
@@ -30,8 +29,9 @@ re-read from disk.}
 recomputed \emph{on the fly} from the genotypes (via \code{\link[=get_el]{get_el()}}) and discarded
 after use, instead of reading a stored edge list -- so \code{compute_LD_decay()}
 can be run with \code{keep_el = FALSE} and no \code{el_data_folder}, avoiding
-the (large) edge-list files entirely. Any stored edge list is ignored when
-\code{gds} is given.}
+the (large) edge-list files entirely. This is the recommended mode: rebuilding
+is in practice faster than writing the edge lists to file and reading them
+back. Any stored edge list is ignored when \code{gds} is given.}
 
 \item{slide_win_ld, ld_method}{Passed to \code{\link[=get_el]{get_el()}} for the on-the-fly mode: the
 sliding-window size (in SNPs) for \code{SNPRelate::snpgdsLDMat} and the LD

@@ -30,6 +30,8 @@
 #'   edge lists are written (one `<chr>.el` file each). These edge lists are the
 #'   input to [compute_ld_w()] for the local-LD (`ld_w`) statistic; see
 #'   `max_SNPs_decay` for the subsampling caveat that governs how complete they are.
+#'   Usually not needed: rebuilding the edge lists from `gds` when they are needed
+#'   (see `ld_w_rho`) is in practice faster than this write-then-read round trip.
 #' @param q Quantile of \eqn{r^2} used for decay fitting (default = 0.95).
 #' @param seed Optional integer. Fixes the random draws this function makes --
 #'   the background-LD subsample, the `max_SNPs_decay` thinning and the
@@ -85,13 +87,24 @@
 #'   unfiltered, for downstream use (e.g. \code{compute_ld_w()}). Set to
 #'   \code{NULL} to disable MAF filtering.
 #' @param ld_w_rho Optional numeric vector of relative-LD levels \eqn{\rho}. When
-#'   supplied, the local-LD statistic \code{ld_w} is computed \emph{in place} from
-#'   the per-chromosome edge lists already built here (via [compute_ld_w()]) and
-#'   returned as \code{$ld_ws}; the edge lists are then dropped (unless
-#'   \code{keep_el = TRUE}). This is the cheapest route to \code{ld_w} -- the edge
-#'   lists are reused, not recomputed or saved -- so with \code{keep_el = FALSE} and
-#'   no \code{el_data_folder} nothing large is written or retained. \code{NULL}
-#'   (default) skips it.
+#'   supplied, the local-LD statistic \code{ld_w} is computed \emph{in place} (via
+#'   [compute_ld_w()]) and returned as \code{$ld_ws}. It cannot be computed inside
+#'   the decay loop, because \code{ld_w} is defined against the genome-wide
+#'   \code{a_pred}, which exists only once every chromosome has been fitted. So:
+#'   \itemize{
+#'     \item with \code{keep_el = TRUE} or an \code{el_data_folder}, the stored
+#'       edge lists are reused;
+#'     \item with \code{keep_el = FALSE} and no \code{el_data_folder} (the
+#'       recommended setting), each chromosome's edge list is \emph{rebuilt} from
+#'       \code{gds} -- same SNPs, \code{slide} and \code{ld_method} as the decay
+#'       fit, so the edges are identical -- and discarded again, keeping peak
+#'       memory at one chromosome's edges and writing nothing to disk.
+#'   }
+#'   Rebuilding is in practice faster than writing the edge lists to file and
+#'   reading them back, so the on-the-fly route is the cheapest one, not only the
+#'   leanest. [ld_complexity_reduction()] rebuilds the edges the same way when
+#'   given \code{gds}. \code{NULL} (default) skips the \code{ld_w} pass; the edge
+#'   lists are dropped afterwards unless \code{keep_el = TRUE}.
 #'
 #' @return An object of class \code{"ld_decay"} containing (and, when
 #'   \code{ld_w_rho} is set, an additional \code{ld_ws} matrix of local-LD support,
@@ -1094,16 +1107,16 @@ print.ld_decay <- function(x, digits = 3, ...) {
 #'   vector of multiple thresholds -- each chromosome's edge list is read
 #'   (or pulled from memory) and symmetrized once and reused for every
 #'   \code{rho}, rather than repeating that work once per threshold. This
-#'   matters most when \code{keep_el = FALSE} was used in
-#'   \code{compute_LD_decay()}, so each chromosome's edge list has to be
-#'   re-read from disk.
+#'   matters most when the edge list is not held in memory, i.e. it has to be
+#'   re-read from an \code{el_data_folder} or rebuilt from \code{gds}.
 #' @param cores Number of CPU cores.
 #' @param gds Optional GDS handle. If supplied, each chromosome's edge list is
 #'   recomputed \emph{on the fly} from the genotypes (via [get_el()]) and discarded
 #'   after use, instead of reading a stored edge list -- so \code{compute_LD_decay()}
 #'   can be run with \code{keep_el = FALSE} and no \code{el_data_folder}, avoiding
-#'   the (large) edge-list files entirely. Any stored edge list is ignored when
-#'   \code{gds} is given.
+#'   the (large) edge-list files entirely. This is the recommended mode: rebuilding
+#'   is in practice faster than writing the edge lists to file and reading them
+#'   back. Any stored edge list is ignored when \code{gds} is given.
 #' @param slide_win_ld,ld_method Passed to [get_el()] for the on-the-fly mode: the
 #'   sliding-window size (in SNPs) for \code{SNPRelate::snpgdsLDMat} and the LD
 #'   statistic (default \code{"corr"}). Use the same values as the

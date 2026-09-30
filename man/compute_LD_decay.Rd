@@ -31,7 +31,9 @@ compute_LD_decay(
 \item{el_data_folder}{If not \code{NULL}, a directory to which the per-chromosome LD
 edge lists are written (one \verb{<chr>.el} file each). These edge lists are the
 input to \code{\link[=compute_ld_w]{compute_ld_w()}} for the local-LD (\code{ld_w}) statistic; see
-\code{max_SNPs_decay} for the subsampling caveat that governs how complete they are.}
+\code{max_SNPs_decay} for the subsampling caveat that governs how complete they are.
+Usually not needed: rebuilding the edge lists from \code{gds} when they are needed
+(see \code{ld_w_rho}) is in practice faster than this write-then-read round trip.}
 
 \item{q}{Quantile of \eqn{r^2} used for decay fitting (default = 0.95).}
 
@@ -86,13 +88,24 @@ unfiltered, for downstream use (e.g. \code{compute_ld_w()}). Set to
 \code{NULL} to disable MAF filtering.}
 
 \item{ld_w_rho}{Optional numeric vector of relative-LD levels \eqn{\rho}. When
-supplied, the local-LD statistic \code{ld_w} is computed \emph{in place} from
-the per-chromosome edge lists already built here (via \code{\link[=compute_ld_w]{compute_ld_w()}}) and
-returned as \code{$ld_ws}; the edge lists are then dropped (unless
-\code{keep_el = TRUE}). This is the cheapest route to \code{ld_w} -- the edge
-lists are reused, not recomputed or saved -- so with \code{keep_el = FALSE} and
-no \code{el_data_folder} nothing large is written or retained. \code{NULL}
-(default) skips it.}
+supplied, the local-LD statistic \code{ld_w} is computed \emph{in place} (via
+\code{\link[=compute_ld_w]{compute_ld_w()}}) and returned as \code{$ld_ws}. It cannot be computed inside
+the decay loop, because \code{ld_w} is defined against the genome-wide
+\code{a_pred}, which exists only once every chromosome has been fitted. So:
+\itemize{
+\item with \code{keep_el = TRUE} or an \code{el_data_folder}, the stored
+edge lists are reused;
+\item with \code{keep_el = FALSE} and no \code{el_data_folder} (the
+recommended setting), each chromosome's edge list is \emph{rebuilt} from
+\code{gds} -- same SNPs, \code{slide} and \code{ld_method} as the decay
+fit, so the edges are identical -- and discarded again, keeping peak
+memory at one chromosome's edges and writing nothing to disk.
+}
+Rebuilding is in practice faster than writing the edge lists to file and
+reading them back, so the on-the-fly route is the cheapest one, not only the
+leanest. \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}} rebuilds the edges the same way when
+given \code{gds}. \code{NULL} (default) skips the \code{ld_w} pass; the edge
+lists are dropped afterwards unless \code{keep_el = TRUE}.}
 
 \item{seed}{Optional integer. Fixes the random draws this function makes --
 the background-LD subsample, the \code{max_SNPs_decay} thinning and the
