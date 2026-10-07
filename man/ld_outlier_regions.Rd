@@ -44,7 +44,7 @@ ld_outlier_regions(
 
 \item{alpha}{Fixed within-candidate FDR for the C-score (default 0.05).}
 
-\item{rho_ld, dcap, rho_d}{Clustering parameters (see \code{\link[=ld_edges]{ld_edges()}}; defaults 0.9,
+\item{rho_ld, dcap, rho_d}{Clustering parameters (see \code{\link[=ld_edges]{ld_edges()}}; defaults 0.75,
 500 kb hard cap, \code{rho_d = NULL}).}
 
 \item{l_min}{Minimum region size in SNPs (default 2), or \code{"auto"} to set it

@@ -26,7 +26,7 @@ downstream \code{tau_C}/\code{l_min} gate is a subset of).}
 \item{decay_sum}{Per-chromosome LD-decay summary with \code{Chr}, \code{b}, \code{c},
 \code{a_pred} (see \code{\link[=compute_LD_decay]{compute_LD_decay()}}).}
 
-\item{rho_ld}{Decay-relative r^2 link threshold (default 0.9).}
+\item{rho_ld}{Decay-relative r^2 link threshold (default 0.75).}
 
 \item{dcap}{Hard distance cap in bp for the gap-split (default 5e5).}
 

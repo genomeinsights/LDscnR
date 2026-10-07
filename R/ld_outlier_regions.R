@@ -27,7 +27,7 @@
 #' @param map data.frame/data.table with `marker`, `Chr`, `Pos` (aligned to `GTs`).
 #' @param decay_sum Per-chromosome LD-decay summary (see [ld_edges()]).
 #' @param alpha Fixed within-candidate FDR for the C-score (default 0.05).
-#' @param rho_ld,dcap,rho_d Clustering parameters (see [ld_edges()]; defaults 0.9,
+#' @param rho_ld,dcap,rho_d Clustering parameters (see [ld_edges()]; defaults 0.75,
 #'   500 kb hard cap, `rho_d = NULL`).
 #' @param l_min Minimum region size in SNPs (default 2), or `"auto"` to set it
 #'   data-drivenly from the structure null via [calibrate_lmin()].
