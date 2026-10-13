@@ -27,8 +27,34 @@ positive (default 0.05).}
 \code{map} (copied) with \code{true_pos_QTN} (and helper \code{sum_Va_ok}/\code{p_Va_ok}).
 }
 \description{
+Method-agnostic: usable to score any scan of simulated data (marker-wise,
+window-based or LD-aggregated).
+}
+\details{
 Marks which simulated QTNs count as detectable "true positives": a QTN passing
 a minor-allele-frequency floor whose per-chromosome share of additive variance
 (\code{Va / sum(Va)} over the chromosome's QTNs) is at least \code{p_va_min}. Sets a
 logical column \code{true_pos_QTN} used throughout the benchmark.
 }
+\examples{
+library(data.table)
+map <- as.data.table(sim_ex$map)
+GTs <- sim_ex$GTs
+colnames(GTs) <- map$marker   # GTs columns are in map row order
+p <- colMeans(GTs, na.rm = TRUE) / 2
+map[, MAF := pmin(p, 1 - p)]
+## any scan can be scored; here the marker-wise EMMAX scan stored in sim_ex
+map <- flag_true_qtns(map, va_col = "p_Va")
+sig <- map[emx_q < 0.05, marker]
+lut <- qtn_ld_table(GTs, map, candidate_markers = sig)
+## match limits from an LD-decay fit (illustrative values; normally
+## compute_LD_decay()$decay_sum)
+thr <- score_thresholds(data.table(a = 1e-4, b = 0.02, c = 0.9))
+lut[r2 > thr$r2min & dist_bp < thr$dmax]
+}
+\seealso{
+Other truth scoring:
+\code{\link[=qtn_ld_table]{qtn_ld_table()}},
+\code{\link[=score_thresholds]{score_thresholds()}}
+}
+\concept{truth scoring}

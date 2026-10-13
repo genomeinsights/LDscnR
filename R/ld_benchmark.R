@@ -4,6 +4,9 @@
 
 #' Flag true-positive QTNs in a simulated map
 #'
+#' Method-agnostic: usable to score any scan of simulated data (marker-wise,
+#' window-based or LD-aggregated).
+#'
 #' Marks which simulated QTNs count as detectable "true positives": a QTN passing
 #' a minor-allele-frequency floor whose per-chromosome share of additive variance
 #' (`Va / sum(Va)` over the chromosome's QTNs) is at least `p_va_min`. Sets a
@@ -16,6 +19,23 @@
 #' @param p_va_min Minimum per-chromosome Va share for a QTN to count as a true
 #'   positive (default 0.05).
 #' @return `map` (copied) with `true_pos_QTN` (and helper `sum_Va_ok`/`p_Va_ok`).
+#' @family truth scoring
+#' @examples
+#' library(data.table)
+#' map <- as.data.table(sim_ex$map)
+#' GTs <- sim_ex$GTs
+#' colnames(GTs) <- map$marker   # GTs columns are in map row order
+#' p <- colMeans(GTs, na.rm = TRUE) / 2
+#' map[, MAF := pmin(p, 1 - p)]
+#' ## any scan can be scored; here the marker-wise EMMAX scan stored in sim_ex
+#' map <- flag_true_qtns(map, va_col = "p_Va")
+#' sig <- map[emx_q < 0.05, marker]
+#' lut <- qtn_ld_table(GTs, map, candidate_markers = sig)
+#' ## match limits from an LD-decay fit (illustrative values; normally
+#' ## compute_LD_decay()$decay_sum)
+#' thr <- score_thresholds(data.table(a = 1e-4, b = 0.02, c = 0.9))
+#' lut[r2 > thr$r2min & dist_bp < thr$dmax]
+#' @export
 flag_true_qtns <- function(map, va_col = "Va", maf_col = "MAF",
                            maf_min = 0.1, p_va_min = 0.05) {
   map <- data.table::copy(data.table::as.data.table(map))
@@ -40,6 +60,10 @@ flag_true_qtns <- function(map, va_col = "Va", maf_col = "MAF",
 #' @param max_bp Maximum candidate-QTN distance to retain (default 2e6).
 #' @param cores Cores for the per-chromosome loop.
 #' @return A data.table with `marker`, `qtn_marker`, `r2`, `dist_bp`.
+#' @family truth scoring
+#' @examples
+#' ## see ?flag_true_qtns for a complete example
+#' @export
 qtn_ld_table <- function(GTs, map, candidate_markers, max_bp = 2e6, cores = 1) {
   map <- data.table::as.data.table(map)
   chr_levels <- unique(map[marker %in% candidate_markers, Chr])
@@ -75,6 +99,10 @@ qtn_ld_table <- function(GTs, map, candidate_markers, max_bp = 2e6, cores = 1) {
 #'   0.75, 0.95).
 #' @param dmax_cap Cap on the match distance (default `Inf`).
 #' @return A list with `r2min` and `dmax`.
+#' @family truth scoring
+#' @examples
+#' score_thresholds(data.frame(a = 1e-4, b = 0.02, c = 0.9))
+#' @export
 score_thresholds <- function(decay_sum, rho_r2 = 0.75, rho_d = 0.95, dmax_cap = Inf) {
   ds <- data.table::as.data.table(decay_sum)
   list(r2min = ld_from_rho(stats::median(ds$b), stats::median(ds$c), rho_r2),

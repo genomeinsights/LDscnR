@@ -7,8 +7,9 @@
 \format{
 A list with components:
 \describe{
-\item{GTs}{Numeric matrix of genotypes}
-\item{SNP_res}{data.table containing SNP annotations and test statistics}
+\item{GTs}{Numeric matrix of genotypes; columns are in the row order of \code{map}}
+\item{map}{data.table with one row per marker: \code{Chr}, \code{Pos}, \code{marker},
+\code{type} (\code{"QTN"} or \code{"ntrl"}), \code{p_Va} and marker-wise test results}
 }
 
 A list with two elements:
@@ -31,7 +32,7 @@ sim_ex
 A simulated genome scan dataset including:
 \itemize{
 \item \code{GTs}: genotype matrix (individuals × SNPs)
-\item \code{SNP_res}: SNP-level statistics and annotations
+\item \code{map}: marker annotations, QTN status and test statistics
 }
 
 A small simulation dataset containing genotype matrix and SNP metadata.

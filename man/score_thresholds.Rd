@@ -22,3 +22,12 @@ The r^2 and distance a region must be within of a QTN to count as a detection,
 derived from the (median) LD-decay parameters: \code{r2 = ld_from_rho(b, c, rho_r2)},
 \code{dist = min(d_from_rho(a, rho_d), dmax_cap)}.
 }
+\examples{
+score_thresholds(data.frame(a = 1e-4, b = 0.02, c = 0.9))
+}
+\seealso{
+Other truth scoring:
+\code{\link[=flag_true_qtns]{flag_true_qtns()}},
+\code{\link[=qtn_ld_table]{qtn_ld_table()}}
+}
+\concept{truth scoring}

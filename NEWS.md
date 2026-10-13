@@ -1,3 +1,17 @@
+# LDscnR 0.9.1
+
+* Truth-scoring helpers for simulated data are now exported: `flag_true_qtns()`
+  (detectable QTN by MAF and share of additive variance), `qtn_ld_table()`
+  (r^2 and distance between markers and QTN) and `score_thresholds()`
+  (decay-relative match limits). They are method-agnostic and can score any
+  scan of simulated data, including marker-wise and window-based scans.
+
+* `emmax_setup()` / `emmax_fast()` (fast EMMAX reusing one relationship-matrix
+  transformation across phenotypes) are documented as part of the public API.
+
+* `coef_ld_dec()`: removed a stray no-op line. The `sim_ex` documentation now
+  describes its `map` component.
+
 # LDscnR 0.9.0
 
 ## Current outlier workflow

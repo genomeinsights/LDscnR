@@ -26,3 +26,12 @@ same chromosome within \code{max_bp}. This is the lookup that decides whether an
 outlier region is "close enough" to a QTN to count as a detection
 (\code{\link[=classify_ors]{classify_ors()}}, \code{\link[=evaluate_ors]{evaluate_ors()}}).
 }
+\examples{
+## see ?flag_true_qtns for a complete example
+}
+\seealso{
+Other truth scoring:
+\code{\link[=flag_true_qtns]{flag_true_qtns()}},
+\code{\link[=score_thresholds]{score_thresholds()}}
+}
+\concept{truth scoring}
