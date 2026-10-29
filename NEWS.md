@@ -1,3 +1,16 @@
+# LDscnR 0.9.2
+
+* `ld_complexity_reduction()` gains an optional `r2_th` argument, a fixed r2
+  clustering threshold applied to every chromosome instead of the
+  decay-relative threshold derived from `rho`. The default (`NULL`) keeps the
+  decay-relative threshold, so existing results are unchanged.
+
+* `ld_outlier_test()` gains the same optional `r2_th` argument, a fixed r2
+  merge threshold for Stage-2 assembly (`assembly = "stage2_discovered"`).
+  If it is `NULL` and `stage1` was built with a fixed `r2_th`, Stage-2
+  assembly uses that same value. Otherwise it keeps the decay-relative
+  threshold. `ld_outlier_perm()` passes the threshold on to every surrogate.
+
 # LDscnR 0.9.1
 
 * Truth-scoring helpers for simulated data are now exported: `flag_true_qtns()`

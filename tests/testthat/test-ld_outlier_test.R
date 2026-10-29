@@ -210,3 +210,33 @@ test_that("p_obs of the wrong length errors for both statistics", {
     "statistic = \"unit\""
   )
 })
+
+test_that("r2_th sets a fixed Stage-2 merge threshold, inherited from stage1 when not given", {
+  d <- build_real_stage1()
+  p <- p_obs_for_cluster(d, cl_id = 8)
+
+  ## default: decay-relative, no fixed threshold recorded
+  out_rho <- ld_outlier_test(d$stage1, d$map, p, statistic = "simes", size_floor = 8L,
+                             assembly = "stage2_discovered", GTs = d$GTs, LD_decay = d$LD_decay)
+  expect_true(is.na(out_rho$params$r2_th))
+  expect_equal(out_rho$params$min_r2_rho, 0.5)
+
+  ## explicit Stage-2 threshold
+  out_fix <- ld_outlier_test(d$stage1, d$map, p, statistic = "simes", size_floor = 8L,
+                             assembly = "stage2_discovered", GTs = d$GTs, LD_decay = d$LD_decay,
+                             r2_th = 0.4)
+  expect_equal(out_fix$params$r2_th, 0.4)
+  expect_true(is.na(out_fix$params$min_r2_rho))
+  expect_identical(sum(out_fix$units$significant), sum(out_rho$units$significant))
+
+  ## inherited from a stage1 built with a fixed r2_th
+  s1_fix <- ld_complexity_reduction(d$map, d$LD_decay, cores = 1, r2_th = 0.6)
+  p2 <- stats::setNames(rep(0.8, nrow(d$map)), d$map$marker)
+  big <- s1_fix$clusters[order(-n_snps)][1, members][[1]]
+  p2[big] <- 1e-8
+  out_inh <- ld_outlier_test(s1_fix, d$map, p2, statistic = "simes", size_floor = 2L,
+                             assembly = "stage2_discovered", GTs = d$GTs, LD_decay = d$LD_decay)
+  expect_equal(out_inh$params$r2_th, 0.6)
+
+  expect_error(ld_outlier_test(d$stage1, d$map, p, r2_th = 1.5), "r2_th")
+})

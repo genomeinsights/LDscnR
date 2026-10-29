@@ -96,7 +96,8 @@ ld_outlier_perm <- function(obs, stage1, map, p_perm,
                          size_floor = p$size_floor, alpha = p$alpha,
                          assembly = p$assembly, GTs = GTs, LD_decay = LD_decay,
                          score_threshold = p$score_threshold,
-                         distance_threshold = p$distance_threshold, gap = p$gap)
+                         distance_threshold = p$distance_threshold, gap = p$gap,
+                         r2_th = if (is.null(p$r2_th) || is.na(p$r2_th)) NULL else p$r2_th)
     nrow(r$regions)
   }
   if (verbose) { cat(sprintf("[ld_outlier_perm] %d surrogates, level = %s\n", B, level))

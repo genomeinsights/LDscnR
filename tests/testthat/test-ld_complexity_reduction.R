@@ -176,3 +176,30 @@ test_that("edge lists can be rebuilt on the fly from gds when keep_el = FALSE", 
   res_path <- ld_complexity_reduction(map, ld_stripped, rho = 0.5, cores = 1, gds = gds_path)
   expect_equal(res_path$pruned, res_kept$pruned)
 })
+
+test_that("a fixed r2_th replaces the decay-relative threshold on every chromosome", {
+  data(sim_ex, package = "LDscnR")
+  map <- data.table::as.data.table(sim_ex$map)[, .(Chr, Pos, marker)]
+  ld  <- build_decay()
+
+  GTs <- sim_ex$GTs
+  colnames(GTs) <- map$marker
+
+  res <- ld_complexity_reduction(map, ld, cores = 1, r2_th = 0.6)
+  expect_equal(res$params$r2_th, 0.6)
+
+  big_clusters <- res$clusters[n_snps >= 3][order(-n_snps)][seq_len(min(5, .N))]
+  for (i in seq_len(nrow(big_clusters))) {
+    members <- big_clusters$members[[i]]
+    R2 <- suppressWarnings(cor(GTs[, members, drop = FALSE], use = "pairwise.complete.obs")^2)
+    diag(R2) <- NA
+    expect_true(all(R2 >= 0.6, na.rm = TRUE))
+  }
+
+  # the default (r2_th = NULL) is unchanged and records no fixed threshold
+  res_rho <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1)
+  expect_null(res_rho$params$r2_th)
+
+  expect_error(ld_complexity_reduction(map, ld, r2_th = 0), "r2_th")
+  expect_error(ld_complexity_reduction(map, ld, r2_th = c(0.3, 0.4)), "r2_th")
+})

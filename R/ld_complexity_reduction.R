@@ -137,6 +137,10 @@
 #'   connection across forks.
 #' @param rho Numeric in (0, 1). Decay level used to derive each
 #'   chromosome's clustering threshold via [ld_from_rho()]. Default `0.5`.
+#'   Ignored when `r2_th` is supplied.
+#' @param r2_th Optional single number in (0, 1]. A fixed r2 clustering
+#'   threshold applied to every chromosome instead of the decay-relative one
+#'   derived from `rho`. Default `NULL` keeps the decay-relative threshold.
 #' @param cores Number of chromosomes to process in parallel.
 #' @param idx Optional integer vector of row indices into `map` (1-based).
 #'   If supplied, only these markers are considered at all -- clustered
@@ -160,14 +164,21 @@
 #'     list-column of every marker in the cluster, including the core).}
 #'   \item{pruned}{Character vector of representative marker names --
 #'     `clusters$core_snp`, for direct use as a pruned marker set.}
-#'   \item{params}{The resolved `rho` and `cores` this call used, so a
+#'   \item{params}{The resolved `rho`, `r2_th` (`NULL` unless a fixed
+#'     threshold was supplied) and `cores` this call used, so a
 #'     downstream consumer can read the threshold back rather than have it
 #'     passed a second time as a separate argument.}
 #' }
 #'
 #' @export
 ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = NULL,
-                                    gds = NULL) {
+                                    gds = NULL, r2_th = NULL) {
+
+  if (!is.null(r2_th) &&
+      !(is.numeric(r2_th) && length(r2_th) == 1L && is.finite(r2_th) &&
+        r2_th > 0 && r2_th <= 1))
+    stop("`r2_th` must be NULL or a single number in (0, 1].")
+  r2_th_fixed <- r2_th
 
   if (!is.null(idx)) map <- map[idx]
 
@@ -216,12 +227,16 @@ ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = N
       return(out)
     }
 
-    ds <- LD_decay$decay_sum[Chr == ch]
-    if (nrow(ds) != 1) {
-      stop("Expected exactly one decay_sum row for chr '", ch, "', found ", nrow(ds),
-           ". Check LD_decay$decay_sum$Chr labels.")
+    ## A fixed r2_th, when supplied, replaces the decay-relative threshold on
+    ## every chromosome.
+    r2_th <- if (!is.null(r2_th_fixed)) r2_th_fixed else {
+      ds <- LD_decay$decay_sum[Chr == ch]
+      if (nrow(ds) != 1) {
+        stop("Expected exactly one decay_sum row for chr '", ch, "', found ", nrow(ds),
+             ". Check LD_decay$decay_sum$Chr labels.")
+      }
+      ld_from_rho(b = ds$b, c = ds$c, rho = rho)
     }
-    r2_th <- ld_from_rho(b = ds$b, c = ds$c, rho = rho)
 
     ## The edge list is consumed on the very next line and nowhere else, and only
     ## to select r2 >= r2_th. Building it with that floor is therefore
@@ -360,7 +375,7 @@ ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = N
     map_snp  = map_snp,
     clusters = clusters,
     pruned   = clusters$core_snp,
-    params   = list(rho = rho, cores = cores)
+    params   = list(rho = rho, r2_th = r2_th_fixed, cores = cores)
   )
   class(out) <- "ld_complexity_reduction"
   print(out)
@@ -395,6 +410,11 @@ print.ld_complexity_reduction <- function(x, digits = 3, ...) {
     sep = ""
   )
   cat("  chromosomes:", data.table::uniqueN(x$clusters$Chr), "\n")
+  if (!is.null(x$params$r2_th)) {
+    cat("  threshold: fixed r2 =", signif(x$params$r2_th, digits), "\n")
+  } else if (!is.null(x$params$rho)) {
+    cat("  threshold: decay-relative, rho =", signif(x$params$rho, digits), "\n")
+  }
 
   n_snps <- x$clusters$n_snps
 

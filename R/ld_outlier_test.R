@@ -18,7 +18,9 @@
 #' and a caller-supplied value could silently disagree with that. `stage1` must
 #' therefore come from an `ld_complexity_reduction()` new enough to record
 #' `params` (added alongside this function); an older `stage1` object errors
-#' rather than guessing.
+#' rather than guessing. A fixed r2 merge threshold can be set instead with
+#' `r2_th`. If `r2_th` is `NULL` and `stage1` was built with a fixed `r2_th`,
+#' Stage-2 assembly uses that same fixed r2.
 #'
 #' @param stage1 An `ld_complexity_reduction` object (must have `$params$rho`).
 #' @param map data.frame/data.table with `marker`, `Chr`, `Pos`, aligned to
@@ -52,6 +54,11 @@
 #'   does not require an `ld_w_*` column to exist on `stage1$map_snp`).
 #' @param gap Physical merge distance in bp, used only when
 #'   `assembly = "physical"`.
+#' @param r2_th Optional single number in (0, 1]. A fixed r2 merge threshold
+#'   for `assembly = "stage2_discovered"`, applied to every chromosome instead
+#'   of the decay-relative threshold derived from `stage1$params$rho`. Default
+#'   `NULL` uses `stage1$params$r2_th` if `stage1` was built with a fixed
+#'   threshold, and otherwise the decay-relative threshold.
 #'
 #' @return An `ld_outlier_test` object: `units` (data.table, one row per tested
 #'   unit -- `unit_id`, `Chr`, `from`, `to`, `n_markers`, `p`, `q`,
@@ -68,10 +75,17 @@ ld_outlier_test <- function(stage1, map, p_obs,
                             assembly = c("stage2_discovered", "physical"),
                             GTs = NULL, LD_decay = NULL,
                             score_threshold = 0.80, distance_threshold = 1e5,
-                            gap = 3e5) {
+                            gap = 3e5, r2_th = NULL) {
   statistic <- match.arg(statistic)
   assembly <- match.arg(assembly)
-  if (assembly == "stage2_discovered" && is.null(stage1$params$rho))
+  if (!is.null(r2_th) &&
+      !(is.numeric(r2_th) && length(r2_th) == 1L && is.finite(r2_th) &&
+        r2_th > 0 && r2_th <= 1))
+    stop("`r2_th` must be NULL or a single number in (0, 1].")
+  ## Stage-2 merge threshold: an explicit r2_th, else the fixed r2_th stage1
+  ## was built with (if any), else NULL (decay-relative, from stage1's rho).
+  r2_th_s2 <- if (!is.null(r2_th)) r2_th else stage1$params$r2_th
+  if (assembly == "stage2_discovered" && is.null(r2_th_s2) && is.null(stage1$params$rho))
     stop("stage1$params$rho is missing -- this stage1 object predates ld_complexity_reduction() ",
          "recording its own rho. Rebuild it, or pass assembly = \"physical\".")
   if (assembly == "stage2_discovered" && (is.null(GTs) || is.null(LD_decay)))
@@ -137,7 +151,8 @@ ld_outlier_test <- function(stage1, map, p_obs,
     ## ld_complexity_reduction() itself always produces.
     pr <- ld_prune_and_eMLG(GTs = GTs[, mk_sig, drop = FALSE], stage1 = sub,
                             ld_w_col = "n_loci", ld_w_threshold = 0,
-                            LD_decay = LD_decay, min_r2_rho = stage1$params$rho,
+                            LD_decay = LD_decay, min_r2 = r2_th_s2,
+                            min_r2_rho = if (is.null(stage1$params$rho)) 0.5 else stage1$params$rho,
                             score_threshold = score_threshold,
                             distance_threshold = distance_threshold,
                             compute_unflagged_eMLG = FALSE, min_n_loci_eMLG = 1,
@@ -170,7 +185,10 @@ ld_outlier_test <- function(stage1, map, p_obs,
     params = list(statistic = statistic, size_floor = size_floor, alpha = alpha,
                   assembly = assembly, score_threshold = score_threshold,
                   distance_threshold = distance_threshold, gap = gap,
-                  min_r2_rho = if (assembly == "stage2_discovered") stage1$params$rho else NA)
+                  min_r2_rho = if (assembly == "stage2_discovered" && is.null(r2_th_s2))
+                    stage1$params$rho else NA,
+                  r2_th = if (assembly == "stage2_discovered" && !is.null(r2_th_s2))
+                    r2_th_s2 else NA)
   ), class = "ld_outlier_test")
 }
 
