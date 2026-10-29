@@ -16,7 +16,8 @@ ld_outlier_test(
   LD_decay = NULL,
   score_threshold = 0.8,
   distance_threshold = 1e+05,
-  gap = 3e+05
+  gap = 3e+05,
+  r2_th = NULL
 )
 }
 \arguments{
@@ -61,6 +62,12 @@ does not require an \verb{ld_w_*} column to exist on \code{stage1$map_snp}).}
 
 \item{gap}{Physical merge distance in bp, used only when
 \code{assembly = "physical"}.}
+
+\item{r2_th}{Optional single number in (0, 1]. A fixed r2 merge threshold
+for \code{assembly = "stage2_discovered"}, applied to every chromosome instead
+of the decay-relative threshold derived from \code{stage1$params$rho}. Default
+\code{NULL} uses \code{stage1$params$r2_th} if \code{stage1} was built with a fixed
+threshold, and otherwise the decay-relative threshold.}
 }
 \value{
 An \code{ld_outlier_test} object: \code{units} (data.table, one row per tested
@@ -89,7 +96,9 @@ assembly rule is that it introduces no parameter beyond what built \code{stage1}
 and a caller-supplied value could silently disagree with that. \code{stage1} must
 therefore come from an \code{ld_complexity_reduction()} new enough to record
 \code{params} (added alongside this function); an older \code{stage1} object errors
-rather than guessing.
+rather than guessing. A fixed r2 merge threshold can be set instead with
+\code{r2_th}. If \code{r2_th} is \code{NULL} and \code{stage1} was built with a fixed \code{r2_th},
+Stage-2 assembly uses that same fixed r2.
 }
 \seealso{
 \code{\link[=ld_unit_matrix]{ld_unit_matrix()}}, \code{\link[=ld_outlier_perm]{ld_outlier_perm()}}, \code{\link[=ld_region_rotation]{ld_region_rotation()}},

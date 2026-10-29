@@ -10,7 +10,8 @@ ld_complexity_reduction(
   rho = 0.5,
   cores = 1,
   idx = NULL,
-  gds = NULL
+  gds = NULL,
+  r2_th = NULL
 )
 }
 \arguments{
@@ -21,7 +22,8 @@ lists are reused when present (\code{keep_el = TRUE}, or a valid
 \code{el_data_folder}); otherwise supply \code{gds} and they are rebuilt on the fly.}
 
 \item{rho}{Numeric in (0, 1). Decay level used to derive each
-chromosome's clustering threshold via \code{\link[=ld_from_rho]{ld_from_rho()}}. Default \code{0.5}.}
+chromosome's clustering threshold via \code{\link[=ld_from_rho]{ld_from_rho()}}. Default \code{0.5}.
+Ignored when \code{r2_th} is supplied.}
 
 \item{cores}{Number of chromosomes to process in parallel.}
 
@@ -43,6 +45,10 @@ edge lists are already present. With \code{cores > 1} each worker opens its own
 handle from the file path; if only an open handle is available and its
 path cannot be recovered, \code{cores} is forced to 1 rather than sharing a GDS
 connection across forks.}
+
+\item{r2_th}{Optional single number in (0, 1]. A fixed r2 clustering
+threshold applied to every chromosome instead of the decay-relative one
+derived from \code{rho}. Default \code{NULL} keeps the decay-relative threshold.}
 }
 \value{
 An object of class \code{"ld_complexity_reduction"} (a list with a
@@ -60,7 +66,8 @@ median r2 to the rest of its cluster, \code{NA} for singletons) added.
 list-column of every marker in the cluster, including the core).}
 \item{pruned}{Character vector of representative marker names --
 \code{clusters$core_snp}, for direct use as a pruned marker set.}
-\item{params}{The resolved \code{rho} and \code{cores} this call used, so a
+\item{params}{The resolved \code{rho}, \code{r2_th} (\code{NULL} unless a fixed
+threshold was supplied) and \code{cores} this call used, so a
 downstream consumer can read the threshold back rather than have it
 passed a second time as a separate argument.}
 }
