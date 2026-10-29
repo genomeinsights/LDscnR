@@ -47,7 +47,7 @@ stratified data stored in \code{agg}.
 }
 \item{\code{type = "recommendation"}}{
 Visualizes suggested slide-window sizes in SNP units for the requested
-target rho values.freco
+target rho values.
 }
 }
 }

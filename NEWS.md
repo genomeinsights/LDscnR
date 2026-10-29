@@ -15,6 +15,19 @@
   `ld_prune_and_eMLG()` uses a fixed `r2_th` stored on `stage1` when none is
   given.
 
+## Vignettes
+
+* The quick introduction and the stickleback complexity-reduction vignette are
+  merged into one, `vignette("LDscnR_complexity_reduction")`, on the
+  stickleback data. It adds choosing the LD window, the fixed `r2_th` option
+  and the best single-marker proxy.
+* `vignette("LDscnR_stage1_outlier_regions")` now derives the size floor from
+  marker density and adds a Manhattan plot, the fixed `r2_th` option for
+  assembly and the one-call `ld_outlier_scan()`.
+* New `vignette("LDscnR_external_pvalues")` shows how to call outlier regions
+  from the p-values of another method, with a permutation null run with the
+  same method.
+
 ## Consistent argument names
 
 One parameter now has one name across the package. The old names still work

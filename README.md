@@ -333,9 +333,9 @@ current LDscnR manuscript.
 ## Documentation
 
 ```
-vignette("LDscnR_stage1_outlier_regions")   # PRIMARY: the current Stage-1-cluster outlier pipeline, executable end to end
-vignette("LDscnR_quick_introduction")       # LD decay, ld_w, pruning, eMLGs
-vignette("LDscnR_complexity_reduction")     # LD decay and complexity reduction on real stickleback data
+vignette("LDscnR_complexity_reduction")     # LD decay, ld_w, Stage-1 units, pruning and eMLGs
+vignette("LDscnR_stage1_outlier_regions")   # outlier regions from Stage-1 units, end to end
+vignette("LDscnR_external_pvalues")         # outlier regions from p-values of another method
 ```
 
 `vignette("LDscnR_stage1_outlier_regions")` is the primary outlier-analysis vignette: it runs

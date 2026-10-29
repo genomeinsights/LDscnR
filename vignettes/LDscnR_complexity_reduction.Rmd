@@ -1,8 +1,8 @@
 ---
-title: "LD decay and LD-complexity reduction on stickleback data"
+title: "LD decay and LD-complexity reduction with LDscnR"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{LD decay and LD-complexity reduction on stickleback data}
+  %\VignetteIndexEntry{LD decay and LD-complexity reduction with LDscnR}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -24,53 +24,160 @@ library(SNPRelate)
 
 ## Overview
 
-The [quick introduction](LDscnR_quick_introduction.html) shows the functions
-on the small simulated `sim_ex` data. This vignette applies the same LD-decay
-and complexity-reduction steps to **real data**, the bundled `stickleback` set
-(`?stickleback`). It holds marine and freshwater three-spined stickleback
-(*Gasterosteus aculeatus*) genotype dosages from
+`LDscnR` estimates linkage disequilibrium (LD) decay for each chromosome and
+groups correlated markers to reduce redundancy. The groups can supply a pruned
+marker set for a relationship matrix, such as EMMAX's `K` or BayPass's
+`OMEGA`. They can also supply one consensus genotype per LD group, called an
+expected multi-locus genotype (eMLG). Separate groups are not guaranteed to be
+statistically independent.
+
+This vignette covers the LD tools in the order they are usually run.
+
+1. Estimate LD decay for each chromosome and choose the LD window.
+2. Convert between relative LD levels, physical distance and expected $r^2$.
+3. Compute the local LD support of each marker (`ld_w`).
+4. Group markers into Stage-1 units.
+5. Optionally consolidate the units genome-wide into pruned markers and eMLGs.
+6. Choose the best single-marker proxy for each group.
+
+Testing Stage-1 units for association and assembling the significant ones into
+outlier regions is covered in `vignette("LDscnR_stage1_outlier_regions")`.
+
+## Example data
+
+The example is the bundled `stickleback` data set (`?stickleback`). It holds
+marine and freshwater three-spined stickleback (*Gasterosteus aculeatus*)
+genotype dosages from
 [Fang et al. (2021)](https://doi.org/10.1093/molbev/msab144) for three
-chromosomal regions with contrasting linkage disequilibrium (LD).
+chromosomal regions with contrasting LD.
 
 - **Chr1** carries a chromosomal inversion with strong long-range LD.
 - **Chr4** carries the *Eda* locus for marine-freshwater adaptation, a high-LD outlier.
 - **Chr6** is a background region where LD is low and decays quickly.
 
-This contrast makes the effects of each step easy to see. The genotypes are
-dosages between 0 and 2 for 117 individuals, with no missing data.
+This contrast makes the effect of each step easy to see. The data set has
+15,892 markers over about 7.5 Mb, with genotypes for 117 individuals and no
+missing data.
 
 ```{r data}
 data(stickleback)
 GTs <- stickleback$GTs
 map <- copy(stickleback$map)
+dim(GTs)
 
 region_lab <- c(Chr1 = "Chr1 inversion (high LD)",
                 Chr4 = "Chr4 Eda locus",
                 Chr6 = "Chr6 background (low LD)")
 ```
 
+`LDscnR` reads genotypes from a GDS file through `SNPRelate`, so the first step
+is to create one from the genotype matrix. The columns of `GTs` must match
+`map$marker` in the same order.
+
 ```{r gds}
 gds_path <- tempfile(fileext = ".gds")
 gds <- create_gds_from_geno(GTs, map, gds_path)
 ```
 
-## LD decay and per-marker local LD support
+Genotypes estimated from genotype likelihoods, such as expected dosages from
+ANGSD or Beagle, can be used as `GTs`. `SNPRelate` stores whole genotypes,
+however, so `create_gds_from_geno()` rounds the dosages to 0, 1 or 2 before
+writing the GDS file. LD decay, `ld_w` and the Stage-1 units are therefore
+computed from rounded genotypes. Functions that take `GTs` directly, such as
+`ld_prune_and_eMLG()` and the association tests, use the dosages as given.
+
+## Estimating LD decay
 
 `compute_LD_decay()` fits the decay curve $r^2(d) = b + (c-b)/(1+ad)$ for each
-chromosome, and also estimates the decay rate $a$ in overlapping windows along
-the chromosome. `n_win_decay` sets the nominal number of windows, and the 50%
-overlap roughly doubles it. `compute_ld_w()` then gives the local LD support
-`ld_w` of each **marker**, which is its median $r^2$ with neighbouring markers
-within the distance set by `dist_rho = 0.95`.
+chromosome. Here $a$ is the decay rate, $b$ is background LD, $c$ is
+short-range LD and $d$ is physical distance. It also estimates $a$ in
+overlapping windows along each chromosome. `n_win_decay` sets the nominal
+number of windows, and the 50% overlap roughly doubles it. With
+`keep_el = TRUE`, the pairwise LD edge list behind each fit is kept, so that
+`compute_ld_w()` and `ld_complexity_reduction()` can reuse it.
+
+`slide` is the LD window in markers. Pairs of markers farther apart than the
+window are never compared, which keeps the number of pairwise comparisons
+manageable on large data sets.
 
 ```{r decay, results = "hide"}
 set.seed(1)  # compute_LD_decay() subsamples SNP pairs for the background-LD fit
 ld_decay <- compute_LD_decay(gds, keep_el = TRUE, slide = 200,
-                             ld_method = "corr", n_win_decay = 50, cores = 2)
+                             n_win_decay = 50, cores = 2)
+```
 
-ld_w <- compute_ld_w(ld_decay, dist_rho = 0.95, cores = 2)
-ids  <- unlist(lapply(ld_decay$by_chr, function(o) o$snp_ids), use.names = FALSE)
-map[, ld_w_095 := ld_w[match(marker, ids)]]
+```{r decay-show}
+ld_decay
+```
+
+The fit can be inspected in three plots. The summary gives an overview of all
+chromosomes, the recommendation plot shows the window needed to reach each
+target level of LD decay, and the chromosome plot shows the window-wise
+estimates and fitted curves for one chromosome.
+
+```{r decay-plots}
+plot(ld_decay, type = "summary")
+plot(ld_decay, type = "recommendation", rho = 0.99)
+plot(ld_decay, type = "chr", chr = "Chr1")
+```
+
+### Choosing the LD window
+
+The window should be wide enough to capture most of the LD on each
+chromosome. `ld_decay$recommendation$suggested_slide_by_chr` reports the
+window in markers that would retain 90%, 95% and 99% of the decay, computed
+from each chromosome's decay rate and marker density.
+
+```{r slide-rec}
+rec <- ld_decay$recommendation$suggested_slide_by_chr
+rec[, .(Chr, bp_per_snp = round(bp_per_snp),
+        slide_snp_rho_0.95 = ceiling(slide_snp_rho_0.95),
+        slide_snp_rho_0.99 = ceiling(slide_snp_rho_0.99))]
+```
+
+On a new data set, it is efficient to run `compute_LD_decay()` first with a
+small window, such as `slide = 100`, and read the recommendation. If
+`slide_snp_rho_0.99` is larger than the window used, run it again with the
+recommended window. `max_SNPs_decay` can make the first run cheaper
+(`?compute_LD_decay`).
+
+```{r slide-check}
+slide_needed <- ceiling(max(rec$slide_snp_rho_0.99))
+c(used = ld_decay$recommendation$slide_input_snp, needed = slide_needed)
+```
+
+### Relative LD levels, distance and expected LD
+
+Thresholds in `LDscnR` are usually given as a relative LD level $\rho$ rather
+than as a fixed $r^2$, so that they adapt to how fast LD decays on each
+chromosome. Two helpers convert $\rho$ into physical units.
+
+- `d_from_rho(a, rho)` gives the physical distance in bp at which LD has
+  decayed to the level $\rho$, on a chromosome with decay rate `a`.
+- `ld_from_rho(b, c, rho)` gives the expected $r^2$ at the level $\rho$.
+
+```{r rho-helpers}
+ds <- copy(ld_decay$decay_sum)
+ds[, .(Chr,
+       d_rho_0.95_bp = round(d_from_rho(a, 0.95)),
+       d_rho_0.99_bp = round(d_from_rho(a, 0.99)),
+       r2_rho_0.5    = signif(ld_from_rho(b, c, 0.5), 3))]
+```
+
+The last column is the $r^2$ cutoff that `ld_complexity_reduction()` uses on
+each chromosome with its default `r2_rho = 0.5`.
+
+## Local LD support of each marker
+
+`compute_ld_w()` gives each marker's local LD support `ld_w`, which is its
+median $r^2$ with the neighbouring markers within the distance set by
+`dist_rho`. Several values of `dist_rho` can be given at once, and each
+chromosome's edge list is then read only once. The result has one row per
+marker, named by marker.
+
+```{r ld-w, results = "hide"}
+ld_w <- compute_ld_w(ld_decay, dist_rho = c(0.95, 0.99), cores = 2)
+map[, ld_w_095 := ld_w[marker, "rho_0.95"]]
 ```
 
 The tracks below show, for each region, the `ld_w` of each marker as grey
@@ -111,9 +218,9 @@ varies more, and the rescaling then exaggerates the most extreme window.
 Estimating again with `n_win_decay = 100` gives a spikier track.
 
 ```{r decay-100, results = "hide"}
-# keep_el = FALSE: we only need the windowed decay, not the edge lists
+# keep_el = FALSE: only the windowed decay is needed, not the edge lists
 ld_decay_100 <- compute_LD_decay(gds, keep_el = FALSE, slide = 200,
-                                 ld_method = "corr", n_win_decay = 100, cores = 2)
+                                 n_win_decay = 100, cores = 2)
 ```
 
 ```{r tracks-100, fig.height = 6.5}
@@ -135,11 +242,11 @@ win_stats <- rbindlist(lapply(c("Chr1", "Chr4", "Chr6"), function(ch) {
   d[is.finite(win_ldw), .(a, win_ldw)]
 }))
 
-# fast decay <-> low local LD
+# fast decay goes with low local LD
 cor(win_stats$a, win_stats$win_ldw, method = "spearman")
 
-# the a spikes (top-decile a) vs high-ld_w windows (top-decile ld_w):
-top_a  <- win_stats$a      > quantile(win_stats$a,      0.90)
+# the a spikes (top-decile a) against the high-ld_w windows (top-decile ld_w)
+top_a  <- win_stats$a       > quantile(win_stats$a,       0.90)
 hi_ldw <- win_stats$win_ldw > quantile(win_stats$win_ldw, 0.90)
 mean(hi_ldw[top_a])            # fraction of a-spikes falling in high-ld_w windows
 ```
@@ -151,21 +258,75 @@ whatever the number of windows. This is why `ld_w` is used to flag Stage-1 units
 for consolidation, because it carries the same signal for each marker without
 the noise of the windows.
 
-## Stage-1 units and genome-wide consolidation
+## Stage-1 units
 
-Stage 1 (`ld_complexity_reduction()`) groups the markers on each chromosome
-into Stage-1 units, using LD computed within a sliding window. In regions with
-extended LD, such as the Chr1 inversion, markers farther apart than the window
-are never compared, so one block can be split into many neighbouring units.
-`ld_prune_and_eMLG()` compares the flagged units again directly from the
-genotypes and consolidates them across the genome. This consolidation serves
-pruning and eMLG analyses and is separate from Stage 2 of the outlier
-workflow, which assembles significant units into outlier regions
-(`vignette("LDscnR_stage1_outlier_regions")`).
+`ld_complexity_reduction()` groups the markers on each chromosome into Stage-1
+units. Each chromosome's $r^2$ cutoff comes from its decay curve at the
+relative level `r2_rho` (default 0.5), as computed with `ld_from_rho()` above.
+Markers whose LD exceeds the cutoff are first joined by single linkage, and
+these groups are then refined by complete linkage, so that every pair within a
+unit meets the cutoff. Each unit has one representative marker, the member with
+the highest median $r^2$ to the rest of the unit.
 
 ```{r stage1, results = "hide"}
 stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, cores = 2)
+```
 
+```{r stage1-show}
+stage1
+stage1$clusters[, .(units = .N, markers = sum(n_snps),
+                    largest_unit = max(n_snps)), by = Chr]
+```
+
+If only a pruned marker set is needed, for example for a GRM, EMMAX's `K` or
+BayPass's `OMEGA`, `stage1$pruned` already holds one representative marker per
+unit and nothing more is required.
+
+```{r pruned}
+length(stage1$pruned)
+head(stage1$pruned)
+```
+
+### A fixed LD cutoff
+
+A cutoff relative to each chromosome's decay suits data sets where LD differs
+between chromosomes. When the same absolute cutoff is preferred everywhere, for
+example to match an earlier analysis, `r2_th` sets one fixed $r^2$ cutoff for
+all chromosomes and `r2_rho` is then ignored. The fixed cutoff is stored in
+`stage1$params`, and later steps that read it, such as `ld_prune_and_eMLG()`
+and `ld_outlier_test()`, use the same value unless they are given their own.
+
+```{r stage1-fixed, results = "hide"}
+stage1_fixed <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_th = 0.5, cores = 2)
+```
+
+```{r stage1-fixed-show}
+rbind(
+  stage1$clusters[, .(cutoff = "r2_rho = 0.5", units = .N), by = Chr],
+  stage1_fixed$clusters[, .(cutoff = "r2_th = 0.5", units = .N), by = Chr]
+)
+```
+
+## Genome-wide consolidation and eMLGs (optional)
+
+This step consolidates Stage-1 units across the whole genome, which is useful
+for pruning and eMLG analyses. It is separate from Stage 2 of the outlier
+workflow, which assembles only the significant units into outlier regions
+(`vignette("LDscnR_stage1_outlier_regions")`).
+
+Because LD is computed within a sliding window, a correlated block with little
+recombination can be split into several neighbouring Stage-1 units. In regions
+with extended LD, such as the Chr1 inversion, markers farther apart than the
+window are never compared. `ld_prune_and_eMLG()` repairs this for the units that
+need it. Units with high local LD support (`ld_w_col` and `ld_w_threshold`) are
+compared again directly from the genotypes, without a window, and merged when
+they are close enough and their consensus remains reliable. The result is a
+refined pruned marker set and an eMLG matrix. An eMLG keeps the information of a
+whole correlated block, which a single representative marker would lose, for
+example for long-range LD or Ohta's D statistics. Units that are not flagged,
+usually the large majority, pass through unchanged.
+
+```{r consolidation, results = "hide"}
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.05,
   LD_decay = ld_decay, dist_rho = 0.95, score_threshold = 0.80, r2_th = 0.2,
@@ -173,14 +334,26 @@ result <- ld_prune_and_eMLG(
 )
 ```
 
+```{r consolidation-show}
+# one row per final group (flagged units consolidated, unflagged ones passed through)
+nrow(result$groups)
+
+# refined pruned marker set
+length(result$pruned)
+
+# individuals x groups consensus-genotype matrix
+dim(result$eMLG)
+```
+
 `plot_pruning_comparison()` shows the Stage-1 units above the consolidated
-groups for one chromosome. On the Chr1 inversion the effect is clear, as the
-many split Stage-1 units (top) are consolidated into a few coherent groups
-(bottom).
+groups for one chromosome. Both panels plot the same markers, coloured by
+group. On the Chr1 inversion the many split Stage-1 units (top) are
+consolidated into a few coherent groups (bottom). The flagging settings default
+to those stored in `result$params`, so the two panels always use the same rule.
 
 ```{r stage-plot, fig.height = 6.5}
-# plot_pruning_comparison() returns its plot invisibly (and saves to out_folder),
-# so assign and re-print it to show it here.
+# plot_pruning_comparison() returns its plot invisibly (and saves it to
+# out_folder), so assign and print it to show it here.
 p_stage <- plot_pruning_comparison(chr = "Chr1", stage1 = stage1,
                                    result = result, map = map, out_folder = tempdir())
 p_stage
@@ -190,15 +363,14 @@ p_stage
 
 Consolidation only merges units when the physical gap between consecutive
 units stays below `distance_threshold`. With the default (`NULL`), this limit is
-**not** a fixed number. It is derived for each chromosome from the decay curve as
-`d_from_rho(a_pred, dist_rho)`, which is the distance at which LD has decayed to
-the relative level `dist_rho` (default 0.95). It uses the decay rate predicted
-from chromosome size, `a_pred`, rather than each chromosome's own noisier fit. On
-these data the limit is only a few kb per region, and it follows each region's
-decay.
+**not** a fixed number. It is derived for each chromosome from the decay curve
+as `d_from_rho(a_pred, dist_rho)`, which is the distance at which LD has
+decayed to the relative level `dist_rho` (default 0.95). It uses the decay rate
+predicted from chromosome size, `a_pred`, rather than each chromosome's own
+noisier fit. On these data the limit is only a few kb per region, and it follows
+each region's decay.
 
 ```{r dist-default}
-ds <- copy(ld_decay$decay_sum)
 ds[, distance_threshold_bp := round(d_from_rho(a_pred, 0.95))]
 ds[, .(Chr, a_pred = signif(a_pred, 3), distance_threshold_bp)]
 ```
@@ -266,14 +438,14 @@ limit derived from `dist_rho` for each chromosome is the next best because it
 adapts to decay, and one fixed number of base pairs is the most convenient but
 adapts least.
 
-## Consensus fidelity and the flagging threshold
+### Consensus fidelity and the flagging threshold
 
 A Stage-1 unit is flagged for consolidation when its local LD support exceeds
 `ld_w_threshold`, so a higher threshold flags fewer units. The consensus
 fidelity `score_eMLG = cor(round(x), x)^2` measures whether a merged group's
 consensus is still close to a discrete genotype, and `ld_prune_and_eMLG()` only
-accepts a merge when it is at least 0.80. Varying the flagging threshold shows
-the trade-off.
+accepts a merge when it is at least `score_threshold` (0.80 here). Varying the
+flagging threshold shows the trade-off.
 
 ```{r sweep, results = "hide"}
 TH <- c(0.025, 0.05, 0.1, 0.15)
@@ -316,6 +488,55 @@ not which merges are accepted, because the fidelity and correlation limits
 decide that. A low threshold therefore costs computing time rather than
 accuracy.
 
+### Speed tip for first and final runs
+
+Most of the time in `ld_prune_and_eMLG()` goes into correlating every pair of
+*flagged* units, which grows roughly with the square of their number. On large
+data sets, `ld_w_threshold` is therefore the setting that matters most.
+
+- **First runs.** Use a high `ld_w_threshold` so that only the most redundant
+  units are flagged. This is fast and good enough for a first look at group
+  counts and eMLGs.
+- **Final run.** Check what share of units is flagged, and lower
+  `ld_w_threshold` where broader consolidation is needed, optionally together
+  with `min_n_loci_flag`.
+- **`compute_unflagged_eMLG = FALSE`** skips the eMLGs for units that are not
+  flagged, which is useful when only the pruned marker set is needed.
+
+## Best single-marker proxy for each group (optional)
+
+The eMLG consensus averages the markers of a group. This gives one value per LD
+block, but some signals are carried by single markers and can differ even
+between strongly correlated markers, so the average dilutes them. For every
+group with a consensus, `eMLG_best_snp()` finds the member marker most
+correlated with the consensus. It can also return that marker's genotypes with
+only the *missing* calls filled in from the consensus. Observed calls are never
+overwritten, so the marker's own signal is kept.
+
+Each group already has a `representative` marker, but it is chosen as the most
+central member rather than to reproduce the consensus. `eMLG_best_snp()` reports
+how much better the best member does.
+
+```{r best-snp}
+best <- eMLG_best_snp(result, GTs)
+
+# multi-marker groups, where the consensus differs from any single marker.
+# best_marker is the member closest to the consensus, representative the
+# most central member
+head(best$stats[n_loci > 2,
+  .(group_id, n_loci, score, representative, best_marker, rep_abs_r, best_abs_r, rep_is_best)])
+
+# share of multi-marker groups where the representative is already the best proxy
+mean(best$stats[n_loci > 2]$rep_is_best)
+```
+
+`best$geno` can replace the consensus matrix `result$eMLG`. It has the same
+shape and column order, but each column is an observed marker, with gaps
+filled, rather than an average. The fidelity `score` shows when a single marker
+is enough. A single marker captures a high-fidelity group almost perfectly, so
+the consensus adds little, whereas in low-fidelity groups the consensus does
+real work (`?eMLG_best_snp`).
+
 ```{r cleanup, include = FALSE}
 SNPRelate::snpgdsClose(gds)
 unlink(gds_path)
@@ -323,14 +544,22 @@ unlink(gds_path)
 
 ## Summary
 
-On real stickleback data, this vignette estimated LD decay for each
-chromosome, computed local LD support (`ld_w`) for each marker, grouped markers
-into Stage-1 units and consolidated them into a pruned marker set and an eMLG
-matrix. It also showed how the distance limit and the consensus fidelity affect
-the consolidation. The window-level decay rate and the marker-level `ld_w`
-agree on where the high-LD regions are.
+Starting from genotypes and a marker map, this vignette
+
+- created a GDS file and estimated LD decay for each chromosome,
+- checked that the LD window covers the decay and converted relative LD levels
+  into distances and $r^2$ cutoffs,
+- computed the local LD support `ld_w` of each marker and showed that it agrees
+  with the windowed decay rate on where the high-LD regions are,
+- grouped markers into Stage-1 units with a cutoff relative to each
+  chromosome's decay or with one fixed cutoff,
+- consolidated flagged units into a refined pruned marker set and an eMLG
+  matrix, and showed how the distance limit and the consensus fidelity affect
+  the result, and
+- chose the best single-marker proxy for each group with `eMLG_best_snp()`.
 
 The pruned marker set and the eMLG matrix can feed later LD-aware analyses,
 such as building a GRM or association mapping. Outlier detection, which tests
 the Stage-1 units directly, is covered in
-`vignette("LDscnR_stage1_outlier_regions")`.
+`vignette("LDscnR_stage1_outlier_regions")`, and outlier regions from p-values
+of other methods in `vignette("LDscnR_external_pvalues")`.

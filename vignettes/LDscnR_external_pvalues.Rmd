@@ -1,0 +1,221 @@
+---
+title: "Outlier regions from p-values of another method"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Outlier regions from p-values of another method}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE, comment = "#>", message = FALSE, warning = FALSE,
+  fig.width = 7, fig.height = 3.5, dpi = 100
+)
+```
+
+```{r packages}
+library(LDscnR)
+library(data.table)
+library(SNPRelate)
+```
+
+## Overview
+
+The Stage-1 units in `LDscnR` are built from genotypes alone, so they do not
+depend on how the association test is done. Any outlier method that returns
+one p-value per marker can therefore be combined with them, for example a
+genotype-environment association method such as LFMM, a mixed model other
+than EMMAX, or a simple regression. The Simes test then combines the marker
+p-values within each unit into one p-value per unit, and the significant units
+are assembled into outlier regions as in
+`vignette("LDscnR_stage1_outlier_regions")`.
+
+This vignette shows the steps with a small regression written in base R, so
+that it runs without extra packages. An example with LFMM2 follows at the end.
+The requirements for the p-values are few.
+
+- There is one p-value per marker, in the order of `map$marker` or named by
+  marker.
+- Markers that could not be tested, for example because they are monomorphic,
+  get a p-value of 1 rather than `NA`.
+- For the permutation null, the same method is run again on permuted
+  phenotypes.
+
+## Stage-1 units
+
+The example is the bundled `stickleback` data set (`?stickleback`). Stage 1 is
+run exactly as in the other vignettes and never sees the phenotype.
+
+```{r data}
+data("stickleback")
+GTs <- stickleback$GTs
+map <- copy(stickleback$map)
+pheno <- copy(stickleback$pheno)
+eco <- as.integer(pheno$ecotype == "Marine")
+```
+
+```{r stage1, results = "hide"}
+gds_path <- tempfile(fileext = ".gds")
+gds <- create_gds_from_geno(GTs, map, gds_path)
+
+set.seed(1)
+ld_decay <- compute_LD_decay(gds, keep_el = TRUE, slide = 200, n_win_decay = 20, cores = 2)
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, cores = 2)
+```
+
+The size floor follows the marker-density rule, with one required member for
+every 250 markers per Mb, rounded and never below two.
+
+```{r size-floor}
+span_mb <- map[, (max(Pos) - min(Pos)) / 1e6, by = Chr]$V1
+size_floor <- max(2L, as.integer(round(nrow(map) / sum(span_mb) / 250)))
+size_floor
+```
+
+## Marker p-values from another method
+
+The method used here regresses each marker on the phenotype, with sampling
+locality as a covariate to absorb differences between localities. Both the
+markers and the phenotype are first adjusted for the covariates through a QR
+decomposition, so that all markers are tested in one matrix operation. The
+test is the usual t test of the partial correlation.
+
+```{r lm-fn}
+lm_pvalues <- function(G, y, covars) {
+  X0 <- cbind(1, covars)
+  qx <- qr(X0)
+  yr <- qr.resid(qx, y)
+  Gr <- qr.resid(qx, G)
+  r  <- colSums(Gr * yr) / sqrt(colSums(Gr^2) * sum(yr^2))
+  df <- nrow(G) - qx$rank - 1
+  p  <- 2 * pt(-abs(r * sqrt(df / (1 - r^2))), df)
+  p[!is.finite(p)] <- 1     # markers that cannot be tested
+  setNames(p, colnames(G))
+}
+
+covars <- model.matrix(~ pop_locality, pheno)[, -1, drop = FALSE]
+p_marker <- lm_pvalues(GTs, eco, covars)
+summary(p_marker)
+```
+
+## Simes test and outlier regions
+
+`ld_outlier_test()` with `statistic = "simes"` combines the marker p-values
+within each tested unit into one Simes p-value, applies Benjamini-Hochberg
+correction across the units and assembles the significant units into outlier
+regions.
+
+```{r simes}
+out <- ld_outlier_test(stage1, map, p_marker, statistic = "simes",
+                       size_floor = size_floor, alpha = 0.05,
+                       assembly = "stage2_discovered", GTs = GTs, LD_decay = ld_decay)
+out
+out$regions
+```
+
+```{r manhattan}
+region_members <- lapply(seq_len(nrow(out$regions)), function(i) {
+  r <- out$regions[i]
+  map[Chr == r$Chr & Pos >= r$from & Pos <= r$to, marker]
+})
+ld_manhattan(map, value = -log10(p_marker), value_label = expression(-log[10](p)),
+             regions = region_members, point_size = 1.5)
+```
+
+The consensus test works with another method as well. `ld_unit_matrix()`
+builds one consensus value per unit and individual, the method tests these
+values instead of the markers, and the unit p-values are passed with
+`statistic = "unit"`.
+
+```{r consensus}
+m_cons <- ld_unit_matrix(GTs, stage1, map, size_floor = size_floor, repr = "consensus_dosage")
+p_unit <- lm_pvalues(m_cons, eco, covars)
+out_unit <- ld_outlier_test(stage1, map, p_unit, statistic = "unit",
+                            size_floor = size_floor, alpha = 0.05,
+                            assembly = "stage2_discovered", GTs = GTs, LD_decay = ld_decay)
+out_unit$regions
+```
+
+## Permutation null with the same method
+
+The permutation null asks how many units the same workflow would call
+significant if the phenotype carried no information beyond the structure that
+the null preserves. The method is therefore run again on each permuted
+phenotype, with the same covariates. Ecotype is shuffled within locality, which
+keeps each locality's share of marine and freshwater fish. The permuted
+p-values are collected into a matrix with one row per marker and one column per
+permutation.
+
+```{r perm}
+B <- 40L
+set.seed(1)
+p_perm <- vapply(seq_len(B), function(b) {
+  eco_perm <- ave(eco, pheno$pop_locality, FUN = sample)
+  lm_pvalues(GTs, eco_perm, covars)
+}, numeric(ncol(GTs)))
+dim(p_perm)
+
+null_units <- ld_outlier_perm(out, stage1, map, p_perm, level = "units", verbose = FALSE)
+null_units
+```
+
+As in the main outlier vignette, `null_obs_ratio` is the mean number of
+discoveries under the null divided by the observed number. It is not a false
+discovery rate and says nothing about any single region. Forty permutations
+are used here only to keep the vignette fast, and a real analysis should use
+many more.
+
+## An example with LFMM2
+
+LFMM2 from the `LEA` package tests genotype-environment associations while
+correcting for population structure with latent factors. Its calibrated
+p-values can be used in the same way. The chunk below is not run when the
+vignette is built, so that `LEA` is not required. The number of latent factors
+`K` should be chosen for the data set, for example from a PCA screeplot or
+from `snmf()` cross-entropy.
+
+```{r lfmm2, eval = FALSE}
+library(LEA)
+
+lfmm_pvalues <- function(G, env, K) {
+  mod <- lfmm2(input = G, env = env, K = K)
+  p <- as.numeric(lfmm2.test(mod, input = G, env = env,
+                             genomic.control = TRUE)$pvalues)
+  p[!is.finite(p)] <- 1
+  setNames(p, colnames(G))
+}
+
+p_lfmm <- lfmm_pvalues(GTs, eco, K = 7)
+out_lfmm <- ld_outlier_test(stage1, map, p_lfmm, statistic = "simes",
+                            size_floor = size_floor, alpha = 0.05,
+                            assembly = "stage2_discovered", GTs = GTs, LD_decay = ld_decay)
+
+# permutation null with the same method, here with fewer permutations
+# because each LFMM2 fit takes longer
+p_perm_lfmm <- vapply(seq_len(B), function(b) {
+  lfmm_pvalues(GTs, ave(eco, pheno$pop_locality, FUN = sample), K = 7)
+}, numeric(ncol(GTs)))
+ld_outlier_perm(out_lfmm, stage1, map, p_perm_lfmm, level = "units")
+```
+
+Methods that return a statistic rather than a p-value, such as Bayes factors
+or XtX from BayPass, need calibrated p-values first, for example from
+simulated pseudo-observed data sets or from the empirical distribution of the
+statistic.
+
+```{r cleanup, include = FALSE}
+SNPRelate::snpgdsClose(gds)
+unlink(gds_path)
+```
+
+## Summary
+
+- Stage-1 units are built from genotypes alone and can be combined with any
+  outlier method that gives one p-value per marker.
+- The Simes test combines the marker p-values within each unit, and the
+  consensus test passes unit values to the method instead of markers.
+- The permutation null runs the same method on permuted phenotypes, with the
+  permuted p-values in a matrix of markers by permutations.
+- `ld_outlier_scan()` and `ld_region_rotation()` take these results in the same
+  way as in `vignette("LDscnR_stage1_outlier_regions")`.

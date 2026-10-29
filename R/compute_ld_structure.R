@@ -1232,7 +1232,7 @@ compute_ld_w <- function(
 #'   }
 #'   \item{\code{type = "recommendation"}}{
 #'     Visualizes suggested slide-window sizes in SNP units for the requested
-#'     target rho values.freco
+#'     target rho values.
 #'   }
 #' }
 #'

@@ -84,8 +84,9 @@ ld_decay <- compute_LD_decay(gds, keep_el = TRUE, slide = 200, n_win_decay = 20,
 
 `compute_LD_decay()` fits an LD-decay curve for each chromosome, and
 `ld_complexity_reduction()` uses that curve to set each chromosome's LD
-cutoff and group markers into Stage-1 units. The mechanics are described in
-`vignette("LDscnR_quick_introduction")`. A Stage-1 unit is a set of markers
+cutoff and group markers into Stage-1 units. The mechanics, and how to choose
+the LD window `slide`, are described in
+`vignette("LDscnR_complexity_reduction")`. A Stage-1 unit is a set of markers
 that are correlated with each other in this data set. It is not a claim that
 they form one biological haplotype. Neighbouring units can also still be
 somewhat correlated, because the units reduce redundancy but do not make the
@@ -113,6 +114,11 @@ K <- snpgdsGRM(gds, snp.id = stage1$pruned, method = "GCTA",
 rownames(K) <- colnames(K) <- rownames(GTs)
 ```
 
+The GDS file stores whole genotypes, so dosages estimated from genotype
+likelihoods are rounded when the file is created, and the Stage-1 units and the
+GRM are built from rounded genotypes. The association tests below take `GTs`
+directly and use the dosages as given.
+
 ## One p-value per Stage-1 unit
 
 Each tested unit needs one p-value. This vignette shows the two tests used
@@ -130,18 +136,21 @@ the Simes test is penalised for unit size. Any association method that
 returns p-values can be used. Here both tests use `emmax_fast()`, the EMMAX
 implementation in LDscnR.
 
+The floor is the minimum number of markers a unit must contain to be
+tested. Small units carry little evidence and add many tests, so they are left
+out. The floor is set from marker density, with one required member for every
+250 markers per Mb, rounded and never below two. It depends only on the marker
+map, so it can be fixed before any association result is examined.
+
 ```{r size-floor}
-size_floor <- 8L   # illustrative floor for this three-chromosome subset
+span_mb <- map[, (max(Pos) - min(Pos)) / 1e6, by = Chr]$V1
+markers_per_mb <- nrow(map) / sum(span_mb)
+size_floor <- max(2L, as.integer(round(markers_per_mb / 250)))
+c(markers_per_mb = round(markers_per_mb), size_floor = size_floor)
 ```
 
-The floor is the minimum number of markers a unit must contain to be
-tested. Eight is not a general cutoff. In the manuscript, the floor was set
-from marker density, with one required member for every 250 markers per Mb,
-rounded and never below two. The full three-spined panel had 2,078 markers
-per Mb, which gives a floor of eight. The floor was fixed before any
-association or EcoPeak overlap was examined. This subset only demonstrates
-the workflow, so it reuses the full-panel floor rather than deriving a new
-one.
+This subset has about 2,100 markers per Mb, which gives a floor of eight, the
+same as the full three-spined panel in the manuscript (2,078 markers per Mb).
 
 ```{r phenotype}
 eco <- as.integer(pheno$ecotype == "Marine")
@@ -213,6 +222,19 @@ out_simes <- ld_outlier_test(stage1, map, p_marker, statistic = "simes", size_fl
 out_simes$units[significant == TRUE]
 ```
 
+`ld_manhattan()` draws the marker p-values along each chromosome and colours
+the markers inside each outlier region. The regions are given as lists of
+member markers, which are taken here from the region spans.
+
+```{r manhattan, fig.height = 3.5}
+region_members <- lapply(seq_len(nrow(out_simes$regions)), function(i) {
+  r <- out_simes$regions[i]
+  map[Chr == r$Chr & Pos >= r$from & Pos <= r$to, marker]
+})
+ld_manhattan(map, value = -log10(p_marker), value_label = expression(-log[10](p)),
+             regions = region_members, point_size = 1.5)
+```
+
 The default assembly, `assembly = "stage2_discovered"`, clusters only the
 significant units with the same LD rule that Stage 1 used, so an outlier
 region can only span significant units. `assembly = "physical"` instead
@@ -223,6 +245,20 @@ quick check that the two rules broadly agree.
 out_phys <- ld_outlier_test(stage1, map, p_unit, statistic = "unit", size_floor = size_floor,
                             alpha = 0.10, assembly = "physical")
 out_phys$regions
+```
+
+Assembly uses the same $r^2$ cutoff as Stage 1. If Stage 1 was run with a fixed
+cutoff (`r2_th` in `ld_complexity_reduction()`), assembly reads it from
+`stage1$params`. Otherwise it uses each chromosome's decay-relative cutoff. A
+different fixed cutoff for assembly alone can be given with `r2_th` in
+`ld_outlier_test()`, which changes how significant units are joined into regions
+but not which units are significant.
+
+```{r outlier-test-fixed}
+out_fixed <- ld_outlier_test(stage1, map, p_marker, statistic = "simes", size_floor = size_floor,
+                             alpha = 0.10, assembly = "stage2_discovered",
+                             GTs = GTs, LD_decay = ld_decay, r2_th = 0.2)
+out_fixed$regions
 ```
 
 ## Is the observed discovery count unusual?
@@ -315,6 +351,25 @@ observed regions do. Each region is placed independently, and the resulting
 fold enrichment measures something different from the permutation null
 above.
 
+## The whole workflow in one call
+
+`ld_outlier_scan()` runs `ld_outlier_test()`, and optionally
+`ld_outlier_perm()` and `ld_region_rotation()`, in one call. The permutation
+null runs when `p_perm` is given, and the relocation test runs when
+`annotation` and `chrom_lengths` are given. Each part stays available on its
+own, as used above.
+
+```{r scan}
+scan <- ld_outlier_scan(stage1, map, p_unit, p_perm = p_perm, statistic = "unit",
+                        size_floor = size_floor, alpha = 0.10,
+                        GTs = GTs, LD_decay = ld_decay,
+                        annotation = annotation, chrom_lengths = chrom_lengths,
+                        n_rotations = 2000, verbose = FALSE)
+scan$test$regions
+scan$null
+scan$rotation
+```
+
 ## Summary
 
 - Stage 1 (`ld_complexity_reduction()`) groups markers into phenotype-blind
@@ -332,6 +387,10 @@ above.
 - `ld_region_rotation()` runs the relocation test, which asks whether the
   outlier regions overlap external evidence more than their size alone would
   predict.
+- `ld_outlier_scan()` runs these steps in one call.
+
+Outlier regions can also be called from p-values produced by another method,
+such as LFMM or BayPass, which is shown in `vignette("LDscnR_external_pvalues")`.
 
 ```{r cleanup, include = FALSE}
 SNPRelate::snpgdsClose(gds)
