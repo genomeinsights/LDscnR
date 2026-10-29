@@ -14,15 +14,15 @@ build_eMLG_result <- function() {
 
   ld_decay <- compute_LD_decay(gds, n_win_decay = 5, slide = 200,
                                keep_el = TRUE, cores = 1)
-  ld_w <- compute_ld_w(ld_decay, rho = 0.95, cores = 1)
+  ld_w <- compute_ld_w(ld_decay, dist_rho = 0.95, cores = 1)
   ids  <- unlist(lapply(ld_decay$by_chr, function(o) o$snp_ids), use.names = FALSE)
   map[, ld_w_095 := ld_w[match(marker, ids)]]
 
   stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay,
-                                    rho = 0.5, cores = 1)
+                                    r2_rho = 0.5, cores = 1)
   res <- ld_prune_and_eMLG(GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095",
-                           ld_w_threshold = 0, LD_decay = ld_decay, rho = 0.95,
-                           score_threshold = 0.80, min_r2 = 0.2,
+                           ld_w_threshold = 0, LD_decay = ld_decay, dist_rho = 0.95,
+                           score_threshold = 0.80, r2_th = 0.2,
                            compute_unflagged_eMLG = TRUE, min_n_loci_eMLG = 3,
                            cores = 1)
   list(res = res, GTs = GTs)

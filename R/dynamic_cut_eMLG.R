@@ -30,11 +30,11 @@
 #   - so: walk the average-linkage dendrogram bottom-up (tips -> root, one
 #     hclust merge event at a time) and accept each candidate merge only if
 #     BOTH (a) the two sides being merged are themselves correlated
-#     (min_r2), and (b) the resulting consensus still scores >= threshold on
+#     (r2_th), and (b) the resulting consensus still scores >= threshold on
 #     score_eMLG. This lets the stopping point adapt locally per branch,
 #     rather than assuming one global r2 threshold is right everywhere.
 #   - single linkage was also tried as the TREE structure for this walk
-#     (not as the accept/reject criterion, which is score_eMLG/min_r2
+#     (not as the accept/reject criterion, which is score_eMLG/r2_th
 #     either way) on the theory that its finer-grained, one-at-a-time
 #     candidate steps might give the quality gate more precise control.
 #     Empirically this was worse, not better: single linkage's tree
@@ -57,8 +57,8 @@
 #      actually correlated with each other -- two near-monomorphic,
 #      unrelated groups can average to something that still rounds cleanly
 #      by coincidence (confirmed directly: a merge with min pairwise r2 as
-#      low as 1.8e-05 still passed score_eMLG >= 0.80 without the min_r2
-#      gate). Hence the min_r2 check alongside score_eMLG.
+#      low as 1.8e-05 still passed score_eMLG >= 0.80 without the r2_th
+#      gate). Hence the r2_th check alongside score_eMLG.
 
 #' Dynamically cluster eMLG signals via a quality-gated tree walk
 #'
@@ -70,7 +70,7 @@
 #' assumes one r2 threshold is right everywhere -- see the file-level
 #' comment for why average linkage (not single or complete) was chosen as
 #' the tree, and why the accept/reject decision is driven by
-#' `score_eMLG`/`min_r2` directly rather than by tree height.
+#' `score_eMLG`/`r2_th` directly rather than by tree height.
 #'
 #' [ld_prune_and_eMLG()] is the usual entry point for applying this to a
 #' whole [ld_complexity_reduction()] result; call this directly when you
@@ -88,7 +88,7 @@
 #'   a candidate merge's resulting signal must clear to be accepted.
 #'   Validated around 0.80-0.85 on real data; higher is stricter (less
 #'   merging).
-#' @param min_r2 Minimum r2 required directly between the two sides being
+#' @param r2_th Minimum r2 required directly between the two sides being
 #'   merged, checked in addition to `threshold`. Default `0.2`. This is NOT
 #'   redundant with `threshold`, and the reason is worth stating: `score_eMLG`
 #'   is a property of the RESULTING consensus, so once a cluster is large that
@@ -115,8 +115,11 @@
 #' groups <- dynamic_cut_eMLG(eMLGs$eMLG, n_loci = eMLGs$map_eMLG$n_loci, threshold = 0.80)
 #' }
 #'
+#' @param min_r2 Deprecated. Use `r2_th`.
 #' @export
-dynamic_cut_eMLG <- function(eMLG, n_loci, threshold, min_r2 = 0.2) {
+dynamic_cut_eMLG <- function(eMLG, n_loci, threshold, r2_th = 0.2,
+                             min_r2 = NULL) {
+  if (!missing(min_r2)) r2_th <- .renamed_arg(min_r2, "min_r2", "r2_th")
   cluster_ids <- colnames(eMLG)
   if (is.null(cluster_ids) || anyDuplicated(cluster_ids)) {
     stop("eMLG must have unique column names (cluster IDs).")
@@ -178,7 +181,7 @@ dynamic_cut_eMLG <- function(eMLG, n_loci, threshold, min_r2 = 0.2) {
     cand_emlg <- weighted_row_mean(polarize_genotypes(cbind(left$emlg, right$emlg)), w)
     s <- score_eMLG(cand_emlg)
 
-    if (!is.na(pair_r2) && pair_r2 >= min_r2 && !is.na(s) && s >= threshold) {
+    if (!is.na(pair_r2) && pair_r2 >= r2_th && !is.na(s) && s >= threshold) {
       node_members[[i]] <- c(left$members, right$members)
       node_emlg[[i]]    <- cand_emlg
       node_nloci[i]     <- sum(w)

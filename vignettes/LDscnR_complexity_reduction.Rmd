@@ -70,7 +70,7 @@ set.seed(1)  # compute_LD_decay() subsamples SNP pairs for the background-LD fit
 ld_decay <- compute_LD_decay(gds, keep_el = TRUE, slide = 200,
                              ld_method = "corr", n_win_decay = 50, cores = 2)
 
-ld_w <- compute_ld_w(ld_decay, rho = 0.95, cores = 2)
+ld_w <- compute_ld_w(ld_decay, dist_rho = 0.95, cores = 2)
 ids  <- unlist(lapply(ld_decay$by_chr, function(o) o$snp_ids), use.names = FALSE)
 map[, ld_w_095 := ld_w[match(marker, ids)]]
 ```
@@ -162,11 +162,11 @@ into many adjacent clusters. Stage 2 (`ld_prune_and_eMLG()`) reconsiders the
 flagged clusters directly from genotypes and consolidates them.
 
 ```{r stage1, results = "hide"}
-stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cores = 2)
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, cores = 2)
 
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.05,
-  LD_decay = ld_decay, rho = 0.95, score_threshold = 0.80, min_r2 = 0.2,
+  LD_decay = ld_decay, dist_rho = 0.95, score_threshold = 0.80, r2_th = 0.2,
   min_n_loci_flag = 5, min_n_loci_eMLG = 5, compute_unflagged_eMLG = FALSE, cores = 2
 )
 ```
@@ -178,7 +178,7 @@ clusters (top) are consolidated into a few coherent groups (bottom).
 ```{r stage-plot, fig.height = 6.5}
 # plot_pruning_comparison() returns its plot invisibly (and saves to out_folder),
 # so assign and re-print it to show it here.
-p_stage <- plot_pruning_comparison(chr = "Chr1", pruned_stage1 = stage1,
+p_stage <- plot_pruning_comparison(chr = "Chr1", stage1 = stage1,
                                    result = result, map = map, out_folder = tempdir())
 p_stage
 ```
@@ -206,14 +206,14 @@ Formica-hybrid analysis, whose low-recombination blocks span megabases:
 ```{r stage-500, results = "hide"}
 result_500kb <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.05,
-  LD_decay = ld_decay, rho = 0.95, score_threshold = 0.80, min_r2 = 0.2,
+  LD_decay = ld_decay, dist_rho = 0.95, score_threshold = 0.80, r2_th = 0.2,
   min_n_loci_flag = 5, min_n_loci_eMLG = 5, compute_unflagged_eMLG = FALSE,
   distance_threshold = 5e5, cores = 2
 )
 ```
 
 ```{r stage-500-plot, fig.height = 6.5}
-p_500 <- plot_pruning_comparison(chr = "Chr1", pruned_stage1 = stage1,
+p_500 <- plot_pruning_comparison(chr = "Chr1", stage1 = stage1,
                                  result = result_500kb, map = map, out_folder = tempdir())
 p_500
 ```
@@ -276,8 +276,8 @@ trade-off:
 TH <- c(0.025, 0.05, 0.1, 0.15)
 fl <- rbindlist(lapply(TH, function(th) {
   r <- ld_prune_and_eMLG(GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095",
-                         ld_w_threshold = th, score_threshold = 0.80, min_r2 = 0.2,
-                         LD_decay = ld_decay, rho = 0.95, min_n_loci_flag = 5,
+                         ld_w_threshold = th, score_threshold = 0.80, r2_th = 0.2,
+                         LD_decay = ld_decay, dist_rho = 0.95, min_n_loci_flag = 5,
                          min_n_loci_eMLG = 5, compute_unflagged_eMLG = FALSE, cores = 2)
   g <- as.data.table(r$groups)[startsWith(group_id, "F")]
   g[, .(th = th, score, n_loci)]

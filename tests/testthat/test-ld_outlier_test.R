@@ -22,7 +22,7 @@ build_real_stage1 <- function(seed = 123) {
   on.exit({ SNPRelate::snpgdsClose(gds); unlink(gds_path) })
   ld <- compute_LD_decay(gds, n_win_decay = 5, max_SNPs_decay = 2000, slide = 1000,
                          keep_el = TRUE, cores = 1)
-  stage1 <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1)
+  stage1 <- ld_complexity_reduction(map, ld, r2_rho = 0.5, cores = 1)
   list(GTs = GTs, map = map, LD_decay = ld, stage1 = stage1)
 }
 
@@ -219,14 +219,14 @@ test_that("r2_th sets a fixed Stage-2 merge threshold, inherited from stage1 whe
   out_rho <- ld_outlier_test(d$stage1, d$map, p, statistic = "simes", size_floor = 8L,
                              assembly = "stage2_discovered", GTs = d$GTs, LD_decay = d$LD_decay)
   expect_true(is.na(out_rho$params$r2_th))
-  expect_equal(out_rho$params$min_r2_rho, 0.5)
+  expect_equal(out_rho$params$r2_rho, 0.5)
 
   ## explicit Stage-2 threshold
   out_fix <- ld_outlier_test(d$stage1, d$map, p, statistic = "simes", size_floor = 8L,
                              assembly = "stage2_discovered", GTs = d$GTs, LD_decay = d$LD_decay,
                              r2_th = 0.4)
   expect_equal(out_fix$params$r2_th, 0.4)
-  expect_true(is.na(out_fix$params$min_r2_rho))
+  expect_true(is.na(out_fix$params$r2_rho))
   expect_identical(sum(out_fix$units$significant), sum(out_rho$units$significant))
 
   ## inherited from a stage1 built with a fixed r2_th

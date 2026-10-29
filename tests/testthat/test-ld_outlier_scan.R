@@ -11,7 +11,7 @@ build_real_stage1 <- function(seed = 123) {
   on.exit({ SNPRelate::snpgdsClose(gds); unlink(gds_path) })
   ld <- compute_LD_decay(gds, n_win_decay = 5, max_SNPs_decay = 2000, slide = 1000,
                          keep_el = TRUE, cores = 1)
-  stage1 <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1)
+  stage1 <- ld_complexity_reduction(map, ld, r2_rho = 0.5, cores = 1)
   list(GTs = GTs, map = map, LD_decay = ld, stage1 = stage1)
 }
 

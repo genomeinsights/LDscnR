@@ -25,7 +25,7 @@ GTs <- sim_ex$GTs
 colnames(GTs) <- map$marker
 
 gds_path <- tempfile(fileext = ".gds")
-gds <- create_gds_from_geno(geno = sim_ex$GTs, map, gds_path)
+gds <- create_gds_from_geno(GTs = sim_ex$GTs, map, gds_path)
 
 # ------------------------------------------------------------
 # 2. Estimate chromosome-wise LD decay

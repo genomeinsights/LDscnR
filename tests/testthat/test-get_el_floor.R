@@ -15,15 +15,15 @@ test_that("el_floor filters during construction and defaults to no-op", {
   f <- tempfile(fileext = ".gds"); on.exit(unlink(f), add = TRUE)
   gds <- create_gds_from_geno(G, map, f); on.exit(SNPRelate::snpgdsClose(gds), add = TRUE)
 
-  full <- get_el(gds, slide_win_ld = 30, method = "corr")
+  full <- get_el(gds, slide = 30, ld_method = "corr")
   expect_gt(nrow(full), 0)
 
   ## default is exactly the old behaviour
-  expect_identical(get_el(gds, slide_win_ld = 30, method = "corr", el_floor = 0), full)
+  expect_identical(get_el(gds, slide = 30, ld_method = "corr", el_floor = 0), full)
 
   ## a floor returns precisely the rows the caller would have kept anyway
   for (thr in c(0.05, 0.2, 0.5)) {
-    got  <- get_el(gds, slide_win_ld = 30, method = "corr", el_floor = thr)
+    got  <- get_el(gds, slide = 30, ld_method = "corr", el_floor = thr)
     want <- full[full$r2 >= thr, ]
     expect_equal(nrow(got), nrow(want))
     expect_equal(sort(got$r2), sort(want$r2), tolerance = 1e-12)
@@ -31,10 +31,10 @@ test_that("el_floor filters during construction and defaults to no-op", {
   }
 
   ## and it really does shrink the object, which is the point
-  expect_lt(nrow(get_el(gds, slide_win_ld = 30, method = "corr", el_floor = 0.5)), nrow(full))
+  expect_lt(nrow(get_el(gds, slide = 30, ld_method = "corr", el_floor = 0.5)), nrow(full))
 
   ## by_chr path honours it too
-  expect_true(all(get_el(gds, slide_win_ld = 30, method = "corr",
+  expect_true(all(get_el(gds, slide = 30, ld_method = "corr",
                          by_chr = TRUE, el_floor = 0.3)$r2 >= 0.3))
 })
 

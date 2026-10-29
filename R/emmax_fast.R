@@ -36,17 +36,20 @@ emmax_setup <- function(GTs, K) {
 #' Identical to the p-values from [emmax()] at a fraction of the cost.
 #'
 #' @param prep An `emmax_prep` object from [emmax_setup()].
-#' @param y Numeric phenotype vector, length = number of individuals (a 0/1
+#' @param Y Numeric phenotype vector, length = number of individuals (a 0/1
 #'   ecotype/case vector is treated as a continuous response, as in EMMAX).
 #'
 #' @return Numeric vector of per-SNP p-values, one per column of the genotype
 #'   matrix passed to [emmax_setup()].
 #' @seealso [emmax_setup()]
+#' @param y Deprecated. Use `Y`.
 #' @export
-emmax_fast <- function(prep, y) {
-  re  <- emma.REMLE(y, prep$Xo, prep$Kn, eig.R = prep$eigR)
+emmax_fast <- function(prep, Y,
+                       y = NULL) {
+  if (!missing(y)) Y <- .renamed_arg(y, "y", "Y")
+  re  <- emma.REMLE(Y, prep$Xo, prep$Kn, eig.R = prep$eigR)
   wv  <- 1 / sqrt(re$vg * prep$lam + re$ve)              # whitening weights
-  yt  <- as.numeric(crossprod(prep$V, y)) * wv
+  yt  <- as.numeric(crossprod(prep$V, Y)) * wv
   xo  <- prep$xot * wv
   Xtw <- prep$Xt * wv
   a2  <- sum(xo * xo)

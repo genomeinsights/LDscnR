@@ -151,59 +151,59 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #' @param ld_w_threshold Flagging threshold.
 #' @param LD_decay Object from [compute_LD_decay()], used to derive two
 #'   per-chromosome thresholds from the fitted decay curves: a
-#'   `distance_threshold` from `rho` when `distance_threshold` is not supplied
-#'   directly (via `d_from_rho(a_pred, rho)`, using each chromosome's
+#'   `distance_threshold` from `dist_rho` when `distance_threshold` is not supplied
+#'   directly (via `d_from_rho(a_pred, dist_rho)`, using each chromosome's
 #'   size-corrected predicted decay rate `a_pred`, not its own observed `a`
-#'   -- see `distance_threshold` below for why), and a `min_r2` from
-#'   `min_r2_rho` when `min_r2` is not supplied directly (via
-#'   `ld_from_rho(b, c, min_r2_rho)`). Only required when either of those is
+#'   -- see `distance_threshold` below for why), and a `r2_th` from
+#'   `r2_rho` when `r2_th` is not supplied directly (via
+#'   `ld_from_rho(b, c, r2_rho)`). Only required when either of those is
 #'   `NULL` (both are by default).
-#' @param rho Relative LD threshold used to derive `distance_threshold` when
-#'   it isn't supplied directly. Reuses the same `rho` already implied by
+#' @param dist_rho Relative LD threshold used to derive `distance_threshold` when
+#'   it isn't supplied directly. Reuses the same `dist_rho` already implied by
 #'   `ld_w_col`'s naming convention (e.g. `"ld_w_095"`) by default, so one
-#'   `rho` governs both what counts as "locally elevated" (upstream, via
+#'   `dist_rho` governs both what counts as "locally elevated" (upstream, via
 #'   [compute_ld_w()]) and what counts as "still physically contiguous"
 #'   (here). Default `0.95`.
 #' @param score_threshold Minimum `score_eMLG` a candidate merge's result
 #'   must clear (see [dynamic_cut_eMLG()]).
-#' @param min_r2 Minimum r2 required directly between the two sides being
+#' @param r2_th Minimum r2 required directly between the two sides being
 #'   merged (see [dynamic_cut_eMLG()]). A genuine merge/independence gate: it
 #'   bounds the residual correlation between distinct final clusters (~ the
 #'   fixed floor conventional LD pruning applies), not a device to shrink the
 #'   pairwise edge list. Default `NULL`: derived per chromosome from
-#'   `min_r2_rho` and `LD_decay` (via `ld_from_rho(b, c, min_r2_rho)`) rather
+#'   `r2_rho` and `LD_decay` (via `ld_from_rho(b, c, r2_rho)`) rather
 #'   than one fixed r2 for the whole genome. Supply a single number to
 #'   override.
-#' @param min_r2_rho Relative LD threshold used to derive `min_r2` when it
+#' @param r2_rho Relative LD threshold used to derive `r2_th` when it
 #'   isn't supplied directly. Defaults to `0.5`, i.e. the same decay-relative
-#'   r2 that [ld_complexity_reduction()] uses at its own default `rho = 0.5`
+#'   r2 that [ld_complexity_reduction()] uses at its own default `r2_rho = 0.5`
 #'   to build the Stage 1 clusters this function then merges -- so the bar a
 #'   merge must clear is the same bar that put markers in a cluster to begin
-#'   with, on each chromosome's own decay scale. A fixed `min_r2` instead
+#'   with, on each chromosome's own decay scale. A fixed `r2_th` instead
 #'   applies one number across chromosomes whose decay curves differ, making
 #'   it lenient on slow-decaying chromosomes and strict on fast-decaying
 #'   ones.
 #' @param distance_threshold Max consecutive-gap in bp allowed within one
 #'   physically-contiguous run (see `split_by_distance()`). Clusters more
 #'   than this apart are never merged, regardless of correlation. Default
-#'   `NULL`: derived per chromosome from `rho` and `LD_decay` instead of a
-#'   single fixed value (via `d_from_rho(a_pred, rho)`) -- deliberately
+#'   `NULL`: derived per chromosome from `dist_rho` and `LD_decay` instead of a
+#'   single fixed value (via `d_from_rho(a_pred, dist_rho)`) -- deliberately
 #'   using `a_pred` (chromosome-size-corrected decay rate), not each
 #'   chromosome's own observed `a`. Checked directly on real data: an
 #'   anomalous, ~100x-slower-decay chromosome and a typical one (similar
 #'   size) get a near-identical, well-calibrated ~11kb window at
-#'   `rho = 0.95` this way, capturing ~98-99% of real local gaps while
+#'   `dist_rho = 0.95` this way, capturing ~98-99% of real local gaps while
 #'   still treating the rare large gaps as presumptive breaks. Using the
 #'   observed `a` instead would have given the anomalous chromosome a
 #'   ~1.5Mb window -- more than double the largest gap actually observed on
 #'   it, i.e. license to bridge essentially the whole chromosome into one
 #'   run regardless of its real local structure. Supplying a single numeric
 #'   value here still works as before (e.g. for hand-built test fixtures
-#'   with no matching decay object) and skips the `rho`-based derivation
+#'   with no matching decay object) and skips the `dist_rho`-based derivation
 #'   entirely. Ignored entirely if `genetic_map` is supplied.
 #' @param genetic_map If supplied (together with `cM_threshold`), run
 #'   splitting is done in genetic (cM) distance instead of physical (bp)
-#'   distance -- `distance_threshold`/`rho`/`LD_decay` are not consulted at
+#'   distance -- `distance_threshold`/`dist_rho`/`LD_decay` are not consulted at
 #'   all in that case. A data.table/data.frame with `Chr`, `Pos`, `cM`
 #'   columns (see [interpolate_cM()]; any chromosome-naming differences
 #'   from `stage1`/`map_snp` must be reconciled by the caller first).
@@ -261,9 +261,9 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'   always lists EVERY group regardless of eMLG filtering), `pruned`
 #'   (character vector of representative markers, one per group -- for
 #'   LD-pruning use, unaffected by eMLG filtering), `params` (the
-#'   `ld_w_col`/`ld_w_threshold`/`min_n_loci_flag`/`rho`/`distance_threshold`/
-#'   `min_r2_rho`/`min_r2`/`use_cM`/`cM_threshold` this call was given, plus
-#'   `distance_threshold_resolved` and `min_r2_resolved` -- the values it
+#'   `ld_w_col`/`ld_w_threshold`/`min_n_loci_flag`/`dist_rho`/`distance_threshold`/
+#'   `r2_rho`/`r2_th`/`use_cM`/`cM_threshold` this call was given, plus
+#'   `distance_threshold_resolved` and `r2_th_resolved` -- the values it
 #'   actually applied: a scalar when the threshold was supplied directly, a
 #'   vector named by chromosome when it was derived from `LD_decay`, and
 #'   `NULL` when that threshold did not apply (`distance_threshold_resolved`
@@ -288,33 +288,42 @@ pick_representative <- function(cl_ids, eMLG, stage1_clusters) {
 #'
 #' @examples
 #' \dontrun{
-#' stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5)
+#' stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5)
 #' result <- ld_prune_and_eMLG(
 #'   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095",
-#'   ld_w_threshold = 0.2, LD_decay = ld_decay, rho = 0.95,
+#'   ld_w_threshold = 0.2, LD_decay = ld_decay, dist_rho = 0.95,
 #'   score_threshold = 0.80
 #' )
 #' pruned_markers <- result$pruned
 #' eMLG <- result$eMLG
 #' }
 #'
+#' @param min_r2 Deprecated. Use `r2_th`.
+#' @param min_r2_rho Deprecated. Use `r2_rho`.
+#' @param rho Deprecated. Use `dist_rho`.
 #' @export
 ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
-                               LD_decay = NULL, rho = 0.95,
+                               LD_decay = NULL, dist_rho = 0.95,
                                score_threshold = 0.80,
-                               min_r2 = NULL, min_r2_rho = 0.5,
+                               r2_th = NULL, r2_rho = 0.5,
                                distance_threshold = NULL,
                                genetic_map = NULL, cM_threshold = NULL,
                                compute_unflagged_eMLG = TRUE,
                                min_n_loci_eMLG = 1,
                                min_n_loci_flag = Inf,
-                               cores = 1) {
+                               cores = 1,
+                               min_r2 = NULL, min_r2_rho = NULL, rho = NULL) {
+  if (!missing(rho)) dist_rho <- .renamed_arg(rho, "rho", "dist_rho")
+  if (!missing(min_r2_rho)) r2_rho <- .renamed_arg(min_r2_rho, "min_r2_rho", "r2_rho")
+  if (!missing(min_r2)) r2_th <- .renamed_arg(min_r2, "min_r2", "r2_th")
+  ## A Stage-1 result built with a fixed r2_th passes it on when none is given.
+  if (is.null(r2_th) && !is.null(stage1$params$r2_th)) r2_th <- stage1$params$r2_th
 
   map_snp  <- stage1$map_snp
   clusters <- stage1$clusters
 
   ## genetic_map/cM_threshold, when supplied, take over run-splitting
-  ## entirely (bp-based distance_threshold/rho/LD_decay is not consulted at
+  ## entirely (bp-based distance_threshold/dist_rho/LD_decay is not consulted at
   ## all in that case) -- physical distance is a poor, sometimes wildly
   ## misleading proxy for recombination distance: checked directly on real
   ## data, some marker-cluster pairs over 1 Mb apart physically sat at
@@ -330,10 +339,10 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
     stop("`cM_threshold` must be supplied when `genetic_map` is supplied.")
   }
 
-  ## distance_threshold defaults to a per-chromosome, rho-derived value
-  ## (d_from_rho(a_pred, rho)) rather than one fixed bp constant, reusing
-  ## the same rho already implied by ld_w_col's naming convention (e.g.
-  ## "ld_w_095") -- one rho value then governs both what counts as
+  ## distance_threshold defaults to a per-chromosome, dist_rho-derived value
+  ## (d_from_rho(a_pred, dist_rho)) rather than one fixed bp constant, reusing
+  ## the same dist_rho already implied by ld_w_col's naming convention (e.g.
+  ## "ld_w_095") -- one dist_rho value then governs both what counts as
   ## "locally elevated" and what counts as "still physically contiguous".
   ## Deliberately uses a_pred (chromosome-size-corrected decay rate), not
   ## each chromosome's own observed a: checked directly on real data (an
@@ -353,15 +362,15 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
     if (is.null(LD_decay)) {
       stop(
         "Either `distance_threshold`, `LD_decay` (to derive a per-chromosome ",
-        "threshold from `rho` via d_from_rho(a_pred, rho)), or `genetic_map` + ",
+        "threshold from `dist_rho` via d_from_rho(a_pred, dist_rho)), or `genetic_map` + ",
         "`cM_threshold` must be supplied."
       )
     }
     dsum <- LD_decay$decay_sum
-    dist_threshold_by_chr <- stats::setNames(d_from_rho(dsum$a_pred, rho), dsum$Chr)
+    dist_threshold_by_chr <- stats::setNames(d_from_rho(dsum$a_pred, dist_rho), dsum$Chr)
   }
 
-  ## min_r2 likewise defaults to a per-chromosome, decay-relative value rather
+  ## r2_th likewise defaults to a per-chromosome, decay-relative value rather
   ## than one fixed r2 floor for the whole genome -- and specifically to the
   ## SAME ld_from_rho(b, c, rho = 0.5) that ld_complexity_reduction() used to
   ## form the Stage 1 clusters being merged here. Chromosomes differ in how
@@ -370,19 +379,19 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
   ## merge gate to each chromosome's own curve keeps "these two sides are still
   ## correlated enough to be one cluster" meaning the same thing everywhere,
   ## and makes it the same bar that admitted markers to a cluster upstream.
-  min_r2_by_chr <- NULL
-  if (is.null(min_r2)) {
+  r2_th_by_chr <- NULL
+  if (is.null(r2_th)) {
     if (is.null(LD_decay)) {
       stop(
-        "Either `min_r2` (a single r2 floor) or `LD_decay` (to derive a ",
-        "per-chromosome floor from `min_r2_rho` via ld_from_rho(b, c, ",
-        "min_r2_rho)) must be supplied."
+        "Either `r2_th` (a single r2 floor) or `LD_decay` (to derive a ",
+        "per-chromosome floor from `r2_rho` via ld_from_rho(b, c, ",
+        "r2_rho)) must be supplied."
       )
     }
     dsr <- data.table::as.data.table(LD_decay$decay_sum)
     ccr <- if ("c" %in% names(dsr)) dsr$c else rep(1, nrow(dsr))
-    min_r2_by_chr <- stats::setNames(
-      ld_from_rho(b = dsr$b, c = ccr, rho = min_r2_rho), dsr$Chr
+    r2_th_by_chr <- stats::setNames(
+      ld_from_rho(b = dsr$b, c = ccr, rho = r2_rho), dsr$Chr
     )
   }
 
@@ -453,8 +462,8 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
   }
 
   ## params records BOTH the raw arguments and the values actually used. The
-  ## two derived thresholds (distance_threshold from rho, min_r2 from
-  ## min_r2_rho) resolve to a per-chromosome named vector when defaulted, so a
+  ## two derived thresholds (distance_threshold from dist_rho, r2_th from
+  ## r2_rho) resolve to a per-chromosome named vector when defaulted, so a
   ## raw NULL says only "it was derived" -- not derived to WHAT, and not from
   ## which decay fit. That matters downstream: a cached result whose partition
   ## depends on a derived default cannot otherwise be told apart from one built
@@ -464,12 +473,12 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
   ## chromosome if derived, NULL if the threshold did not apply at all.
   params <- list(
     ld_w_col = ld_w_col, ld_w_threshold = ld_w_threshold, min_n_loci_flag = min_n_loci_flag,
-    rho = rho, distance_threshold = distance_threshold,
-    min_r2_rho = min_r2_rho, min_r2 = min_r2,
+    dist_rho = dist_rho, distance_threshold = distance_threshold,
+    r2_rho = r2_rho, r2_th = r2_th,
     distance_threshold_resolved = if (use_cM) NULL
                                   else if (is.null(distance_threshold)) dist_threshold_by_chr
                                   else distance_threshold,
-    min_r2_resolved = if (is.null(min_r2)) min_r2_by_chr else min_r2,
+    r2_th_resolved = if (is.null(r2_th)) r2_th_by_chr else r2_th,
     use_cM = use_cM, cM_threshold = cM_threshold
   )
 
@@ -570,7 +579,7 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
       sub_groups <- dynamic_cut_eMLG(
         flagged_eMLG[, run_ids, drop = FALSE], n_loci_flagged,
         threshold = score_threshold,
-        min_r2 = if (is.null(min_r2)) min_r2_by_chr[[ch]] else min_r2
+        r2_th = if (is.null(r2_th)) r2_th_by_chr[[ch]] else r2_th
       )
       for (g in sub_groups) {
         flagged_group_list[[length(flagged_group_list) + 1]] <- list(

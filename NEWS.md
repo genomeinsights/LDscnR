@@ -2,7 +2,7 @@
 
 * `ld_complexity_reduction()` gains an optional `r2_th` argument, a fixed r2
   clustering threshold applied to every chromosome instead of the
-  decay-relative threshold derived from `rho`. The default (`NULL`) keeps the
+  decay-relative threshold derived from `r2_rho`. The default (`NULL`) keeps the
   decay-relative threshold, so existing results are unchanged.
 
 * `ld_outlier_test()` gains the same optional `r2_th` argument, a fixed r2
@@ -10,6 +10,45 @@
   If it is `NULL` and `stage1` was built with a fixed `r2_th`, Stage-2
   assembly uses that same value. Otherwise it keeps the decay-relative
   threshold. `ld_outlier_perm()` passes the threshold on to every surrogate.
+
+* `ld_outlier_scan()` passes `r2_th` on to `ld_outlier_test()`, and
+  `ld_prune_and_eMLG()` uses a fixed `r2_th` stored on `stage1` when none is
+  given.
+
+## Consistent argument names
+
+One parameter now has one name across the package. The old names still work
+but give a deprecation warning.
+
+* Fixed r2 threshold `r2_th`: was `min_r2` in `ld_prune_and_eMLG()` and
+  `dynamic_cut_eMLG()`, and `r2_link` in `ld_outlier_clusters()`.
+* Decay-relative level for the r2 threshold `r2_rho`: was `rho` in
+  `ld_complexity_reduction()`, `min_r2_rho` in `ld_prune_and_eMLG()`,
+  `rho_ld` in `ld_outlier_clusters()` and `rho_r2` in `score_thresholds()`.
+* Decay-relative level for a distance `dist_rho`: was `rho` in
+  `ld_prune_and_eMLG()` and `compute_ld_w()`, and `rho_d` in
+  `ld_outlier_clusters()` and `score_thresholds()`.
+* `alpha` and `cluster_alpha`: were `fdr` and `cluster_fdr` in
+  `ld_outlier_clusters()`, and `fdr` in `rmsc_threshold()`.
+* `size_floor` and `cores`: were `l_min` and `ncores` in `make_eMLGs()`.
+* `LD_decay`: was `ld_decay` in `compute_ld_w()`.
+* `stage1`: was `pruned_stage1` in `plot_pruning_comparison()`.
+* `GTs`: was `geno` in `create_gds_from_geno()` and `run_ohtadstats()`.
+* `Y` (phenotype): was `y` in `emmax_fast()`.
+* `slide`: was `slide_win_ld` in `compute_ld_w()` and `get_el()`.
+* `ld_method`: was `method` in `get_el()`.
+* `maf_min_decay`: was `min_maf_decay` in `compute_LD_decay()`.
+* `params` of `ld_complexity_reduction()`, `ld_prune_and_eMLG()` and
+  `ld_outlier_test()` use the new names (`r2_rho`, `r2_th`, `dist_rho`,
+  `r2_th_resolved`). Stage-1 objects saved by earlier versions, which store
+  `params$rho`, are still read correctly.
+
+## Changed default
+
+* `get_el()` now defaults to `ld_method = "corr"`, the same as
+  `compute_LD_decay()` and `compute_ld_w()`. It previously defaulted to
+  `"r"`. Every internal caller already passed the method explicitly, so
+  results from the main workflow do not change.
 
 # LDscnR 0.9.1
 

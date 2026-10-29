@@ -91,22 +91,28 @@ qtn_ld_table <- function(GTs, map, candidate_markers, max_bp = 2e6, cores = 1) {
 #' Decay-relative TP-match thresholds
 #'
 #' The r^2 and distance a region must be within of a QTN to count as a detection,
-#' derived from the (median) LD-decay parameters: `r2 = ld_from_rho(b, c, rho_r2)`,
-#' `dist = min(d_from_rho(a, rho_d), dmax_cap)`.
+#' derived from the (median) LD-decay parameters: `r2 = ld_from_rho(b, c, r2_rho)`,
+#' `dist = min(d_from_rho(a, dist_rho), dmax_cap)`.
 #'
 #' @param decay_sum Per-chromosome LD-decay summary (`b`, `c`, `a`).
-#' @param rho_r2,rho_d Decay-relative r^2 and distance quantiles (defaults
+#' @param r2_rho,dist_rho Decay-relative r^2 and distance quantiles (defaults
 #'   0.75, 0.95).
 #' @param dmax_cap Cap on the match distance (default `Inf`).
 #' @return A list with `r2min` and `dmax`.
 #' @family truth scoring
 #' @examples
 #' score_thresholds(data.frame(a = 1e-4, b = 0.02, c = 0.9))
+#' @param rho_r2 Deprecated. Use `r2_rho`.
+#' @param rho_d Deprecated. Use `dist_rho`.
 #' @export
-score_thresholds <- function(decay_sum, rho_r2 = 0.75, rho_d = 0.95, dmax_cap = Inf) {
+score_thresholds <- function(decay_sum, r2_rho = 0.75, dist_rho = 0.95, dmax_cap = Inf,
+                             rho_r2 = NULL,
+                             rho_d = NULL) {
+  if (!missing(rho_d)) dist_rho <- .renamed_arg(rho_d, "rho_d", "dist_rho")
+  if (!missing(rho_r2)) r2_rho <- .renamed_arg(rho_r2, "rho_r2", "r2_rho")
   ds <- data.table::as.data.table(decay_sum)
-  list(r2min = ld_from_rho(stats::median(ds$b), stats::median(ds$c), rho_r2),
-       dmax  = min(d_from_rho(stats::median(ds$a), rho_d), dmax_cap))
+  list(r2min = ld_from_rho(stats::median(ds$b), stats::median(ds$c), r2_rho),
+       dmax  = min(d_from_rho(stats::median(ds$a), dist_rho), dmax_cap))
 }
 
 ## internal: filter the QTN-LD table ONCE per call set and key it by marker.

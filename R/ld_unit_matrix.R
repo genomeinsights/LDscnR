@@ -38,10 +38,10 @@
 #' @param size_floor Minimum markers per cluster to be included (default 8L).
 #'   Eight is a software default, not a generally validated biological
 #'   threshold; choose a floor for the dataset and examine its sensitivity.
-#'   `"eMLG"`'s own default inside [make_eMLGs()] is `l_min = 10`, LARGER than a
-#'   typical `size_floor` -- this function passes `l_min = 1` to [make_eMLGs()]
+#'   `"eMLG"`'s own default inside [make_eMLGs()] is `size_floor = 10`, LARGER than a
+#'   typical `size_floor` -- this function passes `size_floor = 1` to [make_eMLGs()]
 #'   internally so filtering happens once, here, at `size_floor`; override via
-#'   `emlg_args$l_min` only if you want a second, stricter gate inside eMLG
+#'   `emlg_args$size_floor` only if you want a second, stricter gate inside eMLG
 #'   itself.
 #' @param repr One of `"consensus_dosage"`, `"eMLG"`, `"representative"`.
 #' @param emlg_args Extra arguments to [make_eMLGs()] (used only when
@@ -99,15 +99,15 @@ ld_unit_matrix <- function(GTs, stage1, map, size_floor = 8L,
         d <- mp[marker %chin% mk]
         data.table::data.table(marker = d$marker, Chr = d$Chr, Pos = d$Pos,
                                CL_id = units$unit_id[i], n_loci = units$n_markers[i]) }))
-      args <- utils::modifyList(list(GTs = GTs, map_cl = map_cl, l_min = 1L), emlg_args)
+      args <- utils::modifyList(list(GTs = GTs, map_cl = map_cl, size_floor = 1L), emlg_args)
       res <- do.call(make_eMLGs, args)
-      ## make_eMLGs applies its OWN l_min gate; with l_min = 1 that should be a
-      ## no-op, but confirm rather than assume -- a stricter emlg_args$l_min
+      ## make_eMLGs applies its OWN size_floor gate; with size_floor = 1 that should be a
+      ## no-op, but confirm rather than assume -- a stricter emlg_args$size_floor
       ## silently drops units size_floor already let through.
       got <- colnames(res$eMLG)
       missing <- setdiff(as.character(units$unit_id), got)
       if (length(missing)) warning(sprintf(
-        "make_eMLGs() dropped %d unit(s) that cleared size_floor -- check emlg_args$l_min.",
+        "make_eMLGs() dropped %d unit(s) that cleared size_floor -- check emlg_args$size_floor.",
         length(missing)))
       units_summary <- units_summary[as.character(unit_id) %in% got]
       res$eMLG[, as.character(units_summary$unit_id), drop = FALSE]

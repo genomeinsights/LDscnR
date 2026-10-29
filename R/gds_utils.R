@@ -6,7 +6,7 @@
 #' The genotype matrix is expected in \strong{individuals x SNPs} format.
 #' SNP metadata are taken from \code{map}.
 #'
-#' @param geno Numeric genotype matrix of allele counts (0,1,2) with
+#' @param GTs Numeric genotype matrix of allele counts (0,1,2) with
 #'   individuals in rows and SNPs in columns. Missing values are allowed.
 #'   Columns must be in the same order as rows of `map`; sample IDs are
 #'   generated as `ind_1`, `ind_2`, and so on, regardless of row names.
@@ -23,13 +23,16 @@
 #'
 #' Sample IDs are generated automatically as \code{ind_1}, \code{ind_2}, etc.
 #'
+#' @param geno Deprecated. Use `GTs`.
 #' @export
-create_gds_from_geno <- function(geno, map, gds_path) {
-  stopifnot(ncol(geno) == nrow(map))
+create_gds_from_geno <- function(GTs, map, gds_path,
+                                 geno = NULL) {
+  if (!missing(geno)) GTs <- .renamed_arg(geno, "geno", "GTs")
+  stopifnot(ncol(GTs) == nrow(map))
   SNPRelate::snpgdsCreateGeno(
     gds_path,
-    genmat         = t(round(geno)),     # SNPRelate expects SNP × sample if snpfirstdim=TRUE
-    sample.id      = paste0("ind_", seq_len(nrow(geno))), ## sample name not important
+    genmat         = t(round(GTs)),     # SNPRelate expects SNP × sample if snpfirstdim=TRUE
+    sample.id      = paste0("ind_", seq_len(nrow(GTs))), ## sample name not important
     snp.id         = map$marker,
     snp.chromosome = map$Chr,
     snp.position   = map$Pos,
@@ -64,12 +67,13 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 #' @param gds An open GDS object.
 #' @param idx Optional integer vector of SNP indices (1-based, referring to the
 #'   SNP order in the GDS file). If \code{NULL}, all SNPs are used.
-#' @param slide_win_ld Integer SNP window size passed to
+#' @param slide Integer SNP window size passed to
 #'   \code{SNPRelate::snpgdsLDMat()}. If \code{> 0}, LD is computed within a
 #'   sliding window of this size. If \code{<= 0}, all pairwise LD values are
 #'   computed.
-#' @param method LD-method paste on to \code{SNPRelate::snpgdsLDMat}, default="r"
-#'   (EM algorithm assuming HWE). If strong deviations from HWE are expected use "corr".
+#' @param ld_method LD method passed on to \code{SNPRelate::snpgdsLDMat}. Default
+#'   \code{"corr"} (correlation without assuming HWE), the same default as
+#'   [compute_LD_decay()]. \code{"r"} uses the EM algorithm assuming HWE.
 #' @param cores Number of CPU threads used in LD computation.
 #' @param by_chr Logical; if \code{TRUE}, LD is computed separately within each
 #'   chromosome. If \code{FALSE}, LD is computed across the full SNP subset.
@@ -99,8 +103,8 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 #'   exactly.
 #'
 #'   The point is peak memory, not the returned object: a sliding window of
-#'   \code{slide_win_ld} over \eqn{n} markers materialises on the order of
-#'   \eqn{n \times} \code{slide_win_ld} rows before any downstream filter sees
+#'   \code{slide} over \eqn{n} markers materialises on the order of
+#'   \eqn{n \times} \code{slide} rows before any downstream filter sees
 #'   them, which for a 15,000-marker chromosome at the default window is ~15M
 #'   rows and on the order of a gigabyte. A caller that is going to discard
 #'   low-\eqn{r^2} pairs anyway should say so here and never pay for them.
@@ -113,10 +117,16 @@ create_gds_from_geno <- function(geno, map, gds_path) {
 #'   such as [ld_complexity_reduction()], which joins at
 #'   \code{ld_from_rho(b, c, rho)}, can safely floor anywhere below their own
 #'   threshold.
+#' @param slide_win_ld Deprecated. Use `slide`.
+#' @param method Deprecated. Use `ld_method`.
 #' @export
-get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
-                    method = "r", cores = 1, by_chr = FALSE, el_floor = 0)
+get_el <- function(gds, idx = NULL, SNP_id = NULL, slide = 1000,
+                    ld_method = "corr", cores = 1, by_chr = FALSE, el_floor = 0,
+                    slide_win_ld = NULL,
+                    method = NULL)
 {
+  if (!missing(method)) ld_method <- .renamed_arg(method, "method", "ld_method")
+  if (!missing(slide_win_ld)) slide <- .renamed_arg(slide_win_ld, "slide_win_ld", "slide")
   if (!is.numeric(el_floor) || length(el_floor) != 1L || is.na(el_floor) ||
       el_floor < 0 || el_floor > 1)
     stop("`el_floor` must be a single number in [0, 1].")
@@ -130,7 +140,7 @@ get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
   } else {
     snp_ids <- SNP_id
   }
-  slide <- if (slide_win_ld > 0) as.integer(slide_win_ld) else -1L
+  slide <- if (slide > 0) as.integer(slide) else -1L
 
   ## The LD matrix is turned into an edge list a BLOCK OF COLUMNS AT A TIME.
   ## Melting it whole (the previous approach) cost several full-size copies --
@@ -145,7 +155,7 @@ get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
 
   compute_one <- function(local_idx) {
     ld <- SNPRelate::snpgdsLDMat(gds, snp.id = ids$snp_id[local_idx],
-                                 method = method, slide = slide, verbose = FALSE,
+                                 method = ld_method, slide = slide, verbose = FALSE,
                                  num.thread = as.integer(cores))$LD
     chr <- ids$snp_chr[local_idx]
     pos <- ids$snp_pos[local_idx]
@@ -166,7 +176,7 @@ get_el <- function (gds, idx = NULL, SNP_id = NULL, slide_win_ld = 1000,
       ## slide mode: LD[i, j] is the pair (j, j + i); full mode: the pair (i, j),
       ## of which only the lower triangle is kept. SNP1 is the higher-indexed SNP
       ## in both cases, as before.
-      a <- if (slide_win_ld > 0) i + j else i
+      a <- if (slide > 0) i + j else i
       b <- j
 
       ## The floor is applied HERE, before the block is materialised as a

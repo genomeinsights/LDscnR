@@ -184,9 +184,9 @@ add_snp_positions <- function(map_snp, map_ref) {
 #' @param cor_th Stored on the returned object for downstream reference; not
 #'   used to filter clusters here (compare [dynamic_cut_eMLG()]'s
 #'   `threshold`, which does gate on it).
-#' @param l_min Minimum cluster size (raw marker count) to keep; smaller
+#' @param size_floor Minimum cluster size (raw marker count) to keep; smaller
 #'   clusters are dropped entirely.
-#' @param ncores Number of cores for the per-cluster consensus computation
+#' @param cores Number of cores for the per-cluster consensus computation
 #'   (`parallel::mclapply()`, fork-based -- not available on Windows).
 #' @param col_vector Optional vector of colours to cycle across clusters for
 #'   plotting; defaults to [default_cluster_colours()].
@@ -201,18 +201,24 @@ add_snp_positions <- function(map_snp, map_ref) {
 #' \dontrun{
 #' eMLGs <- make_eMLGs(
 #'   GTs, map_cl[!is.na(CL_id) & n_loci >= 10, ],
-#'   cor_th = 0.8, l_min = 1, ncores = 4
+#'   cor_th = 0.8, size_floor = 1, cores = 4
 #' )
 #' }
 #'
+#' @param l_min Deprecated. Use `size_floor`.
+#' @param ncores Deprecated. Use `cores`.
 #' @export
 make_eMLGs <- function(GTs,
                        map_cl,
                        input = c("auto", "hard", "dosage"),
                        cor_th = 0.8,
-                       l_min = 10,
-                       ncores = 1,
-                       col_vector = NULL) {
+                       size_floor = 10,
+                       cores = 1,
+                       col_vector = NULL,
+                       l_min = NULL,
+                       ncores = NULL) {
+  if (!missing(ncores)) cores <- .renamed_arg(ncores, "ncores", "cores")
+  if (!missing(l_min)) size_floor <- .renamed_arg(l_min, "l_min", "size_floor")
   input <- match.arg(input)
 
   if (is.null(col_vector)) {
@@ -222,13 +228,13 @@ make_eMLGs <- function(GTs,
   map_cl <- data.table::copy(map_cl)
   data.table::setDT(map_cl)
 
-  map_cl <- map_cl[!is.na(CL_id) & n_loci >= l_min]
+  map_cl <- map_cl[!is.na(CL_id) & n_loci >= size_floor]
 
   cls <- split(map_cl$marker, map_cl$CL_id)
-  cls <- cls[lengths(cls) >= l_min]
+  cls <- cls[lengths(cls) >= size_floor]
 
   if (!length(cls)) {
-    stop("No LD clusters passed l_min.")
+    stop("No LD clusters passed size_floor.")
   }
 
   all_markers <- unique(unlist(cls, use.names = FALSE))
@@ -248,7 +254,7 @@ make_eMLGs <- function(GTs,
     expected_fun(GTs[, markers, drop = FALSE])
   }
 
-  res <- parallel::mclapply(cls, process_cluster, mc.cores = ncores)
+  res <- parallel::mclapply(cls, process_cluster, mc.cores = cores)
 
   eMLG <- do.call(cbind, res)
   colnames(eMLG) <- names(cls)

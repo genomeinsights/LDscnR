@@ -8,10 +8,10 @@
 #' stacked figure to disk and returns it invisibly.
 #'
 #' @param chr Chromosome name (e.g. "Chr26"), used in plot labels/filename.
-#' @param pruned_stage1 Output of [ld_complexity_reduction()] (whole-genome).
+#' @param stage1 Output of [ld_complexity_reduction()] (whole-genome).
 #' @param result Output of [ld_prune_and_eMLG()] (whole-genome).
 #' @param map Map data.table with Chr, Pos, marker, and `ld_w_col`.
-#' @param ld_w_col Name of the ld_w column in `map`/`pruned_stage1$map_snp`.
+#' @param ld_w_col Name of the ld_w column in `map`/`stage1$map_snp`.
 #'   Defaults to whatever `result$params$ld_w_col` says [ld_prune_and_eMLG()]
 #'   was actually called with; falls back to `"ld_w_095"` if `result` has no
 #'   `params` (e.g. a hand-built `result` predating this field).
@@ -58,7 +58,7 @@
 #'
 #' @examples
 #' \dontrun{
-#' stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5)
+#' stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5)
 #' result <- ld_prune_and_eMLG(
 #'   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.2
 #' )
@@ -67,12 +67,15 @@
 #' plot_pruning_comparison("Chr1", stage1, result, map)
 #' }
 #'
+#' @param pruned_stage1 Deprecated. Use `stage1`.
 #' @export
-plot_pruning_comparison <- function(chr, pruned_stage1, result, map,
+plot_pruning_comparison <- function(chr, stage1, result, map,
                                      ld_w_col = NULL, ld_w_threshold = NULL,
                                      min_n_loci_flag = NULL,
                                      direction = c("high", "low"),
-                                     out_folder = "./Figures/", width = 10, height = 9) {
+                                     out_folder = "./Figures/", width = 10, height = 9,
+                                     pruned_stage1 = NULL) {
+  if (!missing(pruned_stage1)) stage1 <- .renamed_arg(pruned_stage1, "pruned_stage1", "stage1")
   direction <- match.arg(direction)
 
   ## Default ld_w_col/ld_w_threshold/min_n_loci_flag from result$params (the
@@ -133,13 +136,13 @@ plot_pruning_comparison <- function(chr, pruned_stage1, result, map,
   ## Mirrors ld_prune_and_eMLG()'s own flagging logic exactly, so this stays
   ## in sync with whatever produced `result` (see @param min_n_loci_flag).
   group_prefix <- if (direction == "high") "F" else "U"
-  flagged_ids <- pruned_stage1$map_snp[get(ld_w_col) > ld_w_threshold, unique(CL_id)]
+  flagged_ids <- stage1$map_snp[get(ld_w_col) > ld_w_threshold, unique(CL_id)]
   if (is.finite(min_n_loci_flag)) {
-    flagged_ids <- union(flagged_ids, pruned_stage1$clusters[n_snps >= min_n_loci_flag, CL_id])
+    flagged_ids <- union(flagged_ids, stage1$clusters[n_snps >= min_n_loci_flag, CL_id])
   }
-  chr_ids <- pruned_stage1$map_snp[Chr == chr, unique(CL_id)]
+  chr_ids <- stage1$map_snp[Chr == chr, unique(CL_id)]
   needs_merge_ids <- if (direction == "high") flagged_ids else setdiff(chr_ids, flagged_ids)
-  stage1_snp <- pruned_stage1$map_snp[Chr == chr & CL_id %in% needs_merge_ids]
+  stage1_snp <- stage1$map_snp[Chr == chr & CL_id %in% needs_merge_ids]
   message(chr, " Stage 1 (", direction, "): ", data.table::uniqueN(stage1_snp$CL_id), " clusters")
   p_stage1 <- plot_clusters(
     stage1_snp,

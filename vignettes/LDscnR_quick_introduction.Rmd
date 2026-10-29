@@ -60,7 +60,7 @@ colnames(GTs) <- map$marker
 
 ```{r gds}
 gds_path <- tempfile(fileext = ".gds")
-gds <- create_gds_from_geno(geno = GTs, map, gds_path)
+gds <- create_gds_from_geno(GTs = GTs, map, gds_path)
 ```
 
 ## Estimating LD decay
@@ -110,7 +110,7 @@ These conversions underpin `ld_decay$recommendation`'s suggested window sizes, a
 `compute_ld_w()` summarises, for each marker, how much LD support it has from nearby markers within the physical window implied by $\rho$. It accepts a vector of $\rho$ values and computes all of them in one pass per chromosome -- each chromosome's edge list is read/symmetrised once and reused, not re-read once per threshold.
 
 ```{r ld-w}
-ld_w <- compute_ld_w(ld_decay, rho = c(0.90, 0.95, 0.99), cores = cores)
+ld_w <- compute_ld_w(ld_decay, dist_rho = c(0.90, 0.95, 0.99), cores = cores)
 map[, ld_w_095 := ld_w[, "rho_0.95"]]
 ```
 
@@ -119,7 +119,7 @@ map[, ld_w_095 := ld_w[, "rho_0.95"]]
 `ld_complexity_reduction()` clusters markers within each chromosome (connected components, then complete-linkage refinement within each) and picks one representative marker per cluster, at a chromosome-specific threshold derived from the decay model at the target pruning $\rho$. This single call is the shared starting point for both a pruning-only workflow and an eMLG workflow -- see below.
 
 ```{r stage1, results = "hide"}
-stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cores = cores)
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, cores = cores)
 ```
 
 ```{r stage1-show}
@@ -143,8 +143,8 @@ Stage 1's edge list is built from a sliding window, so a genuinely correlated, l
 ```{r stage2, results = "hide"}
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0,
-  LD_decay = ld_decay, rho = 0.95,
-  score_threshold = 0.80, min_r2 = 0.2, cores = cores
+  LD_decay = ld_decay, dist_rho = 0.95,
+  score_threshold = 0.80, r2_th = 0.2, cores = cores
 )
 ```
 
@@ -178,7 +178,7 @@ dim(result$eMLG)
 # figure to out_folder), so it needs to be assigned and re-printed to show
 # up here.
 p_comparison <- plot_pruning_comparison(
-  chr = "Chr3", pruned_stage1 = stage1, result = result, map = map,
+  chr = "Chr3", stage1 = stage1, result = result, map = map,
   out_folder = tempdir()
 )
 p_comparison

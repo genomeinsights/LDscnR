@@ -29,8 +29,8 @@
   ## memory or on disk) is already materialised, so there is nothing to save.
   get_el(gds          = g,
          SNP_id       = chr_markers,
-         slide_win_ld = if (!is.null(p$slide))     p$slide     else 1000,
-         method       = if (!is.null(p$ld_method)) p$ld_method else "corr",
+         slide        = if (!is.null(p$slide))     p$slide     else 1000,
+         ld_method    = if (!is.null(p$ld_method)) p$ld_method else "corr",
          cores        = 1,
          by_chr       = TRUE,
          el_floor     = el_floor)
@@ -135,12 +135,12 @@
 #'   handle from the file path; if only an open handle is available and its
 #'   path cannot be recovered, `cores` is forced to 1 rather than sharing a GDS
 #'   connection across forks.
-#' @param rho Numeric in (0, 1). Decay level used to derive each
+#' @param r2_rho Numeric in (0, 1). Decay level used to derive each
 #'   chromosome's clustering threshold via [ld_from_rho()]. Default `0.5`.
 #'   Ignored when `r2_th` is supplied.
 #' @param r2_th Optional single number in (0, 1]. A fixed r2 clustering
 #'   threshold applied to every chromosome instead of the decay-relative one
-#'   derived from `rho`. Default `NULL` keeps the decay-relative threshold.
+#'   derived from `r2_rho`. Default `NULL` keeps the decay-relative threshold.
 #' @param cores Number of chromosomes to process in parallel.
 #' @param idx Optional integer vector of row indices into `map` (1-based).
 #'   If supplied, only these markers are considered at all -- clustered
@@ -164,15 +164,18 @@
 #'     list-column of every marker in the cluster, including the core).}
 #'   \item{pruned}{Character vector of representative marker names --
 #'     `clusters$core_snp`, for direct use as a pruned marker set.}
-#'   \item{params}{The resolved `rho`, `r2_th` (`NULL` unless a fixed
+#'   \item{params}{The resolved `r2_rho`, `r2_th` (`NULL` unless a fixed
 #'     threshold was supplied) and `cores` this call used, so a
 #'     downstream consumer can read the threshold back rather than have it
 #'     passed a second time as a separate argument.}
 #' }
 #'
+#' @param rho Deprecated. Use `r2_rho`.
 #' @export
-ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = NULL,
-                                    gds = NULL, r2_th = NULL) {
+ld_complexity_reduction <- function(map, LD_decay, r2_rho = 0.5, cores = 1, idx = NULL,
+                                    gds = NULL, r2_th = NULL,
+                                    rho = NULL) {
+  if (!missing(rho)) r2_rho <- .renamed_arg(rho, "rho", "r2_rho")
 
   if (!is.null(r2_th) &&
       !(is.numeric(r2_th) && length(r2_th) == 1L && is.finite(r2_th) &&
@@ -235,7 +238,7 @@ ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = N
         stop("Expected exactly one decay_sum row for chr '", ch, "', found ", nrow(ds),
              ". Check LD_decay$decay_sum$Chr labels.")
       }
-      ld_from_rho(b = ds$b, c = ds$c, rho = rho)
+      ld_from_rho(b = ds$b, c = ds$c, rho = r2_rho)
     }
 
     ## The edge list is consumed on the very next line and nowhere else, and only
@@ -368,14 +371,14 @@ ld_complexity_reduction <- function(map, LD_decay, rho = 0.5, cores = 1, idx = N
   ), by = .(Chr, CL_id)]
 
   ## `params` records the resolved call so a downstream consumer -- ld_outlier_test()
-  ## in particular -- can read `rho` back rather than have it passed a second time as a
+  ## in particular -- can read `r2_rho` back rather than have it passed a second time as a
   ## separate argument that could silently disagree with what actually built this object.
   ## Same pattern ld_prune_and_eMLG() already uses for its own resolved thresholds.
   out <- list(
     map_snp  = map_snp,
     clusters = clusters,
     pruned   = clusters$core_snp,
-    params   = list(rho = rho, r2_th = r2_th_fixed, cores = cores)
+    params   = list(r2_rho = r2_rho, r2_th = r2_th_fixed, cores = cores)
   )
   class(out) <- "ld_complexity_reduction"
   print(out)
@@ -412,8 +415,8 @@ print.ld_complexity_reduction <- function(x, digits = 3, ...) {
   cat("  chromosomes:", data.table::uniqueN(x$clusters$Chr), "\n")
   if (!is.null(x$params$r2_th)) {
     cat("  threshold: fixed r2 =", signif(x$params$r2_th, digits), "\n")
-  } else if (!is.null(x$params$rho)) {
-    cat("  threshold: decay-relative, rho =", signif(x$params$rho, digits), "\n")
+  } else if (!is.null(.stage1_r2_rho(x))) {
+    cat("  threshold: decay-relative, r2_rho =", signif(.stage1_r2_rho(x), digits), "\n")
   }
 
   n_snps <- x$clusters$n_snps

@@ -16,10 +16,10 @@ test_that("the automatic edge-list floor leaves clustering output identical", {
   gds <- create_gds_from_geno(G, map, f); on.exit(SNPRelate::snpgdsClose(gds), add = TRUE)
 
   dec <- compute_LD_decay(gds = gds, keep_el = FALSE, slide = 60, ld_method = "corr",
-                          min_maf_decay = 0.05, n_win_decay = 5, cores = 1)
+                          maf_min_decay = 0.05, n_win_decay = 5, cores = 1)
   skip_if(is.null(dec$decay_sum) || !nrow(dec$decay_sum), "decay fit unavailable")
 
-  got <- ld_complexity_reduction(map = map, LD_decay = dec, rho = 0.5, gds = gds)
+  got <- ld_complexity_reduction(map = map, LD_decay = dec, r2_rho = 0.5, gds = gds)
 
   ## reference: build the edge list with NO floor, then filter exactly as the
   ## function does, and cluster from that
@@ -27,10 +27,10 @@ test_that("the automatic edge-list floor leaves clustering output identical", {
   skip_if(!nrow(ds), "chr1 dropped by the decay gate")
   r2_th <- ld_from_rho(b = ds$b, c = ds$c, rho = 0.5)
   mk1   <- map[Chr == "chr1", marker]
-  el    <- get_el(gds, SNP_id = mk1, slide_win_ld = 60, method = "corr",
+  el    <- get_el(gds, SNP_id = mk1, slide = 60, ld_method = "corr",
                   by_chr = TRUE, el_floor = 0)
   ref   <- el[el$r2 >= r2_th, ]
-  flo   <- get_el(gds, SNP_id = mk1, slide_win_ld = 60, method = "corr",
+  flo   <- get_el(gds, SNP_id = mk1, slide = 60, ld_method = "corr",
                   by_chr = TRUE, el_floor = r2_th)
 
   ## the surviving edge set is the same either way -- which is what makes the

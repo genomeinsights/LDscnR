@@ -35,7 +35,7 @@ ld_outlier_scan <- function(stage1, map, p_obs, p_perm = NULL,
                             assembly = c("stage2_discovered", "physical"),
                             GTs = NULL, LD_decay = NULL,
                             score_threshold = 0.80, distance_threshold = 1e5,
-                            gap = 3e5,
+                            gap = 3e5, r2_th = NULL,
                             annotation = NULL, chrom_lengths = NULL,
                             n_rotations = 10000L,
                             rotation_scheme = c("within", "genome"),
@@ -52,7 +52,8 @@ ld_outlier_scan <- function(stage1, map, p_obs, p_perm = NULL,
                           size_floor = size_floor, alpha = alpha, assembly = assembly,
                           GTs = GTs, LD_decay = LD_decay,
                           score_threshold = score_threshold,
-                          distance_threshold = distance_threshold, gap = gap)
+                          distance_threshold = distance_threshold, gap = gap,
+                          r2_th = r2_th)
   if (verbose) print(test)
 
   null <- if (is.null(p_perm)) NULL else

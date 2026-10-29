@@ -122,7 +122,7 @@ Once you have an `ld_decay` object (built with `keep_el = TRUE`), the workflow b
 `compute_ld_w()` summarises, for each marker, how much LD support it has from nearby markers within the physical window implied by a relative threshold $\rho$. It accepts a vector of $\rho$ values and computes all of them in one pass per chromosome -- each chromosome's edge list is read/symmetrised once and reused, not re-read once per threshold:
 
 ```
-ld_w <- compute_ld_w(ld_decay, rho = c(0.90, 0.95, 0.99), cores = 4)
+ld_w <- compute_ld_w(ld_decay, dist_rho = c(0.90, 0.95, 0.99), cores = 4)
 map[, ld_w_095 := ld_w[, "rho_0.95"]]
 ```
 
@@ -131,7 +131,7 @@ map[, ld_w_095 := ld_w[, "rho_0.95"]]
 `ld_complexity_reduction()` clusters markers within each chromosome (connected components, then complete-linkage refinement within each) and picks one representative marker per cluster. This single call is the shared starting point for **both** downstream uses:
 
 ```
-stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cores = 4)
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, cores = 4)
 ```
 
 - **Pruning only** (a GRM, EMMAX's `K`, BayPass's `OMEGA`): `stage1$pruned` is already a ready-to-use character vector of representative markers -- nothing further is needed.
@@ -150,15 +150,15 @@ In the manuscript's outlier scans, Stage-1 clusters remain the test units:
 Stage 2 is applied only to significant units, after testing, to assemble
 reported regions.
 
-`ld_prune_and_eMLG()` closes the sliding-window gap above, but only for the clusters that need it: those flagged by high local LD support (`ld_w_col`/`ld_w_threshold`) are re-compared directly from genotypes -- with no window restriction -- and consolidated via a distance-restricted, quality-gated dynamic cut. This produces a refined pruned marker set and an eMLG matrix from the same pass; unflagged clusters (usually the large majority) pass straight through unchanged. `distance_threshold` -- the max physical gap allowed within one mergeable, contiguous block -- defaults to a per-chromosome value derived from `rho` and `LD_decay` (`d_from_rho(a_pred, rho)`), reusing the same `rho` that `ld_w_col`'s naming already implies, rather than one fixed bp constant:
+`ld_prune_and_eMLG()` closes the sliding-window gap above, but only for the clusters that need it: those flagged by high local LD support (`ld_w_col`/`ld_w_threshold`) are re-compared directly from genotypes -- with no window restriction -- and consolidated via a distance-restricted, quality-gated dynamic cut. This produces a refined pruned marker set and an eMLG matrix from the same pass; unflagged clusters (usually the large majority) pass straight through unchanged. `distance_threshold` -- the max physical gap allowed within one mergeable, contiguous block -- defaults to a per-chromosome value derived from `dist_rho` and `LD_decay` (`d_from_rho(a_pred, dist_rho)`), reusing the same level that `ld_w_col`'s naming already implies, rather than one fixed bp constant:
 
 ```
 # Illustrative full-genome flagging threshold for this example; inspect the
 # flagged fraction and sensitivity before choosing a value for new data.
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.05,
-  LD_decay = ld_decay, rho = 0.95,
-  score_threshold = 0.80, min_r2 = 0.2, cores = 4
+  LD_decay = ld_decay, dist_rho = 0.95,
+  score_threshold = 0.80, r2_th = 0.2, cores = 4
 )
 
 pruned_markers <- result$pruned   # refined pruned marker set
@@ -170,7 +170,7 @@ eMLG           <- result$eMLG     # individuals x blocks consensus-genotype matr
 `plot_pruning_comparison()` stacks Stage 1's raw clusters (top panel) against Stage 2's consolidated groups (bottom panel) for one chromosome, so fragmented blocks and their reunited counterparts can be compared directly. `ld_w_col`/`ld_w_threshold`/`min_n_loci_flag` default to `result$params` -- whatever `ld_prune_and_eMLG()` was actually called with above -- so the two panels can't silently end up comparing different flagging criteria; passing a value that disagrees with `result$params` warns:
 
 ```
-plot_pruning_comparison(chr = "Chr3", pruned_stage1 = stage1, result = result, map = map)
+plot_pruning_comparison(chr = "Chr3", stage1 = stage1, result = result, map = map)
 ```
 
 ### Speed tip: preliminary vs. final runs
@@ -232,7 +232,7 @@ A Stage-1 cluster is not itself something an association model can take. `ld_uni
 turns each cluster into one variable per individual:
 
 ```r
-stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cores = 4)
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, cores = 4)
 
 # consensus dosage -- one averaged genotype per unit, no cluster-size penalty; the arm used
 # for every reported EMMAX-consensus result in the manuscript

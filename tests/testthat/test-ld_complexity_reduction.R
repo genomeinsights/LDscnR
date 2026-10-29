@@ -28,14 +28,14 @@ test_that("ld_complexity_reduction returns a well-formed, self-consistent result
   map <- data.table::as.data.table(sim_ex$map)[, .(Chr, Pos, marker)]
   ld  <- build_decay()
 
-  res <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1)
+  res <- ld_complexity_reduction(map, ld, r2_rho = 0.5, cores = 1)
 
   expect_named(res, c("map_snp", "clusters", "pruned", "params"))
 
   # params records the resolved call, so a downstream consumer (ld_outlier_test())
   # can read the threshold back rather than take it as a second, separately-supplied
   # argument that could silently disagree with what actually built this object
-  expect_equal(res$params$rho, 0.5)
+  expect_equal(res$params$r2_rho, 0.5)
   expect_equal(res$params$cores, 1)
 
   # every marker retained exactly once, every marker assigned a cluster
@@ -77,7 +77,7 @@ test_that("clusters are true complete linkage: every member pair clears r2_th", 
   colnames(GTs) <- map$marker
 
   rho <- 0.5
-  res <- ld_complexity_reduction(map, ld, rho = rho, cores = 1)
+  res <- ld_complexity_reduction(map, ld, r2_rho = rho, cores = 1)
 
   big_clusters <- res$clusters[n_snps >= 3][order(-n_snps)][seq_len(min(5, .N))]
 
@@ -103,8 +103,8 @@ test_that("idx restricts ld_complexity_reduction to the given markers only", {
   ld  <- build_decay()
 
   idx <- which(map$Chr == map$Chr[1])
-  res_idx  <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1, idx = idx)
-  res_full <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1)
+  res_idx  <- ld_complexity_reduction(map, ld, r2_rho = 0.5, cores = 1, idx = idx)
+  res_full <- ld_complexity_reduction(map, ld, r2_rho = 0.5, cores = 1)
 
   # idx run only ever sees/returns the selected markers
   expect_equal(nrow(res_idx$map_snp), length(idx))
@@ -134,8 +134,8 @@ test_that("a factor Chr column is handled (regression: by_chr[[factor]] coercion
   expect_true(all(as.integer(unique(map_fac$Chr)) > 3))  # codes really are out of range
 
   # must not error, and must match the character-Chr result
-  expect_no_error(res_fac <- ld_complexity_reduction(map_fac, ld, rho = 0.5, cores = 1))
-  res_chr <- ld_complexity_reduction(map_chr, ld, rho = 0.5, cores = 1)
+  expect_no_error(res_fac <- ld_complexity_reduction(map_fac, ld, r2_rho = 0.5, cores = 1))
+  res_chr <- ld_complexity_reduction(map_chr, ld, r2_rho = 0.5, cores = 1)
   expect_equal(sort(res_fac$pruned), sort(res_chr$pruned))
 })
 
@@ -155,7 +155,7 @@ test_that("edge lists can be rebuilt on the fly from gds when keep_el = FALSE", 
   expect_null(ld_dropped$by_chr[[1]]$el)
 
   ## without gds there is nothing to rebuild from -- still an informative error
-  expect_error(ld_complexity_reduction(map, ld_dropped, rho = 0.5, cores = 1),
+  expect_error(ld_complexity_reduction(map, ld_dropped, r2_rho = 0.5, cores = 1),
                "keep_el = TRUE")
 
   ## Compare rebuild vs stored edges on ONE decay object: a second
@@ -166,14 +166,14 @@ test_that("edge lists can be rebuilt on the fly from gds when keep_el = FALSE", 
   ld_stripped <- ld_kept
   for (ch in names(ld_stripped$by_chr)) ld_stripped$by_chr[[ch]]$el <- NULL
 
-  res_kept    <- ld_complexity_reduction(map, ld_kept,     rho = 0.5, cores = 1)
-  res_rebuilt <- ld_complexity_reduction(map, ld_stripped, rho = 0.5, cores = 1, gds = gds)
+  res_kept    <- ld_complexity_reduction(map, ld_kept,     r2_rho = 0.5, cores = 1)
+  res_rebuilt <- ld_complexity_reduction(map, ld_stripped, r2_rho = 0.5, cores = 1, gds = gds)
 
   expect_equal(res_rebuilt$pruned, res_kept$pruned)
   expect_equal(res_rebuilt$map_snp$CL_id, res_kept$map_snp$CL_id)
 
   ## a file path works in place of an open handle
-  res_path <- ld_complexity_reduction(map, ld_stripped, rho = 0.5, cores = 1, gds = gds_path)
+  res_path <- ld_complexity_reduction(map, ld_stripped, r2_rho = 0.5, cores = 1, gds = gds_path)
   expect_equal(res_path$pruned, res_kept$pruned)
 })
 
@@ -197,7 +197,7 @@ test_that("a fixed r2_th replaces the decay-relative threshold on every chromoso
   }
 
   # the default (r2_th = NULL) is unchanged and records no fixed threshold
-  res_rho <- ld_complexity_reduction(map, ld, rho = 0.5, cores = 1)
+  res_rho <- ld_complexity_reduction(map, ld, r2_rho = 0.5, cores = 1)
   expect_null(res_rho$params$r2_th)
 
   expect_error(ld_complexity_reduction(map, ld, r2_th = 0), "r2_th")

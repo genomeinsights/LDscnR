@@ -20,7 +20,7 @@
 #' @param pval Numeric vector of per-SNP association p-values (from any method).
 #' @param ld_w Numeric vector of per-SNP local LD support ([compute_ld_w()]),
 #'   aligned to `pval`.
-#' @param fdr SNP-level false-discovery rate used when counting discoveries.
+#' @param alpha SNP-level false-discovery rate used when counting discoveries.
 #' @param grid Grid of `ld_w` quantile thresholds to scan.
 #'
 #' @return A list with `grid`, `rejections` (discoveries at each threshold),
@@ -30,13 +30,16 @@
 #' @references Bourgon R, Gentleman R, Huber W (2010). Independent filtering
 #'   increases detection power for high-throughput experiments. \emph{PNAS}
 #'   107:9546-9551.
+#' @param fdr Deprecated. Use `alpha`.
 #' @export
-rmsc_threshold <- function(pval, ld_w, fdr = 0.05, grid = seq(0, 0.98, by = 0.01)) {
+rmsc_threshold <- function(pval, ld_w, alpha = 0.05, grid = seq(0, 0.98, by = 0.01),
+                           fdr = NULL) {
+  if (!missing(fdr)) alpha <- .renamed_arg(fdr, "fdr", "alpha")
   ok <- is.finite(pval) & is.finite(ld_w)
   rej <- vapply(grid, function(q) {
     thr <- stats::quantile(ld_w[ok], q, na.rm = TRUE)
     k <- ok & ld_w >= thr
-    sum(stats::p.adjust(pval[k], "BH") < fdr, na.rm = TRUE)
+    sum(stats::p.adjust(pval[k], "BH") < alpha, na.rm = TRUE)
   }, integer(1))
   qs <- grid[which.max(rej)]
   list(grid = grid, rejections = rej, q_star = qs,
@@ -52,7 +55,7 @@ rmsc_threshold <- function(pval, ld_w, fdr = 0.05, grid = seq(0, 0.98, by = 0.01
 #'    `q*` (or supply `ld_w_threshold`). Candidates are SNPs with
 #'    `ld_w >= quantile(ld_w, q*)` -- only these can be outliers.
 #' 2. **Cluster.** Single-linkage clustering of the candidates on `1 - r^2`
-#'    within each chromosome (connected components at `r2_link`); a SNP joins a
+#'    within each chromosome (connected components at `r2_th`); a SNP joins a
 #'    cluster if it is in LD with any member.
 #' 3. **Test SNPs.** FDR within candidates flags significant SNPs.
 #' 4. **Recruit & test clusters.** Each cluster (significant SNPs plus the LD
@@ -79,27 +82,27 @@ rmsc_threshold <- function(pval, ld_w, fdr = 0.05, grid = seq(0, 0.98, by = 0.01
 #'   `colnames(GTs)` must contain every `map$marker`. Used for candidate LD.
 #' @param ld_w_threshold Optional fixed `ld_w` quantile in `(0, 1)`. `NULL`
 #'   (default) selects it with [rmsc_threshold()].
-#' @param fdr SNP-level FDR within candidates.
-#' @param r2_link Single-linkage \eqn{r^2} threshold for candidate clustering.
-#'   Ignored on a chromosome for which `rho_ld` supplies a value.
+#' @param alpha SNP-level FDR within candidates.
+#' @param r2_th Single-linkage \eqn{r^2} threshold for candidate clustering.
+#'   Ignored on a chromosome for which `r2_rho` supplies a value.
 #' @param distance_threshold Optional maximum consecutive-position gap (bp) within
 #'   a cluster: after single-linkage, a cluster is split wherever adjacent members
 #'   are farther apart than this (a distance-restricted single linkage, as in
 #'   [ld_prune_and_eMLG()]'s `split_by_distance`). Stops long-range LD from
 #'   chaining physically distant signals through a coherent block. `NULL` (default)
-#'   applies no distance cap unless `rho_d` is given.
-#' @param rho_ld,rho_d Optional relative-LD thresholds that derive the linkage and
+#'   applies no distance cap unless `dist_rho` is given.
+#' @param r2_rho,dist_rho Optional relative-LD thresholds that derive the linkage and
 #'   distance cuts *per chromosome* from the LD-decay fit (requires `LD_decay`):
-#'   `r2_link = ld_from_rho(b, c, rho_ld)` (higher `rho_ld` = looser \eqn{r^2}),
-#'   `distance_threshold = d_from_rho(a_pred, rho_d)` (higher `rho_d` = wider gap).
+#'   `r2_th = ld_from_rho(b, c, r2_rho)` (higher `r2_rho` = looser \eqn{r^2}),
+#'   `distance_threshold = d_from_rho(a_pred, dist_rho)` (higher `dist_rho` = wider gap).
 #'   Either may be given alone; each overrides the corresponding direct argument
 #'   on chromosomes present in the decay fit.
 #' @param LD_decay Object from [compute_LD_decay()] (its `$decay_sum` supplies the
-#'   per-chromosome `a_pred`, `b`, `c`); required only when `rho_ld`/`rho_d` are set.
+#'   per-chromosome `a_pred`, `b`, `c`); required only when `r2_rho`/`dist_rho` are set.
 #' @param min_cluster_sig Minimum significant SNPs for a cluster to be tested.
 #' @param null Cluster-level null: `"background"` (default, method-agnostic) or
 #'   `"permutation"` (EMMAX, needs `Y`/`K`).
-#' @param cluster_fdr Cluster-level FDR (on the permutation/background `emp_p`).
+#' @param cluster_alpha Cluster-level FDR (on the permutation/background `emp_p`).
 #' @param B Number of null replicates.
 #' @param Y,K Phenotype vector and kinship for `null = "permutation"`. `K` may be
 #'   a single `n x n` matrix or a named list of per-chromosome (LOCO) matrices.
@@ -118,17 +121,32 @@ rmsc_threshold <- function(pval, ld_w, fdr = 0.05, grid = seq(0, 0.98, by = 0.01
 #'   (the selection curve), and `diagnostics`.
 #' @seealso [rmsc_threshold()], [compute_ld_w()], [emmax()]
 #' @importFrom stats as.dist cor cutree hclust p.adjust quantile
+#' @param r2_link Deprecated. Use `r2_th`.
+#' @param rho_ld Deprecated. Use `r2_rho`.
+#' @param rho_d Deprecated. Use `dist_rho`.
+#' @param fdr Deprecated. Use `alpha`.
+#' @param cluster_fdr Deprecated. Use `cluster_alpha`.
 #' @export
 ld_outlier_clusters <- function(pval, ld_w, map, GTs,
-                                ld_w_threshold = NULL, fdr = 0.05, r2_link = 0.5,
+                                ld_w_threshold = NULL, alpha = 0.05, r2_th = 0.5,
                                 distance_threshold = NULL,
-                                rho_ld = NULL, rho_d = NULL, LD_decay = NULL,
+                                r2_rho = NULL, dist_rho = NULL, LD_decay = NULL,
                                 min_cluster_sig = 1L,
                                 null = c("background", "permutation"),
-                                cluster_fdr = 0.05, B = 1000L,
+                                cluster_alpha = 0.05, B = 1000L,
                                 Y = NULL, K = NULL,
                                 rmsc_grid = seq(0, 0.98, by = 0.01),
-                                cores = 1L, verbose = TRUE) {
+                                cores = 1L, verbose = TRUE,
+                                r2_link = NULL,
+                                rho_ld = NULL,
+                                rho_d = NULL,
+                                fdr = NULL,
+                                cluster_fdr = NULL) {
+  if (!missing(cluster_fdr)) cluster_alpha <- .renamed_arg(cluster_fdr, "cluster_fdr", "cluster_alpha")
+  if (!missing(fdr)) alpha <- .renamed_arg(fdr, "fdr", "alpha")
+  if (!missing(rho_d)) dist_rho <- .renamed_arg(rho_d, "rho_d", "dist_rho")
+  if (!missing(rho_ld)) r2_rho <- .renamed_arg(rho_ld, "rho_ld", "r2_rho")
+  if (!missing(r2_link)) r2_th <- .renamed_arg(r2_link, "r2_link", "r2_th")
   null <- match.arg(null)
   map <- data.table::copy(data.table::as.data.table(map))
   if (!all(c("marker", "Chr", "Pos") %in% names(map)))
@@ -143,7 +161,7 @@ ld_outlier_clusters <- function(pval, ld_w, map, GTs,
              Chr = as.character(Chr))]
 
   ## 1. ld_w threshold (data-driven unless supplied) --------------------------
-  sel <- rmsc_threshold(map$pv0, map$ldw0, fdr = fdr, grid = rmsc_grid)
+  sel <- rmsc_threshold(map$pv0, map$ldw0, alpha = alpha, grid = rmsc_grid)
   qstar <- if (is.null(ld_w_threshold)) sel$q_star else ld_w_threshold
   no_elbow <- is.null(ld_w_threshold) && sel$no_elbow
   if (verbose && no_elbow)
@@ -157,24 +175,24 @@ ld_outlier_clusters <- function(pval, ld_w, map, GTs,
   ## 2. SNP-level significance within candidates ------------------------------
   ci <- which(map$cand)
   map[, q_snp := NA_real_][ci, q_snp := stats::p.adjust(pv0, "BH")]
-  map[, sig := is.finite(q_snp) & q_snp < fdr]
+  map[, sig := is.finite(q_snp) & q_snp < alpha]
   pcut <- if (any(map$sig)) max(map$pv0[map$sig]) else NA_real_
   if (is.na(pcut))
-    warning("No SNP significant within candidates at fdr = ", fdr,
+    warning("No SNP significant within candidates at alpha = ", alpha,
             "; no clusters can be flagged.", call. = FALSE)
 
   ## 3. distance-restricted single-linkage LD clusters (per chromosome) -------
-  ## Per-chromosome r2_link and distance_threshold may be derived from the LD-
-  ## decay fit via rho: r2_link = ld_from_rho(b, c, rho_ld) (higher rho_ld = looser
-  ## r2), distance_threshold = d_from_rho(a_pred, rho_d) (higher rho_d = wider gap).
+  ## Per-chromosome r2_th and distance_threshold may be derived from the LD-
+  ## decay fit via rho: r2_th = ld_from_rho(b, c, r2_rho) (higher r2_rho = looser
+  ## r2), distance_threshold = d_from_rho(a_pred, dist_rho) (higher dist_rho = wider gap).
   r2_by_chr <- dist_by_chr <- NULL
-  if (!is.null(rho_ld) || !is.null(rho_d)) {
+  if (!is.null(r2_rho) || !is.null(dist_rho)) {
     if (is.null(LD_decay) || is.null(LD_decay$decay_sum))
-      stop("`rho_ld`/`rho_d` require `LD_decay` (with $decay_sum).")
+      stop("`r2_rho`/`dist_rho` require `LD_decay` (with $decay_sum).")
     ds <- data.table::as.data.table(LD_decay$decay_sum)
     cc <- if ("c" %in% names(ds)) ds$c else rep(1, nrow(ds))
-    if (!is.null(rho_ld)) r2_by_chr   <- stats::setNames(ld_from_rho(ds$b, cc, rho_ld), ds$Chr)
-    if (!is.null(rho_d))  dist_by_chr <- stats::setNames(d_from_rho(ds$a_pred, rho_d), ds$Chr)
+    if (!is.null(r2_rho)) r2_by_chr   <- stats::setNames(ld_from_rho(ds$b, cc, r2_rho), ds$Chr)
+    if (!is.null(dist_rho))  dist_by_chr <- stats::setNames(d_from_rho(ds$a_pred, dist_rho), ds$Chr)
   }
   ## split one single-linkage cluster into physically-contiguous runs
   split_gap <- function(cl, pos, dthr) {
@@ -191,7 +209,7 @@ ld_outlier_clusters <- function(pval, ld_w, map, GTs,
   for (ch in unique(map$Chr[map$cand])) {
     idx <- which(map$cand & map$Chr == ch)
     mk <- map$marker[idx]; pos <- map$Pos[idx]
-    r2c  <- if (!is.null(r2_by_chr) && !is.na(r2_by_chr[ch])) r2_by_chr[[ch]] else r2_link
+    r2c  <- if (!is.null(r2_by_chr) && !is.na(r2_by_chr[ch])) r2_by_chr[[ch]] else r2_th
     dthr <- if (!is.null(dist_by_chr) && !is.na(dist_by_chr[ch])) dist_by_chr[[ch]]
             else if (!is.null(distance_threshold)) distance_threshold else Inf
     if (length(mk) == 1L) { map$cluster[idx] <- paste0(ch, "_c1"); next }
@@ -220,7 +238,7 @@ ld_outlier_clusters <- function(pval, ld_w, map, GTs,
       cl$emp_p[i] <- (1 + sum(nd[[cl$cluster[i]]] >= cl$n_sig[i])) / (B + 1)
   }
   cl[, emp_q := NA_real_][tested, emp_q := stats::p.adjust(emp_p, "BH")]
-  cl[, significant := is.finite(emp_q) & emp_q < cluster_fdr]
+  cl[, significant := is.finite(emp_q) & emp_q < cluster_alpha]
   data.table::setorder(cl, -significant, emp_p, -n_sig)
 
   ## diagnostics --------------------------------------------------------------

@@ -42,7 +42,7 @@
 #'   Worth setting whenever two runs are to be COMPARED rather than merely
 #'   produced, because \eqn{b} propagates: it sets every decay-relative
 #'   threshold through [ld_from_rho()], including the stage-1 join in
-#'   [ld_complexity_reduction()] and the `min_r2` derived in
+#'   [ld_complexity_reduction()] and the `r2_th` derived in
 #'   [ld_prune_and_eMLG()]. Unseeded repeat parses of one simulated dataset
 #'   moved \eqn{b} from 0.03038 to 0.03045, which was enough to move stage-1
 #'   cluster counts by 0.75% (12,435 against 12,529) and GRM marker counts by
@@ -76,10 +76,10 @@
 #' @param slide Sliding window size in number of SNPs used for LD estimation.
 #' @param rho_targets Numeric vector of target LD thresholds used to derive recommended window sizes.
 #' @param cores Number of CPU cores for parallel computation.
-#' @param min_maf_decay Minor-allele-frequency threshold for decay fitting
+#' @param maf_min_decay Minor-allele-frequency threshold for decay fitting
 #'   (default 0.1). When non-\code{NULL}, minor allele frequencies are computed
 #'   directly from \code{gds} (via \code{SNPRelate::snpgdsSNPRateFreq()}) and only
-#'   SNP pairs where BOTH members have \code{MAF > min_maf_decay} are used for
+#'   SNP pairs where BOTH members have \code{MAF > maf_min_decay} are used for
 #'   background-LD and decay-curve fitting (low-MAF pairs mechanically deflate
 #'   \eqn{r^2} regardless of true linkage, which biases the fitted a/b/c
 #'   parameters). Filtering is applied only to the curve-fitting step; the
@@ -160,6 +160,7 @@
 #' pair set (a marker subsample, or pairs drawn directly) shifts the strata and
 #' therefore the fit, even at equal pair counts.
 #'
+#' @param min_maf_decay Deprecated. Use `maf_min_decay`.
 #' @export
 compute_LD_decay <- function(
     gds,
@@ -177,10 +178,11 @@ compute_LD_decay <- function(
     slide = 1000,
     rho_targets = c(0.90, 0.95, 0.99),
     cores = 1,
-    min_maf_decay = 0.1,
+    maf_min_decay = 0.1,
     ld_w_rho = NULL,
-    seed = NULL
-) {
+    seed = NULL,
+    min_maf_decay = NULL) {
+  if (!missing(min_maf_decay)) maf_min_decay <- .renamed_arg(min_maf_decay, "min_maf_decay", "maf_min_decay")
 
   ## Everything random in this function happens downstream of here: the
   ## background-LD subsample (n_sub_bg), the per-chromosome marker thinning
@@ -213,19 +215,19 @@ compute_LD_decay <- function(
   chrs <- unique(ids$snp_chr)
 
   ## ---- MAF filtering for decay-curve fitting.
-  ## Active whenever `min_maf_decay` is non-NULL. Minor allele frequencies are
+  ## Active whenever `maf_min_decay` is non-NULL. Minor allele frequencies are
   ## computed directly from the GDS (via snpgdsSNPRateFreq), so callers do not
   ## supply them. Filtering affects only background-LD and decay-curve fitting;
   ## edge lists (by_chr[[ch]]$el) remain unfiltered for downstream use.
   maf <- NULL
-  if (!is.null(min_maf_decay)) {
+  if (!is.null(maf_min_decay)) {
     maf <- SNPRelate::snpgdsSNPRateFreq(gds)$MinorFreq
     names(maf) <- ids$snp_id
-    message("Filtering SNPs to MAF > ", min_maf_decay,
+    message("Filtering SNPs to MAF > ", maf_min_decay,
             " for background-LD and decay-curve fitting (edge lists remain unfiltered).")
   }
 
-  b <- estimate_background_ld(gds, n_sub = n_sub_bg, q = q, ld_method = ld_method,maf = maf, min_maf = min_maf_decay)
+  b <- estimate_background_ld(gds, n_sub = n_sub_bg, q = q, ld_method = ld_method,maf = maf, min_maf = maf_min_decay)
 
   out_by_chr <- vector("list", length(chrs))
   names(out_by_chr) <- chrs
@@ -263,10 +265,10 @@ compute_LD_decay <- function(
     el <- get_el(
       gds = gds,
       idx = sample_idx,
-      slide_win_ld = slide,   # still in SNPs for get_el
+      slide = slide,   # still in SNPs for get_el
       cores = cores,
       by_chr = TRUE,
-      method = ld_method
+      ld_method = ld_method
     )
 
     data.table::setkey(el, SNP1)
@@ -285,7 +287,7 @@ compute_LD_decay <- function(
     ## roughly two thirds of the table's memory -- through both, despite
     ## estimate_decay_chr() and coef_ld_dec() only ever using pos1/pos2/d/r2.
     if (!is.null(maf)) {
-      hi_maf_ids <- snps_chr[maf[snps_chr] > min_maf_decay & !is.na(maf[snps_chr])]
+      hi_maf_ids <- snps_chr[maf[snps_chr] > maf_min_decay & !is.na(maf[snps_chr])]
       el_decay <- el[SNP1 %in% hi_maf_ids & SNP2 %in% hi_maf_ids & d < window_size,
                      list(pos1, pos2, r2, d)]
     } else {
@@ -486,7 +488,7 @@ compute_LD_decay <- function(
       prob_robust = prob_robust,
       slide = slide,             # in SNPs
       ld_method = ld_method,     # so edges rebuilt later match the ones fitted here
-      min_maf_decay = min_maf_decay,
+      maf_min_decay = maf_min_decay,
       max_SNPs_decay = max_SNPs_decay,
       rho_targets = rho_targets,
       cores = cores
@@ -501,9 +503,9 @@ compute_LD_decay <- function(
   ## one chromosome's edges rather than all of them.
   if (!is.null(ld_w_rho)) {
     reuse <- keep_el || !is.null(el_data_folder)
-    out$ld_ws <- compute_ld_w(out, rho = ld_w_rho, cores = cores,
+    out$ld_ws <- compute_ld_w(out, dist_rho = ld_w_rho, cores = cores,
                               gds = if (reuse) NULL else gds,
-                              slide_win_ld = slide, ld_method = ld_method)
+                              slide = slide, ld_method = ld_method)
     if (!isTRUE(keep_el)) for (ch in names(out$by_chr)) out$by_chr[[ch]]$el <- NULL
   }
 
@@ -1101,11 +1103,11 @@ print.ld_decay <- function(x, digits = 3, ...) {
 #' For each SNP, LD support is defined as the median \eqn{r^2} with
 #' neighboring SNPs within the corresponding distance window.
 #'
-#' @param ld_decay Object of class \code{"ld_decay"}.
-#' @param rho Relative LD threshold used to define the window. May be a
+#' @param LD_decay Object of class \code{"ld_decay"}.
+#' @param dist_rho Relative LD threshold used to define the window. May be a
 #'   vector of multiple thresholds -- each chromosome's edge list is read
 #'   (or pulled from memory) and symmetrized once and reused for every
-#'   \code{rho}, rather than repeating that work once per threshold. This
+#'   \code{dist_rho}, rather than repeating that work once per threshold. This
 #'   matters most when the edge list is not held in memory, i.e. it has to be
 #'   re-read from an \code{el_data_folder} or rebuilt from \code{gds}.
 #' @param cores Number of CPU cores.
@@ -1116,16 +1118,16 @@ print.ld_decay <- function(x, digits = 3, ...) {
 #'   the (large) edge-list files entirely. This is the recommended mode: rebuilding
 #'   is in practice faster than writing the edge lists to file and reading them
 #'   back. Any stored edge list is ignored when \code{gds} is given.
-#' @param slide_win_ld,ld_method Passed to [get_el()] for the on-the-fly mode: the
+#' @param slide,ld_method Passed to [get_el()] for the on-the-fly mode: the
 #'   sliding-window size (in SNPs) for \code{SNPRelate::snpgdsLDMat} and the LD
 #'   statistic (default \code{"corr"}). Use the same values as the
-#'   \code{compute_LD_decay()} run that produced \code{ld_decay}.
+#'   \code{compute_LD_decay()} run that produced \code{LD_decay}.
 #'
-#' @return If \code{rho} has length 1, a named numeric vector of LD support
+#' @return If \code{dist_rho} has length 1, a named numeric vector of LD support
 #'   values (names = SNP/marker ids, in the same SNP order as
-#'   \code{ld_decay$by_chr}). If \code{rho} has length > 1, a numeric matrix with
+#'   \code{LD_decay$by_chr}). If \code{dist_rho} has length > 1, a numeric matrix with
 #'   one row per SNP (rownames = marker ids, same order) and one column per
-#'   \code{rho}, named \code{"rho_<value>"}. The row names let callers index/align
+#'   \code{dist_rho}, named \code{"rho_<value>"}. The row names let callers index/align
 #'   by marker directly (e.g. \code{ld_ws[map$marker, ]}) without setting them.
 #'
 #' @details
@@ -1138,28 +1140,36 @@ print.ld_decay <- function(x, digits = 3, ...) {
 #' an \code{el_data_folder}); alternatively, supply \code{gds} to recompute them on
 #' the fly and avoid saving them at all (see the \code{gds} argument).
 #'
+#' @param ld_decay Deprecated. Use `LD_decay`.
+#' @param rho Deprecated. Use `dist_rho`.
+#' @param slide_win_ld Deprecated. Use `slide`.
 #' @export
 compute_ld_w <- function(
-    ld_decay,
-    rho = 0.95,
+    LD_decay,
+    dist_rho = 0.95,
     cores = 1,
     gds = NULL,
-    slide_win_ld = 1000,
-    ld_method = "corr"
-) {
-  rho <- unique(rho)
+    slide = 1000,
+    ld_method = "corr",
+    ld_decay = NULL,
+    rho = NULL,
+    slide_win_ld = NULL) {
+  if (!missing(slide_win_ld)) slide <- .renamed_arg(slide_win_ld, "slide_win_ld", "slide")
+  if (!missing(rho)) dist_rho <- .renamed_arg(rho, "rho", "dist_rho")
+  if (!missing(ld_decay)) LD_decay <- .renamed_arg(ld_decay, "ld_decay", "LD_decay")
+  dist_rho <- unique(dist_rho)
 
-  #chr_obj <- ld_decay$by_chr$Chr1
-  by_chr_w <- parallel_apply(ld_decay$by_chr, function(chr_obj) {
+  #chr_obj <- LD_decay$by_chr$Chr1
+  by_chr_w <- parallel_apply(LD_decay$by_chr, function(chr_obj) {
 
-    a <- ld_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
+    a <- LD_decay$decay_sum[Chr==chr_obj$decay_sum$Chr,a_pred]
 
     ## Edge list: either the one stored by compute_LD_decay (in memory or on disk),
     ## or -- when `gds` is supplied -- recomputed on the fly for this chromosome's
     ## markers and discarded after use, so the edge lists never have to be saved.
     el <- if (!is.null(gds)) {
-      get_el(gds, SNP_id = chr_obj$snp_ids, slide_win_ld = slide_win_ld,
-             method = ld_method, cores = 1)
+      get_el(gds, SNP_id = chr_obj$snp_ids, slide = slide,
+             ld_method = ld_method, cores = 1)
     } else if (!is.null(chr_obj$el)) {
       if (is.character(chr_obj$el)) fread(chr_obj$el, showProgress = FALSE) else chr_obj$el
     } else {
@@ -1167,7 +1177,7 @@ compute_ld_w <- function(
            "run compute_LD_decay() with keep_el = TRUE or an el_data_folder.")
     }
 
-    ## Make symmetric -- once per chromosome, reused across all rho below. This
+    ## Make symmetric -- once per chromosome, reused across all dist_rho below. This
     ## table has TWICE the edge list's rows, so it carries only the three columns
     ## the median below actually reads; pos/pos_other used to be included and were
     ## never used, costing ~40% of the largest allocation in this function.
@@ -1176,20 +1186,20 @@ compute_ld_w <- function(
       el[, .(SNP = SNP2, r2, d)]
     ))
 
-    w <- vapply(rho, function(r) {
+    w <- vapply(dist_rho, function(r) {
       d_window <- d_from_rho(a, r)
       ld_w <- el[d<d_window,.(r2_median=median(r2)),by=SNP]
       ld_w[match(chr_obj$snp_ids,ld_w$SNP),r2_median]
     }, FUN.VALUE = numeric(length(chr_obj$snp_ids)))
 
-    matrix(w, nrow = length(chr_obj$snp_ids), ncol = length(rho),
-           dimnames = list(chr_obj$snp_ids, paste0("rho_", rho)))
+    matrix(w, nrow = length(chr_obj$snp_ids), ncol = length(dist_rho),
+           dimnames = list(chr_obj$snp_ids, paste0("rho_", dist_rho)))
 
   }, cores = cores)
 
   ld_w <- do.call(rbind, by_chr_w)
 
-  if (length(rho) == 1L) return(stats::setNames(as.vector(ld_w), rownames(ld_w)))
+  if (length(dist_rho) == 1L) return(stats::setNames(as.vector(ld_w), rownames(ld_w)))
 
   ld_w
 }

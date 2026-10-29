@@ -98,7 +98,7 @@ correlated; the clustering reduces redundancy, it does not certify
 independence).
 
 ```{r stage1, results = "hide"}
-stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5, cores = cores)
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, cores = cores)
 ```
 
 ```{r stage1-show}

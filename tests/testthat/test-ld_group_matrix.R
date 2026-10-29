@@ -42,7 +42,7 @@ build_stage1 <- function() {
 build_prune_result <- function(d) {
   ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 1
   )
 }
 

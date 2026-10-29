@@ -12,8 +12,8 @@
 #' takes `p_obs` already computed per unit -- built with [ld_unit_matrix()] and
 #' scanned with your own engine -- and does no aggregation, only BH and assembly.
 #'
-#' `min_r2_rho` for `assembly = "stage2_discovered"` is read from
-#' `stage1$params$rho`, NOT a separate argument: the whole point of this
+#' `r2_rho` for `assembly = "stage2_discovered"` is read from
+#' `stage1$params$r2_rho`, NOT a separate argument: the whole point of this
 #' assembly rule is that it introduces no parameter beyond what built `stage1`,
 #' and a caller-supplied value could silently disagree with that. `stage1` must
 #' therefore come from an `ld_complexity_reduction()` new enough to record
@@ -22,7 +22,7 @@
 #' `r2_th`. If `r2_th` is `NULL` and `stage1` was built with a fixed `r2_th`,
 #' Stage-2 assembly uses that same fixed r2.
 #'
-#' @param stage1 An `ld_complexity_reduction` object (must have `$params$rho`).
+#' @param stage1 An `ld_complexity_reduction` object (must have `$params$r2_rho`).
 #' @param map data.frame/data.table with `marker`, `Chr`, `Pos`, aligned to
 #'   `stage1`'s marker universe.
 #' @param p_obs Per-marker p-values (if `statistic = "simes"`), aligned to
@@ -56,7 +56,7 @@
 #'   `assembly = "physical"`.
 #' @param r2_th Optional single number in (0, 1]. A fixed r2 merge threshold
 #'   for `assembly = "stage2_discovered"`, applied to every chromosome instead
-#'   of the decay-relative threshold derived from `stage1$params$rho`. Default
+#'   of the decay-relative threshold derived from `stage1$params$r2_rho`. Default
 #'   `NULL` uses `stage1$params$r2_th` if `stage1` was built with a fixed
 #'   threshold, and otherwise the decay-relative threshold.
 #'
@@ -83,11 +83,12 @@ ld_outlier_test <- function(stage1, map, p_obs,
         r2_th > 0 && r2_th <= 1))
     stop("`r2_th` must be NULL or a single number in (0, 1].")
   ## Stage-2 merge threshold: an explicit r2_th, else the fixed r2_th stage1
-  ## was built with (if any), else NULL (decay-relative, from stage1's rho).
+  ## was built with (if any), else NULL (decay-relative, from stage1's r2_rho).
   r2_th_s2 <- if (!is.null(r2_th)) r2_th else stage1$params$r2_th
-  if (assembly == "stage2_discovered" && is.null(r2_th_s2) && is.null(stage1$params$rho))
-    stop("stage1$params$rho is missing -- this stage1 object predates ld_complexity_reduction() ",
-         "recording its own rho. Rebuild it, or pass assembly = \"physical\".")
+  r2_rho_s1 <- .stage1_r2_rho(stage1)
+  if (assembly == "stage2_discovered" && is.null(r2_th_s2) && is.null(r2_rho_s1))
+    stop("stage1$params$r2_rho is missing -- this stage1 object predates ld_complexity_reduction() ",
+         "recording its own r2_rho. Rebuild it, or pass assembly = \"physical\".")
   if (assembly == "stage2_discovered" && (is.null(GTs) || is.null(LD_decay)))
     stop("assembly = \"stage2_discovered\" needs both GTs and LD_decay.")
 
@@ -120,7 +121,7 @@ ld_outlier_test <- function(stage1, map, p_obs,
       n_markers[i] / max(n_span, 1L) }, 0)]
   } else {
     ## stage2_discovered: re-run ld_prune_and_eMLG() over the SIGNIFICANT clusters only.
-    ## min_r2_rho comes from stage1$params$rho, never from a caller-supplied value.
+    ## r2_rho comes from stage1$params$r2_rho, never from a caller-supplied value.
     cl <- data.table::as.data.table(stage1$clusters)
     nl <- if ("n_loci" %in% names(cl)) cl$n_loci else cl$n_snps
     cl_sig <- cl[nl >= size_floor][sig$unit_id]
@@ -151,8 +152,8 @@ ld_outlier_test <- function(stage1, map, p_obs,
     ## ld_complexity_reduction() itself always produces.
     pr <- ld_prune_and_eMLG(GTs = GTs[, mk_sig, drop = FALSE], stage1 = sub,
                             ld_w_col = "n_loci", ld_w_threshold = 0,
-                            LD_decay = LD_decay, min_r2 = r2_th_s2,
-                            min_r2_rho = if (is.null(stage1$params$rho)) 0.5 else stage1$params$rho,
+                            LD_decay = LD_decay, r2_th = r2_th_s2,
+                            r2_rho = if (is.null(r2_rho_s1)) 0.5 else r2_rho_s1,
                             score_threshold = score_threshold,
                             distance_threshold = distance_threshold,
                             compute_unflagged_eMLG = FALSE, min_n_loci_eMLG = 1,
@@ -185,8 +186,8 @@ ld_outlier_test <- function(stage1, map, p_obs,
     params = list(statistic = statistic, size_floor = size_floor, alpha = alpha,
                   assembly = assembly, score_threshold = score_threshold,
                   distance_threshold = distance_threshold, gap = gap,
-                  min_r2_rho = if (assembly == "stage2_discovered" && is.null(r2_th_s2))
-                    stage1$params$rho else NA,
+                  r2_rho = if (assembly == "stage2_discovered" && is.null(r2_th_s2))
+                    r2_rho_s1 else NA,
                   r2_th = if (assembly == "stage2_discovered" && !is.null(r2_th_s2))
                     r2_th_s2 else NA)
   ), class = "ld_outlier_test")

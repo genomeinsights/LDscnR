@@ -503,14 +503,17 @@ ohtadstats_dstat <- function (index, data_set, tot_maf = 0.1, pop_maf = 0.05)
 #' [dstat_unphased_fast()] for a single pair.
 #'
 #' @param index Length-2 integer vector: the two locus (column) indices.
-#' @param geno Individuals \eqn{\times} loci dosage matrix.
+#' @param GTs Individuals \eqn{\times} loci dosage matrix.
 #' @param pops Population label per individual.
 #' @param tot_maf Total-sample MAF floor (default 0.1).
 #' @param pop_maf Per-population MAF floor (default 0.05).
 #' @return A named numeric vector of the statistics.
+#' @param geno Deprecated. Use `GTs`.
 #' @export
-run_ohtadstats <- function(index, geno, pops, tot_maf = 0.1, pop_maf = 0.05) {
-  X <- geno
+run_ohtadstats <- function(index, GTs, pops, tot_maf = 0.1, pop_maf = 0.05,
+                           geno = NULL) {
+  if (!missing(geno)) GTs <- .renamed_arg(geno, "geno", "GTs")
+  X <- GTs
   rownames(X) <- pops
 
   prep <- ohta_fast_prepare(data_set = X, pops = pops)

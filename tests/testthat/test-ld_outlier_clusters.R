@@ -46,13 +46,13 @@ make_toy <- function(seed = 1) {
 
 test_that("rmsc_threshold returns a valid selection curve", {
   d <- make_toy()
-  s <- rmsc_threshold(d$pval, d$ld_w, fdr = 0.1)
+  s <- rmsc_threshold(d$pval, d$ld_w, alpha = 0.1)
   expect_named(s, c("grid", "rejections", "q_star", "no_elbow"))
   expect_length(s$rejections, length(s$grid))
   expect_true(all(s$rejections >= 0))
   expect_true(s$q_star >= 0 && s$q_star <= max(s$grid))
   ## when ld_w carries no information (constant), filtering cannot help -> no elbow
-  flat <- rmsc_threshold(d$pval, rep(1, length(d$pval)), fdr = 0.1)
+  flat <- rmsc_threshold(d$pval, rep(1, length(d$pval)), alpha = 0.1)
   expect_true(flat$no_elbow)
 })
 
@@ -60,7 +60,7 @@ test_that("background null flags the causal block and not the decoy", {
   d <- make_toy()
   set.seed(42)
   r <- ld_outlier_clusters(d$pval, d$ld_w, d$map, d$GTs,
-                           null = "background", fdr = 0.1, B = 499, verbose = FALSE)
+                           null = "background", alpha = 0.1, B = 499, verbose = FALSE)
   expect_s3_class(r, "ld_outlier_clusters")
   sigc <- r$clusters[significant == TRUE]
   ## at least one significant cluster, all on chr A (the causal block)
@@ -78,7 +78,7 @@ test_that("permutation null (fast EMMAX path) flags the causal block", {
   K <- tcrossprod(scale(d$GTs)) / ncol(d$GTs)          # simple genomic relationship
   set.seed(7)
   r <- ld_outlier_clusters(d$pval, d$ld_w, d$map, d$GTs, null = "permutation",
-                           Y = d$Y, K = K, fdr = 0.1, B = 299, verbose = FALSE)
+                           Y = d$Y, K = K, alpha = 0.1, B = 299, verbose = FALSE)
   sigc <- r$clusters[significant == TRUE]
   expect_gt(nrow(sigc), 0)
   expect_true(all(sigc$Chr == "A"))

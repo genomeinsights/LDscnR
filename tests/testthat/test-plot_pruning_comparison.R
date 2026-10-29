@@ -40,7 +40,7 @@ test_that("plot_pruning_comparison() handles zero matching clusters without erro
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 1
   )
 
   ## nothing on Chr1 exceeds ld_w_threshold, so the "high" (flagged) side
@@ -66,14 +66,14 @@ test_that("plot_pruning_comparison() defaults ld_w_col/ld_w_threshold/min_n_loci
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 1
   )
   expect_identical(
     res$params,
     list(
-      ld_w_col = "ld_w_095", ld_w_threshold = 0.5, min_n_loci_flag = Inf, rho = 0.95, distance_threshold = 100,
-      min_r2_rho = 0.5, min_r2 = 0.2,
-      distance_threshold_resolved = 100, min_r2_resolved = 0.2,
+      ld_w_col = "ld_w_095", ld_w_threshold = 0.5, min_n_loci_flag = Inf, dist_rho = 0.95, distance_threshold = 100,
+      r2_rho = 0.5, r2_th = 0.2,
+      distance_threshold_resolved = 100, r2_th_resolved = 0.2,
       use_cM = FALSE, cM_threshold = NULL
     )
   )
@@ -99,7 +99,7 @@ test_that("plot_pruning_comparison() warns when ld_w_threshold disagrees with re
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 1
   )
 
   out_dir <- tempfile("plot_pruning_comparison_")
@@ -123,7 +123,7 @@ test_that("plot_pruning_comparison() falls back to historical defaults when resu
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 1
   )
   res$params <- NULL  # simulate a result predating the params field
 
@@ -148,7 +148,7 @@ test_that("plot_pruning_comparison() still works normally when clusters match (l
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 1
   )
 
   out_dir <- tempfile("plot_pruning_comparison_")

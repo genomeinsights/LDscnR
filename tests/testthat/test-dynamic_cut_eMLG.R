@@ -14,7 +14,7 @@ test_that("correlated clusters merge into one group, an independent one stays se
   eMLG <- cbind(A = A, B = B, C = C)
   n_loci <- c(A = 1, B = 1, C = 1)
 
-  res <- dynamic_cut_eMLG(eMLG, n_loci, threshold = 0.80, min_r2 = 0.2)
+  res <- dynamic_cut_eMLG(eMLG, n_loci, threshold = 0.80, r2_th = 0.2)
 
   sizes <- sort(lengths(lapply(res, `[[`, "members")))
   expect_equal(sizes, c(1, 2))
@@ -30,7 +30,7 @@ test_that("two near-monomorphic, uncorrelated clusters do NOT merge just because
   ## (matches the historically observed 1.8e-05) while the resulting
   ## weighted-average consensus still scores a PERFECT 1.0 on score_eMLG --
   ## verified directly before writing this test. score_eMLG alone would
-  ## wrongly accept this merge; the min_r2 gate must reject it.
+  ## wrongly accept this merge; the r2_th gate must reject it.
   n <- 200
   A <- rep(0, n); A[1] <- 1
   B <- rep(2, n); B[2] <- 1
@@ -49,12 +49,12 @@ test_that("two near-monomorphic, uncorrelated clusters do NOT merge just because
   eMLG <- cbind(A = A, B = B)
   n_loci <- c(A = 1, B = 1)
 
-  res <- dynamic_cut_eMLG(eMLG, n_loci, threshold = 0.80, min_r2 = 0.2)
+  res <- dynamic_cut_eMLG(eMLG, n_loci, threshold = 0.80, r2_th = 0.2)
   expect_length(res, 2)  # stayed separate
 
-  ## with the min_r2 gate disabled, they DO merge -- demonstrates this test
+  ## with the r2_th gate disabled, they DO merge -- demonstrates this test
   ## actually exercises the gate, not some other rejection reason
-  res_nogate <- dynamic_cut_eMLG(eMLG, n_loci, threshold = 0.80, min_r2 = 0)
+  res_nogate <- dynamic_cut_eMLG(eMLG, n_loci, threshold = 0.80, r2_th = 0)
   expect_length(res_nogate, 1)
 })
 
@@ -90,7 +90,7 @@ test_that("no clusters are silently lost across a mix of accepted and rejected m
   eMLG <- cbind(blockA, blockB, indepC, indepD)
   n_loci <- setNames(rep(1, ncol(eMLG)), colnames(eMLG))
 
-  res <- dynamic_cut_eMLG(eMLG, n_loci, threshold = 0.80, min_r2 = 0.2)
+  res <- dynamic_cut_eMLG(eMLG, n_loci, threshold = 0.80, r2_th = 0.2)
 
   all_members <- unlist(lapply(res, `[[`, "members"))
   expect_length(all_members, ncol(eMLG))
@@ -111,7 +111,7 @@ test_that("merging weights by n_loci, not equally, so a single-marker cluster ca
   eMLG <- cbind(A = A, B = B)
   n_loci <- c(A = 100, B = 1)
 
-  res <- dynamic_cut_eMLG(eMLG, n_loci, threshold = 0.80, min_r2 = 0.2)
+  res <- dynamic_cut_eMLG(eMLG, n_loci, threshold = 0.80, r2_th = 0.2)
   expect_length(res, 1)
 
   merged <- res[[1]]$emlg

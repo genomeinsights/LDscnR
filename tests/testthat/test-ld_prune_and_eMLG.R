@@ -61,7 +61,7 @@ test_that("flagging is cluster-level, not marker-level, and distance restriction
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 1
   )
 
   fg <- res$groups[startsWith(group_id, "F")]
@@ -94,8 +94,8 @@ test_that("distance_threshold derived from rho/LD_decay reproduces the same merg
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    LD_decay = ld_decay, rho = 0.95,
-    score_threshold = 0.80, min_r2 = 0.2, cores = 1
+    LD_decay = ld_decay, dist_rho = 0.95,
+    score_threshold = 0.80, r2_th = 0.2, cores = 1
   )
 
   fg <- res$groups[startsWith(group_id, "F")]
@@ -105,20 +105,20 @@ test_that("distance_threshold derived from rho/LD_decay reproduces the same merg
   distant <- fg[n_loci == 3]
   expect_setequal(distant$members[[1]], colnames(d$GTs)[7:9])
 
-  expect_equal(res$params$rho, 0.95)
+  expect_equal(res$params$dist_rho, 0.95)
   expect_null(res$params$distance_threshold)
 
-  ## a supplied min_r2 resolves to itself; a derived distance_threshold
+  ## a supplied r2_th resolves to itself; a derived distance_threshold
   ## resolves to a per-chromosome vector, so the raw NULL above is not the
   ## only record of what this call actually applied
-  expect_equal(res$params$min_r2_resolved, 0.2)
+  expect_equal(res$params$r2_th_resolved, 0.2)
   dtr <- res$params$distance_threshold_resolved
   expect_type(dtr, "double")
   expect_named(dtr, ld_decay$decay_sum$Chr)
   expect_equal(unname(dtr), unname(d_from_rho(ld_decay$decay_sum$a_pred, 0.95)))
 })
 
-test_that("ld_prune_and_eMLG() records a derived min_r2 per chromosome in params", {
+test_that("ld_prune_and_eMLG() records a derived r2_th per chromosome in params", {
   d <- build_stage1()
   ld_decay <- list(decay_sum = data.table::data.table(
     Chr = "Chr1", a_pred = 0.19, b = 0.05, c = 0.9
@@ -126,14 +126,14 @@ test_that("ld_prune_and_eMLG() records a derived min_r2 per chromosome in params
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    LD_decay = ld_decay, rho = 0.95, score_threshold = 0.80, cores = 1
+    LD_decay = ld_decay, dist_rho = 0.95, score_threshold = 0.80, cores = 1
   )
 
   ds <- ld_decay$decay_sum
   cc <- if ("c" %in% names(ds)) ds$c else rep(1, nrow(ds))
-  expect_null(res$params$min_r2)
-  expect_equal(res$params$min_r2_rho, 0.5)
-  mr <- res$params$min_r2_resolved
+  expect_null(res$params$r2_th)
+  expect_equal(res$params$r2_rho, 0.5)
+  mr <- res$params$r2_th_resolved
   expect_named(mr, ds$Chr)
   expect_equal(unname(mr), unname(ld_from_rho(b = ds$b, c = cc, rho = 0.5)))
 })
@@ -144,7 +144,7 @@ test_that("ld_prune_and_eMLG() errors when neither distance_threshold nor LD_dec
   expect_error(
     ld_prune_and_eMLG(
       GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-      score_threshold = 0.80, min_r2 = 0.2, cores = 1
+      score_threshold = 0.80, r2_th = 0.2, cores = 1
     ),
     "distance_threshold.*LD_decay"
   )
@@ -181,8 +181,8 @@ test_that("a rho-derived distance_threshold can differ per chromosome", {
 
   res <- ld_prune_and_eMLG(
     GTs = GTs_2chr, stage1 = stage1_2chr, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    LD_decay = ld_decay, rho = 0.95,
-    score_threshold = 0.80, min_r2 = 0.2, cores = 1
+    LD_decay = ld_decay, dist_rho = 0.95,
+    score_threshold = 0.80, r2_th = 0.2, cores = 1
   )
 
   fg <- res$groups[startsWith(group_id, "F")]
@@ -207,7 +207,7 @@ test_that("cM-based run splitting merges clusters with a large bp gap but neglig
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2,
+    score_threshold = 0.80, r2_th = 0.2,
     genetic_map = genetic_map, cM_threshold = 1, cores = 1
   )
 
@@ -235,7 +235,7 @@ test_that("genetic_map + cM_threshold take precedence over distance_threshold wh
   ## threshold is also present
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100,
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100,
     genetic_map = genetic_map, cM_threshold = 1, cores = 1
   )
 
@@ -250,7 +250,7 @@ test_that("ld_prune_and_eMLG() errors when genetic_map is supplied without cM_th
   expect_error(
     ld_prune_and_eMLG(
       GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-      score_threshold = 0.80, min_r2 = 0.2, genetic_map = genetic_map, cores = 1
+      score_threshold = 0.80, r2_th = 0.2, genetic_map = genetic_map, cores = 1
     ),
     "cM_threshold"
   )
@@ -261,7 +261,7 @@ test_that("unflagged clusters pass straight through unchanged", {
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 1
   )
 
   ug <- res$groups[startsWith(group_id, "U")]
@@ -279,7 +279,7 @@ test_that("min_n_loci_flag pulls a large low-ld_w cluster into the flagged/merge
 
   res <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100,
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100,
     min_n_loci_flag = 5, cores = 1
   )
 
@@ -299,11 +299,11 @@ test_that("compute_unflagged_eMLG=FALSE and min_n_loci_eMLG trim the eMLG matrix
 
   full <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 1
   )
   trimmed <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100,
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100,
     compute_unflagged_eMLG = FALSE, min_n_loci_eMLG = 5, cores = 1
   )
 
@@ -321,11 +321,11 @@ test_that("cores=1 and cores>1 produce identical output", {
 
   res_c1 <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 1
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 1
   )
   res_c2 <- ld_prune_and_eMLG(
     GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
-    score_threshold = 0.80, min_r2 = 0.2, distance_threshold = 100, cores = 2
+    score_threshold = 0.80, r2_th = 0.2, distance_threshold = 100, cores = 2
   )
 
   expect_identical(res_c1$eMLG, res_c2$eMLG)
