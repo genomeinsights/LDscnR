@@ -9,9 +9,11 @@ make_eMLGs(
   map_cl,
   input = c("auto", "hard", "dosage"),
   cor_th = 0.8,
-  l_min = 10,
-  ncores = 1,
-  col_vector = NULL
+  size_floor = 10,
+  cores = 1,
+  col_vector = NULL,
+  l_min = NULL,
+  ncores = NULL
 )
 }
 \arguments{
@@ -28,14 +30,18 @@ from the data itself; \code{"hard"}/\code{"dosage"} force one or the other.}
 used to filter clusters here (compare \code{\link[=dynamic_cut_eMLG]{dynamic_cut_eMLG()}}'s
 \code{threshold}, which does gate on it).}
 
-\item{l_min}{Minimum cluster size (raw marker count) to keep; smaller
+\item{size_floor}{Minimum cluster size (raw marker count) to keep; smaller
 clusters are dropped entirely.}
 
-\item{ncores}{Number of cores for the per-cluster consensus computation
+\item{cores}{Number of cores for the per-cluster consensus computation
 (\code{parallel::mclapply()}, fork-based -- not available on Windows).}
 
 \item{col_vector}{Optional vector of colours to cycle across clusters for
 plotting; defaults to \code{\link[=default_cluster_colours]{default_cluster_colours()}}.}
+
+\item{l_min}{Deprecated. Use \code{size_floor}.}
+
+\item{ncores}{Deprecated. Use \code{cores}.}
 }
 \value{
 A list: \code{eMLG} (matrix, individuals x clusters), \code{map_eMLG}
@@ -58,7 +64,7 @@ as they already stand.
 \dontrun{
 eMLGs <- make_eMLGs(
   GTs, map_cl[!is.na(CL_id) & n_loci >= 10, ],
-  cor_th = 0.8, l_min = 1, ncores = 4
+  cor_th = 0.8, size_floor = 1, cores = 4
 )
 }
 

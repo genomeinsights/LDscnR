@@ -4,23 +4,34 @@
 \alias{score_thresholds}
 \title{Decay-relative TP-match thresholds}
 \usage{
-score_thresholds(decay_sum, rho_r2 = 0.75, rho_d = 0.95, dmax_cap = Inf)
+score_thresholds(
+  decay_sum,
+  r2_rho = 0.75,
+  dist_rho = 0.95,
+  dmax_cap = Inf,
+  rho_r2 = NULL,
+  rho_d = NULL
+)
 }
 \arguments{
 \item{decay_sum}{Per-chromosome LD-decay summary (\code{b}, \code{c}, \code{a}).}
 
-\item{rho_r2, rho_d}{Decay-relative r^2 and distance quantiles (defaults
+\item{r2_rho, dist_rho}{Decay-relative r^2 and distance quantiles (defaults
 0.75, 0.95).}
 
 \item{dmax_cap}{Cap on the match distance (default \code{Inf}).}
+
+\item{rho_r2}{Deprecated. Use \code{r2_rho}.}
+
+\item{rho_d}{Deprecated. Use \code{dist_rho}.}
 }
 \value{
 A list with \code{r2min} and \code{dmax}.
 }
 \description{
 The r^2 and distance a region must be within of a QTN to count as a detection,
-derived from the (median) LD-decay parameters: \code{r2 = ld_from_rho(b, c, rho_r2)},
-\code{dist = min(d_from_rho(a, rho_d), dmax_cap)}.
+derived from the (median) LD-decay parameters: \code{r2 = ld_from_rho(b, c, r2_rho)},
+\code{dist = min(d_from_rho(a, dist_rho), dmax_cap)}.
 }
 \examples{
 score_thresholds(data.frame(a = 1e-4, b = 0.02, c = 0.9))

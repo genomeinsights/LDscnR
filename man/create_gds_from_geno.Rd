@@ -4,10 +4,10 @@
 \alias{create_gds_from_geno}
 \title{Create a GDS file from a genotype matrix}
 \usage{
-create_gds_from_geno(geno, map, gds_path)
+create_gds_from_geno(GTs, map, gds_path, geno = NULL)
 }
 \arguments{
-\item{geno}{Numeric genotype matrix of allele counts (0,1,2) with
+\item{GTs}{Numeric genotype matrix of allele counts (0,1,2) with
 individuals in rows and SNPs in columns. Missing values are allowed.
 Columns must be in the same order as rows of \code{map}; sample IDs are
 generated as \code{ind_1}, \code{ind_2}, and so on, regardless of row names.}
@@ -16,6 +16,8 @@ generated as \code{ind_1}, \code{ind_2}, and so on, regardless of row names.}
 the columns \code{marker}, \code{Chr}, and \code{Pos}.}
 
 \item{gds_path}{File path where the GDS file will be written.}
+
+\item{geno}{Deprecated. Use \code{GTs}.}
 }
 \value{
 An open GDS object.

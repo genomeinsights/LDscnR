@@ -20,9 +20,10 @@ compute_LD_decay(
   slide = 1000,
   rho_targets = c(0.9, 0.95, 0.99),
   cores = 1,
-  min_maf_decay = 0.1,
+  maf_min_decay = 0.1,
   ld_w_rho = NULL,
-  seed = NULL
+  seed = NULL,
+  min_maf_decay = NULL
 )
 }
 \arguments{
@@ -76,10 +77,10 @@ returned object (consumed by \code{\link[=compute_ld_w]{compute_ld_w()}}). Subje
 
 \item{cores}{Number of CPU cores for parallel computation.}
 
-\item{min_maf_decay}{Minor-allele-frequency threshold for decay fitting
+\item{maf_min_decay}{Minor-allele-frequency threshold for decay fitting
 (default 0.1). When non-\code{NULL}, minor allele frequencies are computed
 directly from \code{gds} (via \code{SNPRelate::snpgdsSNPRateFreq()}) and only
-SNP pairs where BOTH members have \code{MAF > min_maf_decay} are used for
+SNP pairs where BOTH members have \code{MAF > maf_min_decay} are used for
 background-LD and decay-curve fitting (low-MAF pairs mechanically deflate
 \eqn{r^2} regardless of true linkage, which biases the fitted a/b/c
 parameters). Filtering is applied only to the curve-fitting step; the
@@ -116,13 +117,15 @@ changes this function's behaviour and nothing else in a pipeline.
 Worth setting whenever two runs are to be COMPARED rather than merely
 produced, because \eqn{b} propagates: it sets every decay-relative
 threshold through \code{\link[=ld_from_rho]{ld_from_rho()}}, including the stage-1 join in
-\code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}} and the \code{min_r2} derived in
+\code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}} and the \code{r2_th} derived in
 \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}}. Unseeded repeat parses of one simulated dataset
 moved \eqn{b} from 0.03038 to 0.03045, which was enough to move stage-1
 cluster counts by 0.75\% (12,435 against 12,529) and GRM marker counts by
 0.70\% -- larger than the differences some settings changes produce, so an
 unseeded A/B comparison in that range measures the subsample, not the
 setting.}
+
+\item{min_maf_decay}{Deprecated. Use \code{maf_min_decay}.}
 }
 \value{
 An object of class \code{"ld_decay"} containing (and, when

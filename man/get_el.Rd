@@ -8,11 +8,13 @@ get_el(
   gds,
   idx = NULL,
   SNP_id = NULL,
-  slide_win_ld = 1000,
-  method = "r",
+  slide = 1000,
+  ld_method = "corr",
   cores = 1,
   by_chr = FALSE,
-  el_floor = 0
+  el_floor = 0,
+  slide_win_ld = NULL,
+  method = NULL
 )
 }
 \arguments{
@@ -24,13 +26,14 @@ SNP order in the GDS file). If \code{NULL}, all SNPs are used.}
 \item{SNP_id}{Optional vector of SNP ids to restrict the edge list to
 (alternative to \code{idx}).}
 
-\item{slide_win_ld}{Integer SNP window size passed to
+\item{slide}{Integer SNP window size passed to
 \code{SNPRelate::snpgdsLDMat()}. If \code{> 0}, LD is computed within a
 sliding window of this size. If \code{<= 0}, all pairwise LD values are
 computed.}
 
-\item{method}{LD-method paste on to \code{SNPRelate::snpgdsLDMat}, default="r"
-(EM algorithm assuming HWE). If strong deviations from HWE are expected use "corr".}
+\item{ld_method}{LD method passed on to \code{SNPRelate::snpgdsLDMat}. Default
+\code{"corr"} (correlation without assuming HWE), the same default as
+\code{\link[=compute_LD_decay]{compute_LD_decay()}}. \code{"r"} uses the EM algorithm assuming HWE.}
 
 \item{cores}{Number of CPU threads used in LD computation.}
 
@@ -43,8 +46,8 @@ which returns every finite pair and so reproduces the previous behaviour
 exactly.
 
 The point is peak memory, not the returned object: a sliding window of
-\code{slide_win_ld} over \eqn{n} markers materialises on the order of
-\eqn{n \times} \code{slide_win_ld} rows before any downstream filter sees
+\code{slide} over \eqn{n} markers materialises on the order of
+\eqn{n \times} \code{slide} rows before any downstream filter sees
 them, which for a 15,000-marker chromosome at the default window is ~15M
 rows and on the order of a gigabyte. A caller that is going to discard
 low-\eqn{r^2} pairs anyway should say so here and never pay for them.
@@ -57,6 +60,10 @@ upward. Both therefore leave this at \code{0}. Threshold-based consumers
 such as \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}}, which joins at
 \code{ld_from_rho(b, c, rho)}, can safely floor anywhere below their own
 threshold.}
+
+\item{slide_win_ld}{Deprecated. Use \code{slide}.}
+
+\item{method}{Deprecated. Use \code{ld_method}.}
 }
 \value{
 A \code{data.table} with columns:

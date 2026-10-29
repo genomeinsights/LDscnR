@@ -4,7 +4,7 @@
 \alias{dynamic_cut_eMLG}
 \title{Dynamically cluster eMLG signals via a quality-gated tree walk}
 \usage{
-dynamic_cut_eMLG(eMLG, n_loci, threshold, min_r2 = 0.2)
+dynamic_cut_eMLG(eMLG, n_loci, threshold, r2_th = 0.2, min_r2 = NULL)
 }
 \arguments{
 \item{eMLG}{Numeric matrix, individuals x clusters (consensus genotype
@@ -21,7 +21,7 @@ a candidate merge's resulting signal must clear to be accepted.
 Validated around 0.80-0.85 on real data; higher is stricter (less
 merging).}
 
-\item{min_r2}{Minimum r2 required directly between the two sides being
+\item{r2_th}{Minimum r2 required directly between the two sides being
 merged, checked in addition to \code{threshold}. Default \code{0.2}. This is NOT
 redundant with \code{threshold}, and the reason is worth stating: \code{score_eMLG}
 is a property of the RESULTING consensus, so once a cluster is large that
@@ -38,6 +38,8 @@ units: the default \code{0.2} matches the fixed r2 threshold conventional LD
 pruning applies uniformly (here obtained on a relatedness-corrected scale
 between consensus genotypes). It is thus a genuine merge/independence
 criterion, not a device to shrink the pairwise edge list.}
+
+\item{min_r2}{Deprecated. Use \code{r2_th}.}
 }
 \value{
 A list of final groups, each \verb{list(members = <cluster IDs>, emlg = <consensus genotype vector>, score = <score_eMLG of that consensus>)}. Every input cluster ID appears in exactly one group.
@@ -51,7 +53,7 @@ locally per branch, unlike a single global height cut (\code{cutree()}), which
 assumes one r2 threshold is right everywhere -- see the file-level
 comment for why average linkage (not single or complete) was chosen as
 the tree, and why the accept/reject decision is driven by
-\code{score_eMLG}/\code{min_r2} directly rather than by tree height.
+\code{score_eMLG}/\code{r2_th} directly rather than by tree height.
 }
 \details{
 \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}} is the usual entry point for applying this to a

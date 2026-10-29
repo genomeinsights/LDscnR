@@ -18,6 +18,7 @@ ld_outlier_scan(
   score_threshold = 0.8,
   distance_threshold = 1e+05,
   gap = 3e+05,
+  r2_th = NULL,
   annotation = NULL,
   chrom_lengths = NULL,
   n_rotations = 10000L,
@@ -29,7 +30,7 @@ ld_outlier_scan(
 )
 }
 \arguments{
-\item{stage1}{An \code{ld_complexity_reduction} object (must have \verb{$params$rho}).}
+\item{stage1}{An \code{ld_complexity_reduction} object (must have \verb{$params$r2_rho}).}
 
 \item{map}{data.frame/data.table with \code{marker}, \code{Chr}, \code{Pos}, aligned to
 \code{stage1}'s marker universe.}
@@ -74,6 +75,12 @@ does not require an \verb{ld_w_*} column to exist on \code{stage1$map_snp}).}
 
 \item{gap}{Physical merge distance in bp, used only when
 \code{assembly = "physical"}.}
+
+\item{r2_th}{Optional single number in (0, 1]. A fixed r2 merge threshold
+for \code{assembly = "stage2_discovered"}, applied to every chromosome instead
+of the decay-relative threshold derived from \code{stage1$params$r2_rho}. Default
+\code{NULL} uses \code{stage1$params$r2_th} if \code{stage1} was built with a fixed
+threshold, and otherwise the decay-relative threshold.}
 
 \item{annotation}{Optional bed-like data.table -- supplying this (with
 \code{chrom_lengths}) runs \code{\link[=ld_region_rotation]{ld_region_rotation()}} on the assembled regions and

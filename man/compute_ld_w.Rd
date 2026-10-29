@@ -5,21 +5,24 @@
 \title{Compute Local LD Support (ld_w)}
 \usage{
 compute_ld_w(
-  ld_decay,
-  rho = 0.95,
+  LD_decay,
+  dist_rho = 0.95,
   cores = 1,
   gds = NULL,
-  slide_win_ld = 1000,
-  ld_method = "corr"
+  slide = 1000,
+  ld_method = "corr",
+  ld_decay = NULL,
+  rho = NULL,
+  slide_win_ld = NULL
 )
 }
 \arguments{
-\item{ld_decay}{Object of class \code{"ld_decay"}.}
+\item{LD_decay}{Object of class \code{"ld_decay"}.}
 
-\item{rho}{Relative LD threshold used to define the window. May be a
+\item{dist_rho}{Relative LD threshold used to define the window. May be a
 vector of multiple thresholds -- each chromosome's edge list is read
 (or pulled from memory) and symmetrized once and reused for every
-\code{rho}, rather than repeating that work once per threshold. This
+\code{dist_rho}, rather than repeating that work once per threshold. This
 matters most when the edge list is not held in memory, i.e. it has to be
 re-read from an \code{el_data_folder} or rebuilt from \code{gds}.}
 
@@ -33,17 +36,23 @@ the (large) edge-list files entirely. This is the recommended mode: rebuilding
 is in practice faster than writing the edge lists to file and reading them
 back. Any stored edge list is ignored when \code{gds} is given.}
 
-\item{slide_win_ld, ld_method}{Passed to \code{\link[=get_el]{get_el()}} for the on-the-fly mode: the
+\item{slide, ld_method}{Passed to \code{\link[=get_el]{get_el()}} for the on-the-fly mode: the
 sliding-window size (in SNPs) for \code{SNPRelate::snpgdsLDMat} and the LD
 statistic (default \code{"corr"}). Use the same values as the
-\code{compute_LD_decay()} run that produced \code{ld_decay}.}
+\code{compute_LD_decay()} run that produced \code{LD_decay}.}
+
+\item{ld_decay}{Deprecated. Use \code{LD_decay}.}
+
+\item{rho}{Deprecated. Use \code{dist_rho}.}
+
+\item{slide_win_ld}{Deprecated. Use \code{slide}.}
 }
 \value{
-If \code{rho} has length 1, a named numeric vector of LD support
+If \code{dist_rho} has length 1, a named numeric vector of LD support
 values (names = SNP/marker ids, in the same SNP order as
-\code{ld_decay$by_chr}). If \code{rho} has length > 1, a numeric matrix with
+\code{LD_decay$by_chr}). If \code{dist_rho} has length > 1, a numeric matrix with
 one row per SNP (rownames = marker ids, same order) and one column per
-\code{rho}, named \code{"rho_<value>"}. The row names let callers index/align
+\code{dist_rho}, named \code{"rho_<value>"}. The row names let callers index/align
 by marker directly (e.g. \code{ld_ws[map$marker, ]}) without setting them.
 }
 \description{

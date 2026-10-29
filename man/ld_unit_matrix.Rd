@@ -25,10 +25,10 @@ ld_unit_matrix(
 \item{size_floor}{Minimum markers per cluster to be included (default 8L).
 Eight is a software default, not a generally validated biological
 threshold; choose a floor for the dataset and examine its sensitivity.
-\code{"eMLG"}'s own default inside \code{\link[=make_eMLGs]{make_eMLGs()}} is \code{l_min = 10}, LARGER than a
-typical \code{size_floor} -- this function passes \code{l_min = 1} to \code{\link[=make_eMLGs]{make_eMLGs()}}
+\code{"eMLG"}'s own default inside \code{\link[=make_eMLGs]{make_eMLGs()}} is \code{size_floor = 10}, LARGER than a
+typical \code{size_floor} -- this function passes \code{size_floor = 1} to \code{\link[=make_eMLGs]{make_eMLGs()}}
 internally so filtering happens once, here, at \code{size_floor}; override via
-\code{emlg_args$l_min} only if you want a second, stricter gate inside eMLG
+\code{emlg_args$size_floor} only if you want a second, stricter gate inside eMLG
 itself.}
 
 \item{repr}{One of \code{"consensus_dosage"}, \code{"eMLG"}, \code{"representative"}.}

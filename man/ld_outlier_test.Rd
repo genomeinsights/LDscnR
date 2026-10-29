@@ -21,7 +21,7 @@ ld_outlier_test(
 )
 }
 \arguments{
-\item{stage1}{An \code{ld_complexity_reduction} object (must have \verb{$params$rho}).}
+\item{stage1}{An \code{ld_complexity_reduction} object (must have \verb{$params$r2_rho}).}
 
 \item{map}{data.frame/data.table with \code{marker}, \code{Chr}, \code{Pos}, aligned to
 \code{stage1}'s marker universe.}
@@ -65,7 +65,7 @@ does not require an \verb{ld_w_*} column to exist on \code{stage1$map_snp}).}
 
 \item{r2_th}{Optional single number in (0, 1]. A fixed r2 merge threshold
 for \code{assembly = "stage2_discovered"}, applied to every chromosome instead
-of the decay-relative threshold derived from \code{stage1$params$rho}. Default
+of the decay-relative threshold derived from \code{stage1$params$r2_rho}. Default
 \code{NULL} uses \code{stage1$params$r2_th} if \code{stage1} was built with a fixed
 threshold, and otherwise the decay-relative threshold.}
 }
@@ -90,8 +90,8 @@ per cluster, so the penalty scales with cluster size); \code{statistic = "unit"}
 takes \code{p_obs} already computed per unit -- built with \code{\link[=ld_unit_matrix]{ld_unit_matrix()}} and
 scanned with your own engine -- and does no aggregation, only BH and assembly.
 
-\code{min_r2_rho} for \code{assembly = "stage2_discovered"} is read from
-\code{stage1$params$rho}, NOT a separate argument: the whole point of this
+\code{r2_rho} for \code{assembly = "stage2_discovered"} is read from
+\code{stage1$params$r2_rho}, NOT a separate argument: the whole point of this
 assembly rule is that it introduces no parameter beyond what built \code{stage1},
 and a caller-supplied value could silently disagree with that. \code{stage1} must
 therefore come from an \code{ld_complexity_reduction()} new enough to record

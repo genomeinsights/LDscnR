@@ -71,7 +71,7 @@ such blocks are flagged in the \code{flipped} column.
 }
 \examples{
 \dontrun{
-res  <- ld_prune_and_eMLG(GTs, stage1, LD_decay = ld_decay, rho = 0.95,
+res  <- ld_prune_and_eMLG(GTs, stage1, LD_decay = ld_decay, dist_rho = 0.95,
                           compute_unflagged_eMLG = TRUE, min_n_loci_eMLG = 3)
 best <- eMLG_best_snp(res, GTs)
 head(best$stats)

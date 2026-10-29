@@ -4,18 +4,20 @@
 \alias{run_ohtadstats}
 \title{Prepare and compute Ohta D-statistics for one locus pair}
 \usage{
-run_ohtadstats(index, geno, pops, tot_maf = 0.1, pop_maf = 0.05)
+run_ohtadstats(index, GTs, pops, tot_maf = 0.1, pop_maf = 0.05, geno = NULL)
 }
 \arguments{
 \item{index}{Length-2 integer vector: the two locus (column) indices.}
 
-\item{geno}{Individuals \eqn{\times} loci dosage matrix.}
+\item{GTs}{Individuals \eqn{\times} loci dosage matrix.}
 
 \item{pops}{Population label per individual.}
 
 \item{tot_maf}{Total-sample MAF floor (default 0.1).}
 
 \item{pop_maf}{Per-population MAF floor (default 0.05).}
+
+\item{geno}{Deprecated. Use \code{GTs}.}
 }
 \value{
 A named numeric vector of the statistics.

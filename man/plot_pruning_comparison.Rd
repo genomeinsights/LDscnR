@@ -6,7 +6,7 @@
 \usage{
 plot_pruning_comparison(
   chr,
-  pruned_stage1,
+  stage1,
   result,
   map,
   ld_w_col = NULL,
@@ -15,19 +15,20 @@ plot_pruning_comparison(
   direction = c("high", "low"),
   out_folder = "./Figures/",
   width = 10,
-  height = 9
+  height = 9,
+  pruned_stage1 = NULL
 )
 }
 \arguments{
 \item{chr}{Chromosome name (e.g. "Chr26"), used in plot labels/filename.}
 
-\item{pruned_stage1}{Output of \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}} (whole-genome).}
+\item{stage1}{Output of \code{\link[=ld_complexity_reduction]{ld_complexity_reduction()}} (whole-genome).}
 
 \item{result}{Output of \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}} (whole-genome).}
 
 \item{map}{Map data.table with Chr, Pos, marker, and \code{ld_w_col}.}
 
-\item{ld_w_col}{Name of the ld_w column in \code{map}/\code{pruned_stage1$map_snp}.
+\item{ld_w_col}{Name of the ld_w column in \code{map}/\code{stage1$map_snp}.
 Defaults to whatever \code{result$params$ld_w_col} says \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}}
 was actually called with; falls back to \code{"ld_w_095"} if \code{result} has no
 \code{params} (e.g. a hand-built \code{result} predating this field).}
@@ -73,6 +74,8 @@ marker level.}
 
 \item{width, height}{Figure dimensions in inches, passed to
 \code{ggplot2::ggsave()}.}
+
+\item{pruned_stage1}{Deprecated. Use \code{stage1}.}
 }
 \value{
 The stacked comparison plot, invisibly (also saved to disk as
@@ -88,7 +91,7 @@ stacked figure to disk and returns it invisibly.
 }
 \examples{
 \dontrun{
-stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, rho = 0.5)
+stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5)
 result <- ld_prune_and_eMLG(
   GTs = GTs, stage1 = stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.2
 )

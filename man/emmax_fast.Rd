@@ -4,13 +4,15 @@
 \alias{emmax_fast}
 \title{Fast EMMAX association scan for one phenotype}
 \usage{
-emmax_fast(prep, y)
+emmax_fast(prep, Y, y = NULL)
 }
 \arguments{
 \item{prep}{An \code{emmax_prep} object from \code{\link[=emmax_setup]{emmax_setup()}}.}
 
-\item{y}{Numeric phenotype vector, length = number of individuals (a 0/1
+\item{Y}{Numeric phenotype vector, length = number of individuals (a 0/1
 ecotype/case vector is treated as a continuous response, as in EMMAX).}
+
+\item{y}{Deprecated. Use \code{Y}.}
 }
 \value{
 Numeric vector of per-SNP p-values, one per column of the genotype

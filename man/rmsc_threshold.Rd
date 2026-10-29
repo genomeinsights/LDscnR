@@ -4,7 +4,13 @@
 \alias{rmsc_threshold}
 \title{Rejection-maximising selection of a local-LD threshold}
 \usage{
-rmsc_threshold(pval, ld_w, fdr = 0.05, grid = seq(0, 0.98, by = 0.01))
+rmsc_threshold(
+  pval,
+  ld_w,
+  alpha = 0.05,
+  grid = seq(0, 0.98, by = 0.01),
+  fdr = NULL
+)
 }
 \arguments{
 \item{pval}{Numeric vector of per-SNP association p-values (from any method).}
@@ -12,9 +18,11 @@ rmsc_threshold(pval, ld_w, fdr = 0.05, grid = seq(0, 0.98, by = 0.01))
 \item{ld_w}{Numeric vector of per-SNP local LD support (\code{\link[=compute_ld_w]{compute_ld_w()}}),
 aligned to \code{pval}.}
 
-\item{fdr}{SNP-level false-discovery rate used when counting discoveries.}
+\item{alpha}{SNP-level false-discovery rate used when counting discoveries.}
 
 \item{grid}{Grid of \code{ld_w} quantile thresholds to scan.}
+
+\item{fdr}{Deprecated. Use \code{alpha}.}
 }
 \value{
 A list with \code{grid}, \code{rejections} (discoveries at each threshold),

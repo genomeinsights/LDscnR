@@ -10,21 +10,26 @@ ld_outlier_clusters(
   map,
   GTs,
   ld_w_threshold = NULL,
-  fdr = 0.05,
-  r2_link = 0.5,
+  alpha = 0.05,
+  r2_th = 0.5,
   distance_threshold = NULL,
-  rho_ld = NULL,
-  rho_d = NULL,
+  r2_rho = NULL,
+  dist_rho = NULL,
   LD_decay = NULL,
   min_cluster_sig = 1L,
   null = c("background", "permutation"),
-  cluster_fdr = 0.05,
+  cluster_alpha = 0.05,
   B = 1000L,
   Y = NULL,
   K = NULL,
   rmsc_grid = seq(0, 0.98, by = 0.01),
   cores = 1L,
-  verbose = TRUE
+  verbose = TRUE,
+  r2_link = NULL,
+  rho_ld = NULL,
+  rho_d = NULL,
+  fdr = NULL,
+  cluster_fdr = NULL
 )
 }
 \arguments{
@@ -41,34 +46,34 @@ ld_outlier_clusters(
 \item{ld_w_threshold}{Optional fixed \code{ld_w} quantile in \verb{(0, 1)}. \code{NULL}
 (default) selects it with \code{\link[=rmsc_threshold]{rmsc_threshold()}}.}
 
-\item{fdr}{SNP-level FDR within candidates.}
+\item{alpha}{SNP-level FDR within candidates.}
 
-\item{r2_link}{Single-linkage \eqn{r^2} threshold for candidate clustering.
-Ignored on a chromosome for which \code{rho_ld} supplies a value.}
+\item{r2_th}{Single-linkage \eqn{r^2} threshold for candidate clustering.
+Ignored on a chromosome for which \code{r2_rho} supplies a value.}
 
 \item{distance_threshold}{Optional maximum consecutive-position gap (bp) within
 a cluster: after single-linkage, a cluster is split wherever adjacent members
 are farther apart than this (a distance-restricted single linkage, as in
 \code{\link[=ld_prune_and_eMLG]{ld_prune_and_eMLG()}}'s \code{split_by_distance}). Stops long-range LD from
 chaining physically distant signals through a coherent block. \code{NULL} (default)
-applies no distance cap unless \code{rho_d} is given.}
+applies no distance cap unless \code{dist_rho} is given.}
 
-\item{rho_ld, rho_d}{Optional relative-LD thresholds that derive the linkage and
+\item{r2_rho, dist_rho}{Optional relative-LD thresholds that derive the linkage and
 distance cuts \emph{per chromosome} from the LD-decay fit (requires \code{LD_decay}):
-\code{r2_link = ld_from_rho(b, c, rho_ld)} (higher \code{rho_ld} = looser \eqn{r^2}),
-\code{distance_threshold = d_from_rho(a_pred, rho_d)} (higher \code{rho_d} = wider gap).
+\code{r2_th = ld_from_rho(b, c, r2_rho)} (higher \code{r2_rho} = looser \eqn{r^2}),
+\code{distance_threshold = d_from_rho(a_pred, dist_rho)} (higher \code{dist_rho} = wider gap).
 Either may be given alone; each overrides the corresponding direct argument
 on chromosomes present in the decay fit.}
 
 \item{LD_decay}{Object from \code{\link[=compute_LD_decay]{compute_LD_decay()}} (its \verb{$decay_sum} supplies the
-per-chromosome \code{a_pred}, \code{b}, \code{c}); required only when \code{rho_ld}/\code{rho_d} are set.}
+per-chromosome \code{a_pred}, \code{b}, \code{c}); required only when \code{r2_rho}/\code{dist_rho} are set.}
 
 \item{min_cluster_sig}{Minimum significant SNPs for a cluster to be tested.}
 
 \item{null}{Cluster-level null: \code{"background"} (default, method-agnostic) or
 \code{"permutation"} (EMMAX, needs \code{Y}/\code{K}).}
 
-\item{cluster_fdr}{Cluster-level FDR (on the permutation/background \code{emp_p}).}
+\item{cluster_alpha}{Cluster-level FDR (on the permutation/background \code{emp_p}).}
 
 \item{B}{Number of null replicates.}
 
@@ -84,6 +89,16 @@ flagged; \code{ld_w} tracking genome-wide structure (positive \code{ld_w}-vs-sig
 correlation on most chromosomes); significant clusters spanning whole
 chromosomes. The last two flag structure-dominated runs whose calls are
 unreliable (see \verb{$diagnostics$ldw_tracks_structure}, \verb{$whole_chr_clusters}).}
+
+\item{r2_link}{Deprecated. Use \code{r2_th}.}
+
+\item{rho_ld}{Deprecated. Use \code{r2_rho}.}
+
+\item{rho_d}{Deprecated. Use \code{dist_rho}.}
+
+\item{fdr}{Deprecated. Use \code{alpha}.}
+
+\item{cluster_fdr}{Deprecated. Use \code{cluster_alpha}.}
 }
 \value{
 An object of class \code{ld_outlier_clusters}: a list with \code{clusters}
@@ -102,7 +117,7 @@ candidates and testing each cluster against a size-aware null. The steps are:
 \verb{q*} (or supply \code{ld_w_threshold}). Candidates are SNPs with
 \verb{ld_w >= quantile(ld_w, q*)} -- only these can be outliers.
 \item \strong{Cluster.} Single-linkage clustering of the candidates on \code{1 - r^2}
-within each chromosome (connected components at \code{r2_link}); a SNP joins a
+within each chromosome (connected components at \code{r2_th}); a SNP joins a
 cluster if it is in LD with any member.
 \item \strong{Test SNPs.} FDR within candidates flags significant SNPs.
 \item \strong{Recruit & test clusters.} Each cluster (significant SNPs plus the LD
