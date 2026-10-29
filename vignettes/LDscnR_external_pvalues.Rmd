@@ -106,10 +106,13 @@ within each tested unit into one Simes p-value, applies Benjamini-Hochberg
 correction across the units and assembles the significant units into outlier
 regions.
 
-```{r simes}
+```{r simes, results = "hide"}
 out <- ld_outlier_test(stage1, map, p_marker, statistic = "simes",
                        size_floor = size_floor, alpha = 0.05,
                        assembly = "stage2_discovered", GTs = GTs, LD_decay = ld_decay)
+```
+
+```{r simes-show}
 out
 out$regions
 ```
@@ -128,12 +131,15 @@ builds one consensus value per unit and individual, the method tests these
 values instead of the markers, and the unit p-values are passed with
 `statistic = "unit"`.
 
-```{r consensus}
+```{r consensus, results = "hide"}
 m_cons <- ld_unit_matrix(GTs, stage1, map, size_floor = size_floor, repr = "consensus_dosage")
 p_unit <- lm_pvalues(m_cons, eco, covars)
 out_unit <- ld_outlier_test(stage1, map, p_unit, statistic = "unit",
                             size_floor = size_floor, alpha = 0.05,
                             assembly = "stage2_discovered", GTs = GTs, LD_decay = ld_decay)
+```
+
+```{r consensus-show}
 out_unit$regions
 ```
 

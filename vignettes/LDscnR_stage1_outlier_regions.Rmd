@@ -203,22 +203,28 @@ looks like, the rest of this vignette uses `alpha = 0.10`. This is **for
 illustration only and not a recommendation**. It recovers exactly one
 significant unit, on the inversion.
 
-```{r outlier-test-illustrative}
+```{r outlier-test-illustrative, results = "hide"}
 out_unit <- ld_outlier_test(stage1, map, p_unit, statistic = "unit", size_floor = size_floor,
                             alpha = 0.10, assembly = "stage2_discovered",
                             GTs = GTs, LD_decay = ld_decay)
+```
+
+```{r outlier-test-illustrative-show}
 out_unit
 out_unit$regions
 ```
 
-The Simes test, which starts from marker p-values, agrees that this is the
-strongest signal in the data set. Its q-values need not match the consensus
+The Simes test, which starts from marker p-values, also finds the inversion.
+It calls three units there, and one of them overlaps the consensus unit. Its q-values need not match the consensus
 test unit by unit, because it is a different test.
 
-```{r outlier-test-simes}
+```{r outlier-test-simes, results = "hide"}
 out_simes <- ld_outlier_test(stage1, map, p_marker, statistic = "simes", size_floor = size_floor,
                              alpha = 0.10, assembly = "stage2_discovered",
                              GTs = GTs, LD_decay = ld_decay)
+```
+
+```{r outlier-test-simes-show}
 out_simes$units[significant == TRUE]
 ```
 
@@ -254,10 +260,13 @@ different fixed cutoff for assembly alone can be given with `r2_th` in
 `ld_outlier_test()`, which changes how significant units are joined into regions
 but not which units are significant.
 
-```{r outlier-test-fixed}
+```{r outlier-test-fixed, results = "hide"}
 out_fixed <- ld_outlier_test(stage1, map, p_marker, statistic = "simes", size_floor = size_floor,
                              alpha = 0.10, assembly = "stage2_discovered",
                              GTs = GTs, LD_decay = ld_decay, r2_th = 0.2)
+```
+
+```{r outlier-test-fixed-show}
 out_fixed$regions
 ```
 
@@ -306,9 +315,12 @@ units, because assembly can merge several units into one region. Reusing the
 same `p_perm` matrix makes this a paired comparison, with both counts taken
 from the same permuted phenotypes.
 
-```{r perm-regions}
+```{r perm-regions, results = "hide"}
 null_regions <- ld_outlier_perm(out_unit, stage1, map, p_perm, GTs = GTs, LD_decay = ld_decay,
                                 level = "regions", verbose = FALSE)
+```
+
+```{r perm-regions-show}
 null_regions
 identical(null_units$surrogates, null_regions$surrogates)
 ```
@@ -359,12 +371,15 @@ null runs when `p_perm` is given, and the relocation test runs when
 `annotation` and `chrom_lengths` are given. Each part stays available on its
 own, as used above.
 
-```{r scan}
+```{r scan, results = "hide"}
 scan <- ld_outlier_scan(stage1, map, p_unit, p_perm = p_perm, statistic = "unit",
                         size_floor = size_floor, alpha = 0.10,
                         GTs = GTs, LD_decay = ld_decay,
                         annotation = annotation, chrom_lengths = chrom_lengths,
                         n_rotations = 2000, verbose = FALSE)
+```
+
+```{r scan-show}
 scan$test$regions
 scan$null
 scan$rotation

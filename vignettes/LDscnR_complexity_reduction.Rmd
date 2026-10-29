@@ -251,7 +251,7 @@ hi_ldw <- win_stats$win_ldw > quantile(win_stats$win_ldw, 0.90)
 mean(hi_ldw[top_a])            # fraction of a-spikes falling in high-ld_w windows
 ```
 
-Across windows, `a` and `ld_w` are strongly negatively correlated, and
+Across windows, `a` and `ld_w` are clearly negatively correlated, and
 **none** of the spikes in `a` fall in windows with high `ld_w`. The window-level
 and marker-level measures therefore agree on where the high-LD regions are,
 whatever the number of windows. This is why `ld_w` is used to flag Stage-1 units
@@ -367,7 +367,7 @@ units stays below `distance_threshold`. With the default (`NULL`), this limit is
 as `d_from_rho(a_pred, dist_rho)`, which is the distance at which LD has
 decayed to the relative level `dist_rho` (default 0.95). It uses the decay rate
 predicted from chromosome size, `a_pred`, rather than each chromosome's own
-noisier fit. On these data the limit is only a few kb per region, and it follows
+noisier fit. On these data the limit is only about 7 to 16 kb, and it follows
 each region's decay.
 
 ```{r dist-default}
@@ -402,7 +402,7 @@ c(default_rho_derived = nrow(result$groups),
 ```
 
 The flagged units inside a dense LD block already lie next to each other, so
-the limit rarely matters, and widening it from a few kb to 500 kb bridges few
+the limit rarely matters, and widening it from about 10 kb to 500 kb bridges few
 extra gaps. In the 500 kb plot the inversion looks like one green mass, but that
 is because the colours repeat across hundreds of groups, and the number of
 groups confirms that little changed. The limit matters much more for data with
@@ -419,7 +419,7 @@ base pairs can do this. No recombination map is bundled for these stickleback
 data, so this example uses physical distance.
 
 With physical distance, raising `dist_rho` widens the limit. The default of
-0.95 gave a few kb above, and 0.99 gives a limit 5.2 times wider, because
+0.95 gave 7 to 16 kb above, and 0.99 gives a limit 5.2 times wider, because
 `(0.99/0.01) / (0.95/0.05)` is 5.2.
 
 ```{r dist-099}
