@@ -1,8 +1,8 @@
 ---
-title: "Calling outlier regions: the current LDscnR workflow"
+title: "Calling outlier regions with LDscnR"
 output: rmarkdown::html_vignette
 vignette: >
-  %\VignetteIndexEntry{Calling outlier regions: the current LDscnR workflow}
+  %\VignetteIndexEntry{Calling outlier regions with LDscnR}
   %\VignetteEngine{knitr::rmarkdown}
   %\VignetteEncoding{UTF-8}
 ---
@@ -23,47 +23,43 @@ library(SNPRelate)
 
 ## What problem this solves
 
-A genome scan tests many markers, but nearby markers on the same chromosome are
-often correlated with each other because they are inherited together --
-they are in **linkage disequilibrium (LD)**. That is a statement about how
-alleles co-occur in a sample; it is not the same thing as **physical
-linkage** (simply being close together on a chromosome), and it is not the
-same thing as being under selection. LD can be strong between markers a
-few hundred base pairs apart, or, around a large inversion or in a region
-with little recombination, between markers many megabases apart. When
-several correlated markers all cross a significance threshold, that is not
-several independent pieces of evidence -- it is one signal, counted several
-times.
+A genome scan tests many markers, but nearby markers are often correlated
+because they are inherited together. This correlation is **linkage
+disequilibrium (LD)**. It describes how alleles co-occur in a sample, and it
+is not the same as being physically close on a chromosome or being under
+selection. LD can be strong between markers a few hundred base pairs apart,
+and around a large inversion or in a region with little recombination it can
+extend over many megabases. When several correlated markers all cross a
+significance threshold, they are not several independent pieces of evidence.
+They are one signal that has been counted several times.
 
-`LDscnR` addresses this in two separate steps that this vignette walks
-through in order:
+`LDscnR` addresses this in two stages, which this vignette follows in order.
 
-1. Group markers into **phenotype-blind clusters** based only on how
-   correlated they are with each other (never on the phenotype or the
-   association result). Test one thing per cluster instead of one thing per
-   marker.
-2. After testing, assemble the clusters that turned out significant into
-   **reported regions** -- genomic intervals a reader can look up and
-   compare to other studies.
+1. **Stage 1** groups markers into **Stage-1 units** from genotype LD alone,
+   without the phenotype or any association result. Each unit is then tested
+   once, instead of testing every marker.
+2. **Stage 2** assembles the significant Stage-1 units into **outlier
+   regions**, which are genomic intervals that can be compared with other
+   studies.
 
-A separate, later step asks a question the first two cannot answer on their
-own: could a plausible amount of population structure, on its own, produce
-about this many discoveries? That needs a phenotype null built to preserve
-whatever structure is a real concern for the dataset at hand -- there is no
-generic answer, and this vignette builds one for its own example rather
-than treating the choice as a formality.
+Two further checks answer questions that the stages cannot answer on their
+own. The first asks whether population structure alone could produce about
+this many discoveries. This needs a phenotype null that preserves the
+structure that matters for the data set at hand, and this vignette builds one
+for its own example. The second asks whether the outlier regions overlap
+external evidence more often than expected from their size.
 
-This vignette runs the whole workflow on `stickleback`, a bundled subset of
-a real three-spined stickleback panel (117 fish, ~16,000 markers, 3
-chromosomes) contrasting marine and freshwater ecotypes (`?stickleback`).
-Chromosome 1 carries a well-documented marine-freshwater inversion, which
-gives this example something real to recover.
+The example is `stickleback`, a bundled subset of a three-spined stickleback
+panel with 117 fish, about 16,000 markers and three chromosomal regions that
+contrast marine and freshwater ecotypes (`?stickleback`). Chromosome 1
+carries a well-documented marine-freshwater inversion, which gives the
+example a known signal to recover.
 
 ```{r cores}
 cores <- 2
 ```
 
-## Stage 1: phenotype-blind clustering
+## Stage 1: phenotype-blind Stage-1 units
 
 ```{r data}
 data("stickleback")
@@ -72,10 +68,9 @@ map <- copy(stickleback$map)
 pheno <- copy(stickleback$pheno)
 ```
 
-The clustering step only ever sees genotypes and marker positions -- not
-`pheno` -- which is what makes it possible to build these groups once and
-reuse them for any phenotype, and why a discovery later on cannot be an
-artefact of having chosen the clusters to fit the answer.
+Stage 1 sees only genotypes and marker positions, and never `pheno`. The
+units can therefore be built once and reused for any phenotype, and a later
+discovery cannot be an artefact of units chosen to fit the answer.
 
 ```{r gds}
 gds_path <- tempfile(fileext = ".gds")
@@ -87,15 +82,14 @@ set.seed(1)
 ld_decay <- compute_LD_decay(gds, keep_el = TRUE, slide = 200, n_win_decay = 20, cores = cores)
 ```
 
-`ld_complexity_reduction()` fits a per-chromosome LD-decay curve (above) and
-uses it to group markers into clusters -- see
-`vignette("LDscnR_quick_introduction")` for the full mechanics. Each
-cluster becomes one **Stage-1 unit**: a set of markers that are correlated
-with each other on this dataset, not a claim that they are the same
-biological haplotype, and not a claim that they are statistically
-independent of every other unit (neighbouring units can still be somewhat
-correlated; the clustering reduces redundancy, it does not certify
-independence).
+`compute_LD_decay()` fits an LD-decay curve for each chromosome, and
+`ld_complexity_reduction()` uses that curve to set each chromosome's LD
+cutoff and group markers into Stage-1 units. The mechanics are described in
+`vignette("LDscnR_quick_introduction")`. A Stage-1 unit is a set of markers
+that are correlated with each other in this data set. It is not a claim that
+they form one biological haplotype. Neighbouring units can also still be
+somewhat correlated, because the units reduce redundancy but do not make the
+tests independent.
 
 ```{r stage1, results = "hide"}
 stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, cores = cores)
@@ -107,11 +101,11 @@ stage1
 
 ## A relationship matrix built the same, phenotype-blind way
 
-Association testing needs a kinship/relationship matrix to account for
-relatedness and population structure. Consistent with the clustering above,
-it is built from one representative marker per Stage-1 unit (`stage1$pruned`)
-rather than every marker -- redundant, strongly-correlated markers would
-otherwise be over-weighted in the relationship estimate.
+Association testing needs a genomic relationship matrix (GRM) to account
+for relatedness and population structure. It is built from one
+representative marker per Stage-1 unit (`stage1$pruned`) rather than from
+every marker, because strongly correlated markers would otherwise carry too
+much weight in the relationship estimate.
 
 ```{r grm}
 K <- snpgdsGRM(gds, snp.id = stage1$pruned, method = "GCTA",
@@ -121,34 +115,33 @@ rownames(K) <- colnames(K) <- rownames(GTs)
 
 ## One p-value per Stage-1 unit
 
-A cluster is not itself something an association test can consume -- it has
-to become one variable per individual first. `ld_unit_matrix()` builds that
-variable several ways (see `?ld_unit_matrix`); this vignette shows the two
-most common:
+Each tested unit needs one p-value. This vignette shows the two tests used
+in the manuscript.
 
-- **Consensus testing**: average the genotypes within a unit into one
-  value per individual, and test that value directly -- one association
-  test per unit.
-- **Simes combination**: test every marker individually as usual, then
-  combine the p-values within each unit into a single, size-adjusted
-  p-value.
+- **Consensus test.** The genotypes within a unit are averaged into one
+  consensus value per individual, which is tested directly. This gives one
+  association test per unit. `ld_unit_matrix()` builds these values, and
+  `?ld_unit_matrix` lists the other representations it offers.
+- **Simes test.** Every marker is tested as usual, and the marker p-values
+  within each unit are combined into one size-adjusted p-value.
 
-Both are legitimate; they trade off differently between diluting
-SNP-specific signal (consensus) and being penalised for unit size (Simes).
-This package does not run the association test itself -- any engine that
-returns p-values works. Here we use `emmax_fast()`, LDscnR's own EMMAX
-implementation, for both.
+The consensus test can dilute a signal carried by single markers, whereas
+the Simes test is penalised for unit size. Any association method that
+returns p-values can be used. Here both tests use `emmax_fast()`, the EMMAX
+implementation in LDscnR.
 
 ```{r size-floor}
 size_floor <- 8L   # illustrative floor for this three-chromosome subset
 ```
 
-Eight is not a general cutoff. The full three-spined analysis in the
-manuscript set its floor of eight from the density of the complete filtered
-marker panel (approximately one required member per 100,000 markers), before
-examining associations or EcoPeak overlap, and then checked sensitivity to
-the floor. This subset is used to demonstrate the workflow, not to reselect
-that full-panel setting.
+The floor is the minimum number of markers a unit must contain to be
+tested. Eight is not a general cutoff. In the manuscript, the floor was set
+from marker density, with one required member for every 250 markers per Mb,
+rounded and never below two. The full three-spined panel had 2,078 markers
+per Mb, which gives a floor of eight. The floor was fixed before any
+association or EcoPeak overlap was examined. This subset only demonstrates
+the workflow, so it reuses the full-panel floor rather than deriving a new
+one.
 
 ```{r phenotype}
 eco <- as.integer(pheno$ecotype == "Marine")
@@ -171,21 +164,20 @@ p_marker <- emmax_fast(prep_marker, eco)
 names(p_marker) <- colnames(GTs)   # names/order must match map$marker
 ```
 
-`p_unit` is one p-value per tested unit; `p_marker` is one p-value per
-marker, which `ld_outlier_test()` combines into a per-unit Simes p-value
-internally. Either can be handed to `ld_outlier_test()` unnamed, in the
-documented order, or named as above -- a named vector in the wrong order is
-rejected with an error rather than silently scored against the wrong unit
-or marker.
+`p_unit` holds one p-value per tested unit, and `p_marker` holds one
+p-value per marker, which `ld_outlier_test()` combines into a Simes p-value
+for each unit. Both can be passed to `ld_outlier_test()` unnamed in the
+documented order, or named as above. A named vector in the wrong order is
+rejected with an error, so a p-value is never matched to the wrong unit or
+marker.
 
 ## BH correction and Stage-2 assembly
 
-`ld_outlier_test()` applies Benjamini-Hochberg correction **at the unit
-scale** -- one test per Stage-1 unit, not one per marker -- and then
-assembles whichever units survive into reported regions (Stage 2). This
-assembly step can only make significant units easier to read as intervals;
-it cannot change which units were significant, because BH has already run
-by the time it happens.
+`ld_outlier_test()` applies Benjamini-Hochberg (BH) correction across
+the tested Stage-1 units, so there is one test per unit rather than one per
+marker. It then assembles the significant units into outlier regions, which
+is Stage 2. Assembly happens after the correction, so it changes how the
+significant units are reported but never which units are significant.
 
 ```{r outlier-test-consensus}
 out_unit <- ld_outlier_test(stage1, map, p_unit, statistic = "unit", size_floor = size_floor,
@@ -193,16 +185,14 @@ out_unit <- ld_outlier_test(stage1, map, p_unit, statistic = "unit", size_floor 
 out_unit
 ```
 
-At the conventional `alpha = 0.05`, nothing here clears Benjamini-Hochberg
-correction: the strongest unit sits on the known chromosome-1 inversion
-(21.68-21.71 Mb) but its BH-adjusted q is about 0.086. That is the honest
-result for this particular subset -- real, independently known biology can
-still miss a chosen significance threshold in a modest sample, and a
-vignette that only ever showed a clean discovery would be misleading about
-that. For the rest of this vignette, to show what a positive result and
-the machinery around it actually look like, we relax `alpha` to 0.10 --
-**purely for illustration, not a general recommendation** -- which recovers
-exactly one significant unit, on the inversion:
+At the conventional `alpha = 0.05`, no unit is significant after BH
+correction. The strongest unit lies on the known chromosome-1 inversion
+(21.68 to 21.71 Mb), but its BH-adjusted q-value is about 0.086. This is the
+honest result for this small subset, because a known signal can miss a
+significance threshold in a modest sample. To show what a positive result
+looks like, the rest of this vignette uses `alpha = 0.10`. This is **for
+illustration only and not a recommendation**. It recovers exactly one
+significant unit, on the inversion.
 
 ```{r outlier-test-illustrative}
 out_unit <- ld_outlier_test(stage1, map, p_unit, statistic = "unit", size_floor = size_floor,
@@ -212,10 +202,9 @@ out_unit
 out_unit$regions
 ```
 
-The Simes route, tested independently from marker-level p-values, agrees
-that this is the strongest signal in the dataset (though it need not
-produce an identical q at every unit -- it is a different combination
-rule, not a recomputation of the same number):
+The Simes test, which starts from marker p-values, agrees that this is the
+strongest signal in the data set. Its q-values need not match the consensus
+test unit by unit, because it is a different test.
 
 ```{r outlier-test-simes}
 out_simes <- ld_outlier_test(stage1, map, p_marker, statistic = "simes", size_floor = size_floor,
@@ -224,11 +213,11 @@ out_simes <- ld_outlier_test(stage1, map, p_marker, statistic = "simes", size_fl
 out_simes$units[significant == TRUE]
 ```
 
-`assembly = "stage2_discovered"` (used above) re-clusters only the
-significant units using the same LD rule Stage 1 used, so a reported
-region can only span genuinely discovered signal. `assembly = "physical"`
-is a simpler, distance-only merge, useful mainly as a cheap check that the
-two rules broadly agree:
+The default assembly, `assembly = "stage2_discovered"`, clusters only the
+significant units with the same LD rule that Stage 1 used, so an outlier
+region can only span significant units. `assembly = "physical"` instead
+merges significant units that lie close together. It is useful mainly as a
+quick check that the two rules broadly agree.
 
 ```{r outlier-test-physical}
 out_phys <- ld_outlier_test(stage1, map, p_unit, statistic = "unit", size_floor = size_floor,
@@ -238,25 +227,22 @@ out_phys$regions
 
 ## Is the observed discovery count unusual?
 
-One significant region is a result, not yet an answer to "could this be
-explained by population structure alone?" That needs a **null built for
-this dataset's actual structure**, not a generic one. Here, the four
-sampling localities differ in what fraction of each is marine vs.
-freshwater (`table(pheno$pop_locality, pheno$ecotype)`), so a phenotype
-null that shuffles ecotype **within locality** asks the relevant question:
-if ecotype carried no information beyond locality membership, how many
-discoveries would this same pipeline make?
+One significant region does not yet show that population structure alone
+could not explain the result. That needs a **null built for the structure of
+this data set**. Here the four sampling localities differ in their shares of
+marine and freshwater fish, so the null shuffles ecotype **within
+locality**. It asks how many discoveries the same workflow would make if
+ecotype carried no information beyond locality.
 
 ```{r perm-design}
 table(pheno$pop_locality, pheno$ecotype)
 ```
 
-B surrogates are drawn once, up front, into a fixed matrix rather than
-generated fresh inside each `ld_outlier_perm()` call. That matters here
-because we compare the unit-level and region-level counts below: a
-function re-invoked separately by each call would consume different
-random draws for each, making that comparison two independent
-experiments rather than the same B surrogates counted two ways.
+The B permuted phenotypes are drawn once into a fixed matrix rather than
+inside each `ld_outlier_perm()` call. This matters because the unit and
+region counts are compared below. If each call drew its own permutations,
+the comparison would rest on two independent sets of draws rather than on
+the same permutations counted in two ways.
 
 ```{r perm-run}
 B <- 40L
@@ -271,20 +257,18 @@ null_units <- ld_outlier_perm(out_unit, stage1, map, p_perm,
 null_units
 ```
 
-`null_units$null_obs_ratio` is a **null-to-observed discovery-count
-ratio** -- how many discoveries the within-locality-shuffled surrogates
-make, on average, relative to the one this analysis found -- not a
-false-discovery rate, and not a statement about whether this particular
-region is real. A small ratio here says the observed count is unusual
-relative to this null; it does not, by itself, certify any one reported
-region, and a differently-specified null (a different grouping, a
-continuous structure axis) could reasonably give a different answer.
+`null_units$null_obs_ratio` is the **ratio of the mean null count to the
+observed count**. It compares how many discoveries the permuted phenotypes
+make, on average, with the number this analysis found. It is not a false
+discovery rate, and it does not say whether any single region is real. A
+small ratio means the observed count is unusual under this null, and a null
+built on a different grouping or a continuous structure axis could give a
+different answer.
 
-Counting at the **region** level instead of the unit level need not agree
-with the unit-level count, since assembly can merge several significant
-units into one region or leave them separate. Reusing the same `p_perm`
-matrix keeps this a genuinely paired comparison -- both counts come from
-the same B surrogate phenotypes, not two independently-drawn sets:
+Counts of outlier regions need not agree with counts of significant
+units, because assembly can merge several units into one region. Reusing the
+same `p_perm` matrix makes this a paired comparison, with both counts taken
+from the same permuted phenotypes.
 
 ```{r perm-regions}
 null_regions <- ld_outlier_perm(out_unit, stage1, map, p_perm, GTs = GTs, LD_decay = ld_decay,
@@ -293,30 +277,24 @@ null_regions
 identical(null_units$surrogates, null_regions$surrogates)
 ```
 
-In this particular run the two surrogate counts turn out identical, draw
-for draw: with a signal this sparse, no surrogate ever produces more than
-one significant unit, so there is never a chance for assembly to actually
-merge anything, and the region count trivially tracks the unit count.
-That is a property of this small example, not a general guarantee --
-with several simultaneously significant units, a surrogate could easily
-produce a different region count than unit count (units merged into
-fewer regions, or vice versa across chromosomes), which is exactly why
-both levels are computed rather than assumed to agree.
+In this run the two counts are identical for every permutation. With a
+signal this sparse, no permutation produces more than one significant unit,
+so assembly has nothing to merge. This is a property of the small example
+and not a general rule. With several significant units, a permutation could
+give fewer regions than units, which is why both counts are computed.
 
-## A separate question: does this overlap external evidence?
+## Do the outlier regions overlap external evidence?
 
-Everything above asks whether the **discovery count** is unusual. A
-completely different question is whether the **reported intervals**
-land on external evidence -- candidate regions from an independent study,
-a gene list, anything -- more often than their width alone would predict.
-That is what `ld_region_rotation()` answers, and it is not a substitute for
-the null above or vice versa: a region can pass one check and not the
-other.
+The permutation null asks whether the **number of discoveries** is
+unusual. A separate question is whether the **outlier regions** overlap
+external evidence, such as candidate regions from an independent study or a
+gene list, more often than their size alone would predict. The relocation
+test in `ld_region_rotation()` answers this question. The two checks do not
+replace each other, and a region can pass one and fail the other.
 
-The annotation below is illustrative, not real published data -- three
-made-up candidate intervals, one of which deliberately overlaps the
-inversion region found above and two of which do not, so the mechanics are
-visible on a dataset this small.
+The annotation below is made up for illustration. It has three candidate
+intervals, one of which overlaps the inversion region found above, so the
+mechanics are visible in a data set this small.
 
 ```{r rotation}
 chrom_lengths <- map[, .(len = max(Pos)), by = Chr]
@@ -330,29 +308,29 @@ rotation <- ld_region_rotation(out_unit$regions, annotation, chrom_lengths,
 rotation
 ```
 
-The rotation relocates each reported region to a uniformly random position
-that still fits on its own chromosome, keeping its width exactly as
-observed, many times over, and asks how often a randomly placed region of
-that same width would have landed on the annotation by chance. It is a
-random-relocation null (each region placed independently), not a claim
-that the annotation-overlap fold measures the same thing as the
-discovery-count null above.
+The test moves each outlier region to a random position on its own
+chromosome many times, keeping its span unchanged. It then asks how often
+the relocated regions overlap the annotation at least as much as the
+observed regions do. Each region is placed independently, and the resulting
+fold enrichment measures something different from the permutation null
+above.
 
 ## Summary
 
 - Stage 1 (`ld_complexity_reduction()`) groups markers into phenotype-blind
+  Stage-1 units.
+- `ld_unit_matrix()` turns each unit into one consensus variable for the
+  consensus test, while the Simes test combines marker p-values. In both
+  cases `ld_outlier_test()` applies BH correction once across the tested
   units.
-- `ld_unit_matrix()` turns a unit into one testable variable (consensus
-  dosage) or leaves markers as-is for Simes combination -- either way,
-  `ld_outlier_test()` applies BH correction once, at the unit scale.
-- Stage 2 assembles significant units into reported regions, after
-  correction, purely for reporting.
-- `ld_outlier_perm()` asks whether the observed discovery count is unusual
-  under a null built to preserve this dataset's own structure -- a
-  null-to-observed ratio and a count-based p-value, not a per-region
-  statement and not a false-discovery rate.
-- `ld_region_rotation()` asks a different question: do the reported
-  intervals overlap external evidence more than their width alone would
+- Stage 2 assembles the significant units into outlier regions after the
+  correction.
+- `ld_outlier_perm()` asks whether the number of discoveries is unusual under
+  a null that preserves the structure of the data set. It reports a ratio of
+  null to observed counts and a count-based p-value, not a per-region
+  statement or a false discovery rate.
+- `ld_region_rotation()` runs the relocation test, which asks whether the
+  outlier regions overlap external evidence more than their size alone would
   predict.
 
 ```{r cleanup, include = FALSE}

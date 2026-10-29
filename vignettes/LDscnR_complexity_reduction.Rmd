@@ -24,22 +24,20 @@ library(SNPRelate)
 
 ## Overview
 
-The [quick introduction](LDscnR_quick_introduction.html) walks through the API on
-the small simulated `sim_ex` data. This vignette applies the same LD-decay and
-LD-complexity-reduction workflow to **real data** -- the bundled `stickleback`
-set (`?stickleback`): three-spined stickleback (*Gasterosteus aculeatus*)
-marine--freshwater ecotype genotype dosages from
-[Fang et al. (2021)](https://doi.org/10.1093/molbev/msab144). It is deliberately
-built from three chromosomal regions with contrasting linkage-disequilibrium
-regimes:
+The [quick introduction](LDscnR_quick_introduction.html) shows the functions
+on the small simulated `sim_ex` data. This vignette applies the same LD-decay
+and complexity-reduction steps to **real data**, the bundled `stickleback` set
+(`?stickleback`). It holds marine and freshwater three-spined stickleback
+(*Gasterosteus aculeatus*) genotype dosages from
+[Fang et al. (2021)](https://doi.org/10.1093/molbev/msab144) for three
+chromosomal regions with contrasting linkage disequilibrium (LD).
 
-- **Chr1** -- a chromosomal inversion (structural, strong long-range LD),
-- **Chr4** -- the *Eda* marine--freshwater adaptation locus (a high-LD outlier),
-- **Chr6** -- a background region with rapidly-decaying, low LD.
+- **Chr1** carries a chromosomal inversion with strong long-range LD.
+- **Chr4** carries the *Eda* locus for marine-freshwater adaptation, a high-LD outlier.
+- **Chr6** is a background region where LD is low and decays quickly.
 
-That contrast is what makes the LD-decay and complexity-reduction steps visible,
-so it is a good data set to *see* what the methods do. Genotypes are dosages in
-$[0, 2]$ (no missing data), 117 individuals.
+This contrast makes the effects of each step easy to see. The genotypes are
+dosages between 0 and 2 for 117 individuals, with no missing data.
 
 ```{r data}
 data(stickleback)
@@ -58,12 +56,12 @@ gds <- create_gds_from_geno(GTs, map, gds_path)
 
 ## LD decay and per-marker local LD support
 
-`compute_LD_decay()` fits the per-chromosome decay curve
-$r^2(d) = b + (c-b)/(1+ad)$, where the decay rate $a$ is estimated in a series of
-overlapping windows along each chromosome (`n_win_decay` sets the nominal window
-count; 50% overlap roughly doubles it). `compute_ld_w()` then measures, at
-**marker resolution**, the local LD support `ld_w`: the median $r^2$ between a
-marker and its neighbours within the $\rho = 0.95$ window.
+`compute_LD_decay()` fits the decay curve $r^2(d) = b + (c-b)/(1+ad)$ for each
+chromosome, and also estimates the decay rate $a$ in overlapping windows along
+the chromosome. `n_win_decay` sets the nominal number of windows, and the 50%
+overlap roughly doubles it. `compute_ld_w()` then gives the local LD support
+`ld_w` of each **marker**, which is its median $r^2$ with neighbouring markers
+within the distance set by `dist_rho = 0.95`.
 
 ```{r decay, results = "hide"}
 set.seed(1)  # compute_LD_decay() subsamples SNP pairs for the background-LD fit
@@ -75,10 +73,12 @@ ids  <- unlist(lapply(ld_decay$by_chr, function(o) o$snp_ids), use.names = FALSE
 map[, ld_w_095 := ld_w[match(marker, ids)]]
 ```
 
-The tracks below overlay, per region, the per-marker `ld_w` (grey points) with the
-windowed decay rate `a` (orange line), each min--max scaled to 0--1 so they share
-an axis. Because `a` is a *rate*, **low `a` means slow decay = high LD**, so the
-two are inversely related: `a` bottoms out exactly under the high-`ld_w` blocks.
+The tracks below show, for each region, the `ld_w` of each marker as grey
+points and the windowed decay rate `a` as an orange line. Both are rescaled to
+the range 0 to 1 so that they share an axis. Because `a` is a rate, **a low `a`
+means slow decay and therefore high LD**. The two measures move in opposite
+directions, and `a` reaches its lowest values under the blocks with high
+`ld_w`.
 
 ```{r tracks-fn}
 sc01 <- function(v) { v <- as.numeric(v); (v - min(v, na.rm = TRUE)) / diff(range(v, na.rm = TRUE)) }
@@ -105,11 +105,10 @@ track_panel <- function(decay_obj, ch) {
 
 ### How the decay track depends on the window count
 
-The number of windows only controls the **smoothness** of the `a` track, not what
-it says. With finer windows each `a` estimate rests on fewer marker pairs, so it
-jitters more; min--max scaling then exaggerates whichever single window is most
-extreme. Re-estimating with `n_win_decay = 100` makes this obvious -- the track is
-spikier:
+The number of windows controls how **smooth** the `a` track is, not what it
+shows. With more windows, each estimate of `a` rests on fewer marker pairs and
+varies more, and the rescaling then exaggerates the most extreme window.
+Estimating again with `n_win_decay = 100` gives a spikier track.
 
 ```{r decay-100, results = "hide"}
 # keep_el = FALSE: we only need the windowed decay, not the edge lists
@@ -122,9 +121,9 @@ ld_decay_100 <- compute_LD_decay(gds, keep_el = FALSE, slide = 200,
    track_panel(ld_decay_100, "Chr6")) + plot_annotation(tag_levels = "a")
 ```
 
-Crucially, the spikes are **noise in the low-LD background only** -- they never
-land inside an `ld_w` block. We can check this directly by pairing each window's
-`a` with the mean `ld_w` of the markers it spans:
+The spikes are **noise in the low-LD background** and never fall inside a
+block with high `ld_w`. Pairing each window's `a` with the mean `ld_w` of the
+markers it spans checks this directly.
 
 ```{r robustness}
 win_stats <- rbindlist(lapply(c("Chr1", "Chr4", "Chr6"), function(ch) {
@@ -145,21 +144,24 @@ hi_ldw <- win_stats$win_ldw > quantile(win_stats$win_ldw, 0.90)
 mean(hi_ldw[top_a])            # fraction of a-spikes falling in high-ld_w windows
 ```
 
-The window-level `a`--`ld_w` correlation is strongly negative and **none** of the
-`a` spikes fall in high-`ld_w` windows. So the two measures -- one at window
-resolution, one at marker resolution -- independently agree on where the high-LD
-regions are, and that agreement is invariant to the window count. This is why
-`ld_w` is the statistic used to flag clusters for reconsideration during
-complexity reduction: it carries the same signal at marker resolution, without
-the windowing noise.
+Across windows, `a` and `ld_w` are strongly negatively correlated, and
+**none** of the spikes in `a` fall in windows with high `ld_w`. The window-level
+and marker-level measures therefore agree on where the high-LD regions are,
+whatever the number of windows. This is why `ld_w` is used to flag Stage-1 units
+for consolidation, because it carries the same signal for each marker without
+the noise of the windows.
 
-## Two-stage LD-complexity reduction
+## Stage-1 units and genome-wide consolidation
 
-Stage 1 (`ld_complexity_reduction()`) clusters markers within each chromosome from
-a sliding-window LD graph. In extended-LD regions like the Chr1 inversion, pairs
-farther apart than the window are never compared, so a single block can fragment
-into many adjacent clusters. Stage 2 (`ld_prune_and_eMLG()`) reconsiders the
-flagged clusters directly from genotypes and consolidates them.
+Stage 1 (`ld_complexity_reduction()`) groups the markers on each chromosome
+into Stage-1 units, using LD computed within a sliding window. In regions with
+extended LD, such as the Chr1 inversion, markers farther apart than the window
+are never compared, so one block can be split into many neighbouring units.
+`ld_prune_and_eMLG()` compares the flagged units again directly from the
+genotypes and consolidates them across the genome. This consolidation serves
+pruning and eMLG analyses and is separate from Stage 2 of the outlier
+workflow, which assembles significant units into outlier regions
+(`vignette("LDscnR_stage1_outlier_regions")`).
 
 ```{r stage1, results = "hide"}
 stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, cores = 2)
@@ -171,9 +173,10 @@ result <- ld_prune_and_eMLG(
 )
 ```
 
-`plot_pruning_comparison()` stacks Stage 1 against the combined result for one
-chromosome. On the Chr1 inversion the effect is stark: the fragmented Stage-1
-clusters (top) are consolidated into a few coherent groups (bottom).
+`plot_pruning_comparison()` shows the Stage-1 units above the consolidated
+groups for one chromosome. On the Chr1 inversion the effect is clear, as the
+many split Stage-1 units (top) are consolidated into a few coherent groups
+(bottom).
 
 ```{r stage-plot, fig.height = 6.5}
 # plot_pruning_comparison() returns its plot invisibly (and saves to out_folder),
@@ -183,16 +186,16 @@ p_stage <- plot_pruning_comparison(chr = "Chr1", stage1 = stage1,
 p_stage
 ```
 
-### The Stage-2 merge distance window
+### The distance limit for merging
 
-Stage 2 only consolidates clusters whose consecutive physical gap stays below
-`distance_threshold`. Left at its default (`NULL`), that threshold is **not** a
-fixed constant: it is derived *per chromosome* from the decay model as
-`d_from_rho(a_pred, rho)` -- the physical distance at which LD has decayed to the
-relative threshold `rho` (default 0.95) -- using the chromosome-size-corrected
-predicted decay rate `a_pred` rather than each chromosome's own noisy fit. On this
-data it works out to only a few kb per region, and it adapts to each region's
-decay:
+Consolidation only merges units when the physical gap between consecutive
+units stays below `distance_threshold`. With the default (`NULL`), this limit is
+**not** a fixed number. It is derived for each chromosome from the decay curve as
+`d_from_rho(a_pred, dist_rho)`, which is the distance at which LD has decayed to
+the relative level `dist_rho` (default 0.95). It uses the decay rate predicted
+from chromosome size, `a_pred`, rather than each chromosome's own noisier fit. On
+these data the limit is only a few kb per region, and it follows each region's
+decay.
 
 ```{r dist-default}
 ds <- copy(ld_decay$decay_sum)
@@ -200,8 +203,9 @@ ds[, distance_threshold_bp := round(d_from_rho(a_pred, 0.95))]
 ds[, .(Chr, a_pred = signif(a_pred, 3), distance_threshold_bp)]
 ```
 
-A common alternative is a single fixed window -- e.g. 500 kb, as in the
-Formica-hybrid analysis, whose low-recombination blocks span megabases:
+A common alternative is one fixed limit, such as the 500 kb used in an
+analysis of *Formica* ant hybrids, whose low-recombination blocks span
+megabases.
 
 ```{r stage-500, results = "hide"}
 result_500kb <- ld_prune_and_eMLG(
@@ -218,34 +222,33 @@ p_500 <- plot_pruning_comparison(chr = "Chr1", stage1 = stage1,
 p_500
 ```
 
-On this compact example the two windows give almost the same partition:
+In this small example the two limits give almost the same groups.
 
 ```{r dist-compare}
 c(default_rho_derived = nrow(result$groups),
   fixed_500kb         = nrow(result_500kb$groups))
 ```
 
-The reason is that the flagged clusters inside a dense LD block are already
-physically contiguous, so the cap rarely binds -- widening it from a few kb to
-500 kb bridges few additional gaps. (In the 500 kb plot the inversion looks like
-one green mass, but with hundreds of groups the colour palette simply recycles;
-the group *count* confirms the partition barely changed.) The distance window
-matters much more on data with *large* low-recombination blocks -- megabase
-inversions, centromeric regions -- where a tight per-chromosome window can leave a
-single block fragmented that a 500 kb window would consolidate.
+The flagged units inside a dense LD block already lie next to each other, so
+the limit rarely matters, and widening it from a few kb to 500 kb bridges few
+extra gaps. In the 500 kb plot the inversion looks like one green mass, but that
+is because the colours repeat across hundreds of groups, and the number of
+groups confirms that little changed. The limit matters much more for data with
+*large* low-recombination blocks, such as megabase inversions or centromeric
+regions. There a tight limit can leave a block split that a 500 kb limit would
+consolidate.
 
-Ideally the window would be defined in **genetic** rather than physical distance:
-supplying a `genetic_map` and a single `cM_threshold` makes the merge window a
-fixed number of centimorgans. Because a centimorgan spans *more* base pairs where
-recombination is suppressed, a fixed cM window automatically widens (in bp)
-precisely in the low-recombination regions that harbour the large LD blocks, and
-narrows in the recombining bulk -- the behaviour you want, and one no single fixed
-bp value can reproduce. Stickleback has no recombination map here, so we fall back
-to physical distance.
+Ideally the limit would be a **genetic** rather than a physical distance.
+Supplying a `genetic_map` and one `cM_threshold` sets the limit in centimorgans.
+Because a centimorgan spans *more* base pairs where recombination is suppressed,
+a fixed limit in cM widens in base pairs exactly in the low-recombination regions
+that hold the large LD blocks, and narrows elsewhere. No single fixed number of
+base pairs can do this. No recombination map is bundled for these stickleback
+data, so this example uses physical distance.
 
-Among the physical-distance options, raising `rho` widens the window. The default
-`rho = 0.95` gave a few kb above; `rho = 0.99` is 5.2x wider
-(`(0.99/0.01) / (0.95/0.05)`):
+With physical distance, raising `dist_rho` widens the limit. The default of
+0.95 gave a few kb above, and 0.99 gives a limit 5.2 times wider, because
+`(0.99/0.01) / (0.95/0.05)` is 5.2.
 
 ```{r dist-099}
 ds[, `:=`(rho_0.95_bp = round(d_from_rho(a_pred, 0.95)),
@@ -253,24 +256,24 @@ ds[, `:=`(rho_0.95_bp = round(d_from_rho(a_pred, 0.95)),
 ds[, .(Chr, rho_0.95_bp, rho_0.99_bp)]
 ```
 
-Even at `rho = 0.99` that reaches only ~40-85 kb here, still well short of 500 kb,
-because these stickleback regions decay fairly fast (`a_pred ~1-3e-3`). Getting a
-~500 kb window out of `rho = 0.99` would take about ten-fold slower decay
-(`a_pred ~2e-4`) -- exactly the regime of large low-recombination blocks (e.g. the
-megabase ant blocks the Formica analysis capped at 500 kb). So what "500 kb" means
-is entirely relative to the local decay rate, which is why a cM-based window is the
-principled choice where a map exists, with the `rho`-derived per-chromosome bp
-window as the next-best adaptive proxy and a single fixed bp value the most
-convenient but least adaptive option.
+Even at 0.99 the limit is only about 40 to 85 kb here, far short of 500 kb,
+because LD decays fairly fast in these regions (`a_pred` about 1e-3 to 3e-3). A
+500 kb limit at 0.99 would need about ten times slower decay (`a_pred` about
+2e-4), which is typical of large low-recombination blocks such as the megabase
+blocks in the *Formica* analysis. What 500 kb means therefore depends entirely on
+the local decay rate. A limit in cM is the best choice where a map exists. The
+limit derived from `dist_rho` for each chromosome is the next best because it
+adapts to decay, and one fixed number of base pairs is the most convenient but
+adapts least.
 
 ## Consensus fidelity and the flagging threshold
 
-A Stage-1 cluster is flagged for Stage-2 merging when its local LD support exceeds
-`ld_w_threshold`. Raising the threshold flags fewer clusters. The consensus
-fidelity `score_eMLG = cor(round(x), x)^2` measures whether a merged block's
-consensus still sits close to a discrete genotype; `ld_prune_and_eMLG()` enforces
-a floor of 0.80 when accepting a merge. Sweeping the flagging threshold shows the
-trade-off:
+A Stage-1 unit is flagged for consolidation when its local LD support exceeds
+`ld_w_threshold`, so a higher threshold flags fewer units. The consensus
+fidelity `score_eMLG = cor(round(x), x)^2` measures whether a merged group's
+consensus is still close to a discrete genotype, and `ld_prune_and_eMLG()` only
+accepts a merge when it is at least 0.80. Varying the flagging threshold shows
+the trade-off.
 
 ```{r sweep, results = "hide"}
 TH <- c(0.025, 0.05, 0.1, 0.15)
@@ -300,17 +303,18 @@ ggplot(hb, aes(bin_mid, pct, fill = cluster_type)) +
                                "merged (n_loci > 1)" = "#315B7D"), name = NULL) +
   facet_wrap(~ th_label, ncol = 1) + coord_cartesian(xlim = c(0.80, 1)) +
   labs(x = expression(score[eMLG] == cor(round(x), x)^2),
-       y = "% of that run's flagged clusters") +
+       y = "% of that run's flagged units") +
   theme_classic(base_size = 9) +
   theme(legend.position = "top", strip.text = element_text(size = 7.5, face = "bold"))
 ```
 
-Raising `ld_w_threshold` shrinks the flagged set but the excluded clusters are the
-fragmented extended-LD ones that would benefit from merging; lowering it pulls in
-isolated single markers with no merge partner (the mass at the upper fidelity
-limit). The threshold governs *which clusters are evaluated*, not which merges are
-accepted -- the fidelity and correlation gates do that -- so a permissive setting
-costs computation rather than accuracy.
+Raising `ld_w_threshold` flags fewer units, but the units it leaves out are the
+split units in extended LD that would benefit from merging. Lowering it adds
+isolated single markers that have nothing to merge with, which form the peak at
+the upper fidelity limit. The threshold decides *which units are considered*,
+not which merges are accepted, because the fidelity and correlation limits
+decide that. A low threshold therefore costs computing time rather than
+accuracy.
 
 ```{r cleanup, include = FALSE}
 SNPRelate::snpgdsClose(gds)
@@ -319,13 +323,14 @@ unlink(gds_path)
 
 ## Summary
 
-On real stickleback data this vignette showed the LD-complexity-reduction
-workflow: per-chromosome LD-decay estimation, marker-resolution local LD support
-(`ld_w`), and the two-stage clustering into a pruned representative marker set and
-an eMLG consensus matrix -- with the Stage-2 distance-window and
-consensus-fidelity trade-offs made explicit. The window-resolution decay rate and
-marker-resolution `ld_w` agree, robustly, on where the high-LD regions are.
+On real stickleback data, this vignette estimated LD decay for each
+chromosome, computed local LD support (`ld_w`) for each marker, grouped markers
+into Stage-1 units and consolidated them into a pruned marker set and an eMLG
+matrix. It also showed how the distance limit and the consensus fidelity affect
+the consolidation. The window-level decay rate and the marker-level `ld_w`
+agree on where the high-LD regions are.
 
-The pruned representative set and the eMLG matrix are the inputs to downstream
-LD-aware analyses -- kinship/GRM construction, association mapping, and
-outlier detection -- which are covered separately.
+The pruned marker set and the eMLG matrix can feed later LD-aware analyses,
+such as building a GRM or association mapping. Outlier detection, which tests
+the Stage-1 units directly, is covered in
+`vignette("LDscnR_stage1_outlier_regions")`.

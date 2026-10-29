@@ -25,17 +25,19 @@ library(data.table)
 
 ## Overview
 
-`LDscnR` estimates chromosome-specific linkage disequilibrium (LD) decay from genotype data and groups correlated markers to reduce redundancy. The groups can supply a pruned marker set (for a relationship matrix such as EMMAX's `K` or BayPass's `OMEGA`) or one consensus genotype per LD group (an "eMLG" -- expected multi-locus genotype). Separate groups are not guaranteed to be statistically independent.
+`LDscnR` estimates linkage disequilibrium (LD) decay for each chromosome and groups correlated markers to reduce redundancy. The groups can supply a pruned marker set for a relationship matrix, such as EMMAX's `K` or BayPass's `OMEGA`. They can also supply one consensus genotype per LD group, called an expected multi-locus genotype (eMLG). Separate groups are not guaranteed to be statistically independent.
 
-This vignette walks through the full workflow on the bundled simulated dataset `sim_ex` (3 chromosomes, 900 markers, 125 individuals -- small enough that every step below runs in well under a second):
+This vignette covers the LD tools on the small simulated data set `sim_ex`, which has 3 chromosomes, 900 markers and 125 individuals. The steps are:
 
 1.  estimating LD decay,
-2.  converting between relative LD thresholds, physical distance, and expected $r^2$,
-3.  per-marker local LD support (`ld_w`),
-4.  reducing marker redundancy (Stage 1),
-5.  consolidating into pruned markers and/or eMLGs (Stage 2),
-6.  a diagnostic plot comparing the two stages, and
-7.  picking the best single-SNP proxy per block.
+2.  converting between relative LD levels, physical distance and expected $r^2$,
+3.  computing local LD support for each marker (`ld_w`),
+4.  grouping markers into Stage-1 units,
+5.  optionally consolidating the units genome-wide into pruned markers and eMLGs,
+6.  comparing the Stage-1 units with the consolidated groups in a plot, and
+7.  choosing the best single-marker proxy for each group.
+
+Testing Stage-1 units for association and assembling the significant ones into outlier regions is covered in `vignette("LDscnR_stage1_outlier_regions")`.
 
 ```{r cores}
 # Kept small and explicit throughout this vignette -- sim_ex is tiny, so
@@ -65,9 +67,9 @@ gds <- create_gds_from_geno(GTs = GTs, map, gds_path)
 
 ## Estimating LD decay
 
-`compute_LD_decay()` fits a per-chromosome decay curve $r^2(d) = b + (c-b)/(1+ad)$, where $a$ controls the rate of decay, $b$ is background LD, $c$ is short-range LD, and $d$ is physical distance. `keep_el = TRUE` retains the pairwise LD edge list each chromosome was fit from, which later steps (`compute_ld_w()`, `ld_complexity_reduction()`) reuse rather than recomputing.
+`compute_LD_decay()` fits the decay curve $r^2(d) = b + (c-b)/(1+ad)$ for each chromosome. Here $a$ is the decay rate, $b$ is background LD, $c$ is short-range LD and $d$ is physical distance. With `keep_el = TRUE`, the pairwise LD edge list behind each fit is kept, so that `compute_ld_w()` and `ld_complexity_reduction()` can reuse it.
 
-`n_win_decay` and `slide` are set below for this toy dataset's very short simulated chromosomes; for real data, the defaults are usually appropriate, or can be tuned via a cheap preliminary run on a marker subset (`max_SNPs_decay`) -- see `?compute_LD_decay`.
+`n_win_decay` and `slide` are set below for the very short simulated chromosomes. `slide` is the LD window in markers. For real data, a quick first run with a small window, such as `slide = 100`, shows in `ld_decay$recommendation` the window that retains 99% of LD on each chromosome. If that window is larger, rerun with it. `max_SNPs_decay` can also make the first run cheaper (`?compute_LD_decay`).
 
 ```{r ld-decay, results = "hide"}
 ld_decay <- compute_LD_decay(
@@ -91,10 +93,10 @@ plot(ld_decay, type = "chr", chr = "Chr2")
 
 ## Relative LD thresholds, distance, and expected LD
 
-Two helpers convert between a relative threshold $\rho$, physical distance, and expected $r^2$:
+Two helpers convert a relative LD level $\rho$ into a physical distance or an expected $r^2$.
 
-- `d_from_rho(a, rho)` -- physical distance (bp) at which $\rho$ is reached, for a chromosome with decay rate `a`.
-- `ld_from_rho(b, c, rho)` -- expected $r^2$ at $\rho$.
+- `d_from_rho(a, rho)` gives the physical distance in bp at which $\rho$ is reached on a chromosome with decay rate `a`.
+- `ld_from_rho(b, c, rho)` gives the expected $r^2$ at $\rho$.
 
 ```{r rho-helpers}
 chr1 <- ld_decay$decay_sum[1]
@@ -103,20 +105,20 @@ d_from_rho(a = chr1$a, rho = 0.99)
 ld_from_rho(b = chr1$b, c = chr1$c, rho = 0.99)
 ```
 
-These conversions underpin `ld_decay$recommendation`'s suggested window sizes, and the per-chromosome clustering thresholds `ld_complexity_reduction()` derives below.
+These conversions give the recommended window sizes in `ld_decay$recommendation` and the chromosome-specific LD cutoffs that `ld_complexity_reduction()` uses below.
 
 ## Per-marker local LD support
 
-`compute_ld_w()` summarises, for each marker, how much LD support it has from nearby markers within the physical window implied by $\rho$. It accepts a vector of $\rho$ values and computes all of them in one pass per chromosome -- each chromosome's edge list is read/symmetrised once and reused, not re-read once per threshold.
+`compute_ld_w()` gives each marker's local LD support, which is its median $r^2$ with nearby markers within the distance set by `dist_rho`. Several values of `dist_rho` can be given at once. Each chromosome's edge list is then read once and reused for every value.
 
 ```{r ld-w}
 ld_w <- compute_ld_w(ld_decay, dist_rho = c(0.90, 0.95, 0.99), cores = cores)
 map[, ld_w_095 := ld_w[, "rho_0.95"]]
 ```
 
-## Stage 1: reduce marker redundancy
+## Stage 1: group markers into Stage-1 units
 
-`ld_complexity_reduction()` clusters markers within each chromosome (connected components, then complete-linkage refinement within each) and picks one representative marker per cluster, at a chromosome-specific threshold derived from the decay model at the target pruning $\rho$. This single call is the shared starting point for both a pruning-only workflow and an eMLG workflow -- see below.
+`ld_complexity_reduction()` groups the markers on each chromosome into Stage-1 units. Each chromosome's LD cutoff comes from its decay curve at the relative level `r2_rho` (default 0.5). Markers whose LD exceeds the cutoff are first joined by single linkage, and these groups are then refined by complete linkage, so that every pair within a unit meets the cutoff. Each unit has one representative marker. A fixed cutoff for all chromosomes can be set instead with `r2_th`.
 
 ```{r stage1, results = "hide"}
 stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, cores = cores)
@@ -126,19 +128,17 @@ stage1 <- ld_complexity_reduction(map = map, LD_decay = ld_decay, r2_rho = 0.5, 
 stage1
 ```
 
-If only a pruned marker set is needed (a GRM, EMMAX's `K`, BayPass's `OMEGA`), `stage1$pruned` is already a ready-to-use character vector of representative markers -- nothing further is required.
+If only a pruned marker set is needed, for example for a GRM, EMMAX's `K` or BayPass's `OMEGA`, `stage1$pruned` already holds the representative markers and nothing more is required.
 
-## Stage 2 (optional): consolidate and summarise as eMLGs
+## Genome-wide consolidation and eMLGs (optional)
 
-This full-genome Stage-2 pass is useful for pruning and eMLG analyses. In
-the manuscript's outlier workflow, Stage-1 clusters are tested first and
-only significant units undergo Stage-2 assembly into reported regions.
+This step consolidates Stage-1 units across the whole genome, which is useful for pruning and eMLG analyses. It is not part of the outlier workflow, where Stage-1 units are tested first and only the significant ones are assembled into outlier regions (Stage 2).
 
-Stage 1's edge list is built from a sliding window, so a genuinely correlated, low-recombination block can still come out fragmented into several adjacent clusters (pairs farther apart than the window were never evaluated at all). `ld_prune_and_eMLG()` fixes this after the fact, but only for the clusters that need it: those flagged by high local LD support (`ld_w_col`/`ld_w_threshold`) are re-compared directly from genotypes -- with no window restriction -- and consolidated via a distance-restricted, quality-gated dynamic cut. This produces a refined pruned marker set and an eMLG matrix (one consensus genotype per block, useful where a single representative SNP would throw away most of a correlated block's information -- e.g. long-range LD or Ohta's D statistics) from the same pass. Unflagged clusters (usually the large majority) pass straight through unchanged.
+The LD between markers is computed within a sliding window, so a correlated block with little recombination can be split into several neighbouring Stage-1 units, because markers farther apart than the window are never compared. `ld_prune_and_eMLG()` repairs this for the units that need it. Units with high local LD support (`ld_w_col` and `ld_w_threshold`) are compared again directly from the genotypes, without a window, and merged when they are close enough and their consensus remains reliable. The result is a refined pruned marker set and an eMLG matrix. An eMLG keeps the information of a whole correlated block, which a single representative marker would lose, for example for long-range LD or Ohta's D statistics. Units that are not flagged, usually the large majority, pass through unchanged.
 
-`ld_w_threshold = 0` is used below purely because `sim_ex` has so few markers per chromosome that a realistic threshold (e.g. `0.2`, appropriate on real data) flags almost nothing here -- there simply isn't enough local marker density for `ld_w` to build up. `ld_w_threshold = 0` is not really "off": on real data, virtually every marker has *some* positive local LD support, so it routes essentially everything through the expensive merge step rather than skipping it -- see the speed tip below for the tuning that actually matters at realistic scale.
+`ld_w_threshold = 0` is used below only because `sim_ex` has so few markers per chromosome that a realistic threshold, such as 0.2, would flag almost nothing. On real data, `ld_w_threshold = 0` sends nearly every unit through the slow merge step, because almost every marker has some local LD support. The speed tip below explains how to tune it.
 
-`distance_threshold` (the maximum physical gap allowed between clusters still considered part of one contiguous, mergeable block) is left at its default here, which derives a per-chromosome value from `rho` and `LD_decay` (`d_from_rho(a_pred, rho)`) rather than one fixed bp constant -- see `?ld_prune_and_eMLG` for why this uses each chromosome's size-corrected predicted decay rate rather than its own observed decay rate.
+`distance_threshold` is the largest physical gap allowed between units that can still be merged. By default it is derived for each chromosome from `dist_rho` and the decay curve, as `d_from_rho(a_pred, dist_rho)`, rather than set to one fixed number of base pairs. `?ld_prune_and_eMLG` explains why this uses each chromosome's predicted decay rate rather than its observed one.
 
 ```{r stage2, results = "hide"}
 result <- ld_prune_and_eMLG(
@@ -161,17 +161,17 @@ dim(result$eMLG)
 
 ### Speed tip: preliminary vs. final runs
 
-`ld_prune_and_eMLG()`'s cost is dominated by an all-pairs correlation among the *flagged* clusters, which scales roughly quadratically with how many clusters get flagged. On real data, `ld_w_threshold` is the lever that matters, and it should move in different directions depending on the run:
+Most of the time in `ld_prune_and_eMLG()` goes into correlating every pair of *flagged* units, which grows roughly with the square of their number. On real data, `ld_w_threshold` is therefore the setting that matters.
 
-- **Preliminary/exploratory runs**: use a high `ld_w_threshold` (or the dataset's default) to flag only the most obviously redundant clusters -- fast, good enough for a first look at cluster counts and eMLG behaviour.
-- **Final run**: examine the fraction of clusters flagged and lower `ld_w_threshold` where broader consolidation is needed (optionally combined with `min_n_loci_flag`). A value near `0.05` may be useful for this example, but is not a general cutoff. Full-genome consolidation for eMLGs is distinct from post-test assembly of significant units into reported regions.
-- **`compute_unflagged_eMLG = FALSE`** skips eMLG computation for the unflagged clusters entirely (usually the large majority) if only the pruned marker set is needed, independent of `ld_w_threshold`.
+- **First runs.** Use a high `ld_w_threshold` so that only the most redundant units are flagged. This is fast and good enough for a first look at group counts and eMLGs.
+- **Final run.** Check what share of units is flagged, and lower `ld_w_threshold` where broader consolidation is needed, optionally together with `min_n_loci_flag`. A value near 0.05 may suit this example, but it is not a general cutoff.
+- **`compute_unflagged_eMLG = FALSE`** skips the eMLGs for units that are not flagged, which is useful when only the pruned marker set is needed.
 
-## Comparing Stage 1 and Stage 2
+## Comparing Stage-1 units with the consolidated groups
 
-`plot_pruning_comparison()` stacks Stage 1's raw clusters (top panel) against Stage 2's consolidated groups (bottom panel) for one chromosome, so fragmented blocks and their reunited counterparts can be compared directly -- both panels plot the same underlying markers, just grouped (and thus coloured) differently.
+`plot_pruning_comparison()` shows the Stage-1 units in the top panel and the consolidated groups in the bottom panel for one chromosome. Both panels plot the same markers, coloured by group, so split blocks and their merged counterparts can be compared directly.
 
-`ld_w_col`/`ld_w_threshold`/`min_n_loci_flag` default to `result$params`, i.e. whatever `ld_prune_and_eMLG()` was actually called with above, so the two panels can't silently end up comparing different flagging criteria (passing a value that disagrees with `result$params` warns -- the Combined panel only ever reflects `result`'s own flagging, so an inconsistent threshold typically makes it look empty rather than erroring). `out_folder` is set to a temporary directory here purely for this vignette; omit it to use the default (`"./Figures/"`).
+`ld_w_col`, `ld_w_threshold` and `min_n_loci_flag` default to the values stored in `result$params`, which are those `ld_prune_and_eMLG()` was called with. The two panels therefore always use the same flagging rule, and a value that disagrees with `result$params` gives a warning. `out_folder` is a temporary directory here, and by default figures are saved to `"./Figures/"`.
 
 ```{r comparison-plot}
 # plot_pruning_comparison() returns its plot invisibly (it also saves the
@@ -184,11 +184,11 @@ p_comparison <- plot_pruning_comparison(
 p_comparison
 ```
 
-## Best single-SNP proxy per block (optional)
+## Best single-marker proxy per group (optional)
 
-The eMLG consensus averages a block's markers -- ideal for one value per LD block, but some signal is genuinely SNP-specific and can differ even between strongly-linked markers, and there the average dilutes it. `eMLG_best_snp()` is a post-processing step for exactly that case: for every block with a stored consensus it finds the member SNP most correlated with the consensus, and (optionally) returns that SNP's genotype with only its *missing* calls repaired from the consensus -- observed calls are never overwritten, so SNP-level signal is preserved.
+The eMLG consensus averages the markers of a group. This gives one value per LD block, but some signals are carried by single markers and can differ even between strongly correlated markers, so the average dilutes them. For every group with a consensus, `eMLG_best_snp()` finds the member marker most correlated with the consensus. It can also return that marker's genotypes with only the *missing* calls filled in from the consensus. Observed calls are never overwritten, so the marker's own signal is kept.
 
-The clustering already returns a `representative` marker per block, but that is picked for cluster centrality (highest median $r^2$ to the rest of the block), not to reproduce the consensus. `eMLG_best_snp()` reports how much better the consensus-optimal member does:
+Each group already has a `representative` marker, but it is chosen as the most central member, with the highest median $r^2$ to the rest of the group, rather than to reproduce the consensus. `eMLG_best_snp()` reports how much better the best member does.
 
 ```{r best-snp}
 best <- eMLG_best_snp(result, GTs)
@@ -200,7 +200,7 @@ head(best$stats[n_loci > 2,
   .(group_id, n_loci, score, representative, best_marker, rep_abs_r, best_abs_r, rep_is_best)])
 ```
 
-`best$geno` is a drop-in single-SNP alternative to the consensus matrix `result$eMLG` -- same shape and column order, but each column is an observed SNP (gaps filled) rather than an average:
+`best$geno` can replace the consensus matrix `result$eMLG`. It has the same shape and column order, but each column is an observed marker, with gaps filled, rather than an average.
 
 ```{r best-snp-geno}
 dim(best$geno)
@@ -210,20 +210,20 @@ dim(best$geno)
 mean(best$stats[n_loci > 2]$rep_is_best)
 ```
 
-The `score` column (eMLG fidelity) is a useful guide for *when* to prefer a single SNP: high-fidelity blocks are near-perfectly captured by one SNP (so the consensus buys little), whereas low-fidelity blocks are where the consensus does real work. See `?eMLG_best_snp`.
+The `score` column, which measures eMLG fidelity, shows when a single marker is enough. A single marker captures a high-fidelity group almost perfectly, so the consensus adds little, whereas in low-fidelity groups the consensus does real work (`?eMLG_best_snp`).
 
 ## Summary
 
-Starting from genotype and SNP metadata, this vignette:
+Starting from genotypes and a marker map, this vignette
 
-- created a GDS object and estimated chromosome-wise LD decay,
-- converted between relative LD thresholds, physical distance, and expected $r^2$,
-- computed per-marker local LD support across several $\rho$ values in one pass,
-- reduced marker redundancy with Stage-1 clusters,
-- consolidated flagged clusters into a refined pruned marker set and an eMLG matrix (Stage 2), with a diagnostic plot comparing the two stages, and
-- selected, per block, the best single-SNP proxy for the consensus (`eMLG_best_snp()`), for signals better kept at SNP resolution.
+- created a GDS file and estimated LD decay for each chromosome,
+- converted between relative LD levels, physical distance and expected $r^2$,
+- computed local LD support for each marker at several levels in one pass,
+- grouped markers into Stage-1 units,
+- consolidated flagged units into a refined pruned marker set and an eMLG matrix, and compared them with the Stage-1 units in a plot, and
+- chose the best single-marker proxy for each group's consensus with `eMLG_best_snp()`.
 
-For empirical data, the same workflow applies; only the tuning parameters (`slide`, `rho`, `ld_w_threshold`, ...) need adjusting to the dataset's scale.
+The same steps apply to empirical data, with settings such as `slide`, `r2_rho` and `ld_w_threshold` adjusted to the size of the data set.
 
 ```{r cleanup, include = FALSE}
 SNPRelate::snpgdsClose(gds)
