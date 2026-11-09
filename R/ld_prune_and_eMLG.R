@@ -318,6 +318,14 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
   if (!missing(min_r2)) r2_th <- .renamed_arg(min_r2, "min_r2", "r2_th")
   ## A Stage-1 result built with a fixed r2_th passes it on when none is given.
   if (is.null(r2_th) && !is.null(stage1$params$r2_th)) r2_th <- stage1$params$r2_th
+  ## A NULL here (e.g. `min_r2_rho = stage1$params$rho` on an object that never
+  ## stored `rho`) used to surface only as a names-length error from setNames().
+  for (a in c("dist_rho", "r2_rho")) {
+    v <- get(a)
+    if (!(is.numeric(v) && length(v) == 1L && is.finite(v) && v > 0 && v < 1))
+      stop("`", a, "` must be a single number in (0, 1); got ",
+           if (is.null(v)) "NULL" else paste(format(v), collapse = ", "), ".")
+  }
 
   map_snp  <- stage1$map_snp
   clusters <- stage1$clusters

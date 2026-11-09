@@ -41,7 +41,13 @@ but give a deprecation warning.
 * `params` of `ld_complexity_reduction()`, `ld_prune_and_eMLG()` and
   `ld_outlier_test()` use the new names (`r2_rho`, `r2_th`, `dist_rho`,
   `r2_th_resolved`). Stage-1 objects saved by earlier versions, which store
-  `params$rho`, are still read correctly.
+  `params$rho`, are still read correctly. `ld_complexity_reduction()` also
+  still stores `params$rho` (equal to `r2_rho`), so callers written for 0.9.1
+  that pass `min_r2_rho = stage1$params$rho` to `ld_prune_and_eMLG()` keep
+  working. Before this, they passed `NULL` and failed on the first
+  chromosome with flagged clusters with `'names' attribute [n] must be the
+  same length as the vector [0]`. `ld_prune_and_eMLG()` now rejects a `NULL`
+  or out-of-range `r2_rho` or `dist_rho` with a clear message.
 
 ## Changed default
 

@@ -378,7 +378,11 @@ ld_complexity_reduction <- function(map, LD_decay, r2_rho = 0.5, cores = 1, idx 
     map_snp  = map_snp,
     clusters = clusters,
     pruned   = clusters$core_snp,
-    params   = list(r2_rho = r2_rho, r2_th = r2_th_fixed, cores = cores)
+    params   = list(r2_rho = r2_rho, r2_th = r2_th_fixed, cores = cores,
+                    ## `rho` is the pre-0.9.2 name for `r2_rho`, kept so callers
+                    ## that read `params$rho` (LDscnR-multi up to 0.9.1) still
+                    ## get the value instead of NULL.
+                    rho = r2_rho)
   )
   class(out) <- "ld_complexity_reduction"
   print(out)

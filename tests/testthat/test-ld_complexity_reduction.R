@@ -36,6 +36,8 @@ test_that("ld_complexity_reduction returns a well-formed, self-consistent result
   # can read the threshold back rather than take it as a second, separately-supplied
   # argument that could silently disagree with what actually built this object
   expect_equal(res$params$r2_rho, 0.5)
+  # pre-0.9.2 alias, read by LDscnR-multi as stage1$params$rho
+  expect_equal(res$params$rho, res$params$r2_rho)
   expect_equal(res$params$cores, 1)
 
   # every marker retained exactly once, every marker assigned a cluster

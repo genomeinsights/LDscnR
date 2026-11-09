@@ -332,3 +332,17 @@ test_that("cores=1 and cores>1 produce identical output", {
   expect_identical(res_c1$groups, res_c2$groups)
   expect_identical(res_c1$pruned, res_c2$pruned)
 })
+
+test_that("a NULL r2_rho (e.g. min_r2_rho = stage1$params$rho on a 0.9.2 object) errors clearly", {
+  d <- build_stage1()
+  ld_decay <- list(decay_sum = data.table::data.table(
+    Chr = "Chr1", a_pred = 0.19, b = 0.05, c = 0.9
+  ))
+  expect_error(
+    suppressWarnings(ld_prune_and_eMLG(
+      GTs = d$GTs, stage1 = d$stage1, ld_w_col = "ld_w_095", ld_w_threshold = 0.5,
+      LD_decay = ld_decay, min_r2_rho = NULL, score_threshold = 0.80, cores = 1
+    )),
+    "`r2_rho` must be a single number in \\(0, 1\\); got NULL"
+  )
+})
