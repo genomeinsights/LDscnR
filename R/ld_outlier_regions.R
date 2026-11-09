@@ -42,6 +42,8 @@
 #' @param keep_cache If `TRUE`, also return the null bundle and edge cache for
 #'   ad-hoc re-estimation at other `tau_C` / `l_min`.
 #' @param seed RNG seed for the null.
+#' @param covar Optional covariates, fitted as fixed effects in every EMMAX scan,
+#'   observed and surrogate (see [emmax_setup()]).
 #'
 #' @return An `ld_outlier_regions` object: `regions` (list of member-marker
 #'   vectors), `summary` (per-region `Chr`, `start`, `end`, `size`, `maxC`),
@@ -62,9 +64,10 @@ ld_outlier_regions <- function(y, GTs, K, ld_ws, map, decay_sum,
                                l_min = 2L, lmin_q = 0.99, lmin_tau = 0.05, fdr = 0.05,
                                basis = c("genetic", "spatial"), coords = NULL,
                                B = 100L, rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05),
-                               tau_grid = seq(0.05, 1, by = 0.05), keep_cache = FALSE, seed = 1L) {
+                               tau_grid = seq(0.05, 1, by = 0.05), keep_cache = FALSE, seed = 1L,
+                               covar = NULL) {
   basis <- match.arg(basis)
-  prep <- emmax_setup(GTs, K)
+  prep <- emmax_setup(GTs, K, covar)
   null <- structured_null(y, GTs, K, ld_ws, basis = basis, coords = coords, B = B,
                           alpha = alpha, rho = rho, qstar = qstar, prep = prep, seed = seed)
   C <- null$C_obs

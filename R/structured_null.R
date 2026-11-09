@@ -34,6 +34,8 @@
 #'   [ld_outlier_regions()] to avoid re-rotating the genotypes); built from
 #'   `GTs`, `K` if `NULL`.
 #' @param seed RNG seed for reproducible surrogates.
+#' @param covar Optional covariates for the EMMAX model (see [emmax_setup()]); used
+#'   only when `prep` is built here.
 #'
 #' @return An `ld_null` object: `C_obs` (the full observed per-SNP C-vector),
 #'   `C_surr` (list of `B` *sparse* surrogate C-vectors, only `C > 0`),
@@ -45,10 +47,10 @@
 structured_null <- function(y, GTs, K, ld_ws, basis = c("genetic", "spatial"),
                             coords = NULL, B = 100L, alpha = 0.05,
                             rho = colnames(ld_ws), qstar = seq(0, 0.95, by = 0.05),
-                            prep = NULL, seed = 1L) {
+                            prep = NULL, seed = 1L, covar = NULL) {
   basis <- match.arg(basis)
   n <- length(y)
-  if (is.null(prep)) prep <- emmax_setup(GTs, K)
+  if (is.null(prep)) prep <- emmax_setup(GTs, K, covar)
   if (basis == "genetic") {
     eK <- eigen(K, symmetric = TRUE)
   } else {

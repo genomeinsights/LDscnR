@@ -10,19 +10,32 @@ emmax_fast(prep, Y, y = NULL)
 \item{prep}{An \code{emmax_prep} object from \code{\link[=emmax_setup]{emmax_setup()}}.}
 
 \item{Y}{Numeric phenotype vector, length = number of individuals (a 0/1
-ecotype/case vector is treated as a continuous response, as in EMMAX).}
+ecotype/case vector is treated as a continuous response, as in EMMAX). A
+matrix with one phenotype per column (e.g. permuted phenotypes) is scanned
+column by column, each with its own REML fit.}
 
 \item{y}{Deprecated. Use \code{Y}.}
 }
 \value{
-Numeric vector of per-SNP p-values, one per column of the genotype
-matrix passed to \code{\link[=emmax_setup]{emmax_setup()}}.
+For a vector \code{Y}, a numeric vector of per-SNP p-values, one per
+column of the genotype matrix passed to \code{\link[=emmax_setup]{emmax_setup()}}. For a matrix \code{Y},
+a SNPs x \code{ncol(Y)} matrix. Either carries the attributes \code{df2} (residual
+degrees of freedom) and \code{covar_names} (the covariate columns of the model,
+\code{character(0)} without covariates).
 }
 \description{
-Genome-wide EMMAX p-values for phenotype \code{y}, using a rotation pre-computed by
+Genome-wide EMMAX p-values for phenotype \code{Y}, using a rotation pre-computed by
 \code{\link[=emmax_setup]{emmax_setup()}}. Estimates the variance components by REML once, whitens
-response and genotypes, and returns per-SNP F-test p-values (df 1 and n-2).
-Identical to the p-values from \code{\link[=emmax]{emmax()}} at a fraction of the cost.
+response and genotypes, and returns per-SNP F-test p-values (df 1 and
+\code{prep$df2}, which is \code{n - 2} without covariates). Identical to the p-values
+from \code{\link[=emmax]{emmax()}} at a fraction of the cost.
+}
+\details{
+With covariates (\code{emmax_setup(covar = )}), each SNP is tested conditional on
+them by exact GLS: the whitened design \eqn{X^*} is projected out of the
+whitened phenotype once, and per SNP only \eqn{\|Q'G^*_j\|^2} is added to
+the intercept-only cost, where \eqn{Q} is an orthonormal basis of
+\eqn{X^*}.
 }
 \seealso{
 \code{\link[=emmax_setup]{emmax_setup()}}

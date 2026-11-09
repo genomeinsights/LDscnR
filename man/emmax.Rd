@@ -20,8 +20,15 @@ emmax(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1)
 \item{binary}{Logical; if \code{TRUE} and \code{B} is set, permutation phenotypes are
 dichotomised to match the case/control ratio of \code{Y}.}
 
-\item{Covar}{Optional covariate; if it varies, \code{Y} is replaced by the
-residuals of \code{lm(Y ~ Covar)} before testing.}
+\item{Covar}{Optional covariates (a vector, matrix or data.frame; see
+\code{\link[=emmax_setup]{emmax_setup()}}'s \code{covar}), fitted as fixed effects alongside the
+intercept: REML uses \eqn{X = [1, Covar]} and every marker is tested
+conditional on it, on \code{n - ncol(X) - 1} residual degrees of freedom. A
+single covariate that does not vary is ignored, as before. Up to 0.9.1 the
+phenotype was instead replaced by the residuals of \code{lm(Y ~ Covar)}, with
+the genotypes left unadjusted and \code{n - 2} degrees of freedom; that loses
+power for markers correlated with a covariate and is slightly
+anti-conservative.}
 
 \item{cores}{Number of cores for the permutation loop.}
 }

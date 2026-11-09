@@ -26,8 +26,15 @@
 #'   `NULL` (default) skips permutation; if set, the `MASS` package is required.
 #' @param binary Logical; if `TRUE` and `B` is set, permutation phenotypes are
 #'   dichotomised to match the case/control ratio of `Y`.
-#' @param Covar Optional covariate; if it varies, `Y` is replaced by the
-#'   residuals of `lm(Y ~ Covar)` before testing.
+#' @param Covar Optional covariates (a vector, matrix or data.frame; see
+#'   [emmax_setup()]'s `covar`), fitted as fixed effects alongside the
+#'   intercept: REML uses \eqn{X = [1, Covar]} and every marker is tested
+#'   conditional on it, on `n - ncol(X) - 1` residual degrees of freedom. A
+#'   single covariate that does not vary is ignored, as before. Up to 0.9.1 the
+#'   phenotype was instead replaced by the residuals of `lm(Y ~ Covar)`, with
+#'   the genotypes left unadjusted and `n - 2` degrees of freedom; that loses
+#'   power for markers correlated with a covariate and is slightly
+#'   anti-conservative.
 #' @param cores Number of cores for the permutation loop.
 #'
 #' @return A list with `F` (per-column F statistics), `pval` (F-test p-values),
@@ -51,18 +58,15 @@ emmax <- function(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1) {
   stopifnot(nrow(X) == n)
   stopifnot(nbchunks >= 2)
 
-  ## INTERCEPT
-  if (!is.null(Covar) & length(unique(Covar)) > 1) {
-    Y <- stats::resid(stats::lm(Y ~ Covar))
-  }
-
-  Xo <- rep(1, n)
+  ## FIXED EFFECTS: intercept plus covariates, tested against exactly (GLS)
+  if (!is.null(Covar) && is.null(dim(Covar)) && length(unique(Covar)) <= 1) Covar <- NULL
+  Xo <- .emmax_design(Covar, n)
 
   ## K MATRIX NORMALISATION
   K_norm <- (n - 1) / sum((diag(n) - matrix(1, n, n) / n) * K) * K
 
   ## NULL MODEL + EMMAX association test
-  null <- emma.REMLE(Y, as.matrix(Xo), K_norm)
+  null <- emma.REMLE(Y, Xo, K_norm)
 
   M <- solve(chol(null$vg * K_norm + null$ve * diag(n)))
   Y_t <- crossprod(M, Y)
@@ -81,7 +85,7 @@ emmax <- function(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1) {
   RSSf <- unlist(RSS)
   RSS_H0 <- rep(sum(stats::lsfit(Xo_t, Y_t, intercept = FALSE)$residuals^2), m)
   df1 <- 1
-  df2 <- n - df1 - 1
+  df2 <- n - ncol(Xo) - df1
   R2 <- 1 - 1 / (RSS_H0 / RSSf)
   F <- (RSS_H0 / RSSf - 1) * df2 / df1
   pval <- stats::pf(F, df1, df2, lower.tail = FALSE)
@@ -102,9 +106,6 @@ emmax <- function(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1) {
         y <- rep(NA, length(Ord))
         y[Ord <= Min] <- 1
         y[Ord > Min] <- 0
-        if (!is.null(Covar) & length(unique(Covar)) > 1) {
-          Y <- stats::resid(stats::lm(Y ~ Covar))
-        }
         return(y)
       })
       Ynew <- t(Ynew)
@@ -112,7 +113,7 @@ emmax <- function(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1) {
 
     FR <- do.call(rbind, parallel::mclapply(1:B, function(k) {
       y <- Ynew[k, ]
-      null <- emma.REMLE(y, as.matrix(Xo), K_norm)
+      null <- emma.REMLE(y, Xo, K_norm)
       M <- solve(chol(null$vg * K_norm + null$ve * diag(n)))
       Y_t <- crossprod(M, y)
       Xo_t <- crossprod(M, Xo)
@@ -128,7 +129,7 @@ emmax <- function(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1) {
       RSSf <- unlist(RSS)
       RSS_H0 <- rep(sum(stats::lsfit(Xo_t, Y_t, intercept = FALSE)$residuals^2), m)
       df1 <- 1
-      df2 <- n - df1 - 1
+      df2 <- n - ncol(Xo) - df1
       (RSS_H0 / RSSf - 1) * df2 / df1
     }, mc.cores = cores))
 

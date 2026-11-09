@@ -26,7 +26,8 @@ ld_outlier_regions(
   qstar = seq(0, 0.95, by = 0.05),
   tau_grid = seq(0.05, 1, by = 0.05),
   keep_cache = FALSE,
-  seed = 1L
+  seed = 1L,
+  covar = NULL
 )
 }
 \arguments{
@@ -68,6 +69,9 @@ reference C-threshold at which it is read (default 0.05).}
 ad-hoc re-estimation at other \code{tau_C} / \code{l_min}.}
 
 \item{seed}{RNG seed for the null.}
+
+\item{covar}{Optional covariates, fitted as fixed effects in every EMMAX scan,
+observed and surrogate (see \code{\link[=emmax_setup]{emmax_setup()}}).}
 }
 \value{
 An \code{ld_outlier_regions} object: \code{regions} (list of member-marker

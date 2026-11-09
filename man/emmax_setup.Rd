@@ -4,17 +4,28 @@
 \alias{emmax_setup}
 \title{Pre-compute the EMMAX mixed-model rotation for fast repeated scans}
 \usage{
-emmax_setup(GTs, K)
+emmax_setup(GTs, K, covar = NULL)
 }
 \arguments{
 \item{GTs}{Numeric genotype dosage matrix, individuals in rows and SNPs in
 columns (column names = markers).}
 
 \item{K}{Kinship / GRM matrix (individuals x individuals), aligned to \code{GTs}.}
+
+\item{covar}{Optional covariates, aligned to the rows of \code{GTs}: a numeric
+vector, a numeric matrix, or a data.frame. Factor and character columns of
+a data.frame are expanded to indicator columns with
+\code{model.matrix(~ ., covar)[, -1]}. The intercept is always added, so do not
+include one. Together with the intercept the covariates must have full
+column rank, and they may not contain \code{NA}. A prep object holds one
+covariate set; build another prep for a different set. \code{NULL} (default)
+fits an intercept only, exactly as before covariates were supported.}
 }
 \value{
 An \code{emmax_prep} list consumed by \code{\link[=emmax_fast]{emmax_fast()}}: the scaled kinship,
-its eigenbasis, the rotated genotypes, and the residual degrees of freedom.
+its eigenbasis, the design matrix \code{Xo} (\verb{[1, covar]}), the rotated
+genotypes and design, the residual degrees of freedom \code{df2}
+(\code{n - ncol(Xo) - 1}), and \code{covar_names}.
 }
 \description{
 Eigendecomposes the kinship once and rotates the genotype matrix into the
@@ -24,6 +35,15 @@ to \code{\link[=emmax]{emmax()}} (per-SNP p-values correlate ~1) but roughly 25x
 phenotype. Use it when many phenotypes are scanned against the same
 genotypes + kinship, e.g. the surrogate phenotypes of a structure-aware null
 (\code{\link[=structured_null]{structured_null()}}).
+}
+\details{
+Covariates enter the model exactly: the fixed effects are \eqn{X = [1, C]},
+REML is fitted with that \eqn{X}, and each SNP is tested by generalised least
+squares conditional on \eqn{X} (Frisch-Waugh-Lovell in the \eqn{V^{-1}}
+metric), with \code{n - ncol(X) - 1} residual degrees of freedom. This is not the
+same as regressing the phenotype on \code{covar} first and scanning the residuals:
+that leaves the genotypes unadjusted, which shrinks the effect of every SNP
+that is correlated with a covariate and loses power for exactly those SNPs.
 }
 \seealso{
 \code{\link[=emmax_fast]{emmax_fast()}}, \code{\link[=emmax]{emmax()}}

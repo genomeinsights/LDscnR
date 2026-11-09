@@ -15,6 +15,30 @@
   `ld_prune_and_eMLG()` uses a fixed `r2_th` stored on `stage1` when none is
   given.
 
+## Exact covariates in EMMAX
+
+* `emmax_setup()` gains `covar`, a vector, matrix or data.frame of covariates
+  (factors are expanded to indicator columns). The fixed effects become
+  `X = [1, covar]`: REML is fitted with that `X`, and `emmax_fast()` tests
+  each SNP by exact GLS conditional on it, with `n - ncol(X) - 1` residual
+  degrees of freedom. Regressing the phenotype on the covariates first, the
+  previous approach, leaves the genotypes unadjusted and loses power for
+  SNPs correlated with a covariate (by a factor of about
+  `sqrt(1 - R^2(SNP ~ covar))` in the test statistic). Covariates that are
+  rank-deficient together with the intercept are rejected. Without `covar`,
+  p-values are bit-for-bit the same as before.
+* `emmax_fast()` accepts a matrix of phenotypes (one per column, e.g.
+  permutations) and returns a SNPs x phenotypes matrix. Its result carries
+  the attributes `df2` and `covar_names`.
+* `emmax(Covar = )` now fits the covariates the same exact way, instead of
+  residualising `Y` and using `n - 2` degrees of freedom (which was slightly
+  anti-conservative). A single constant covariate is still ignored.
+* `ld_outlier_regions()`, `structured_null()` and `ld_cscore_scan()` pass a
+  new `covar` argument to `emmax_setup()`. `ld_outlier_clusters()` gains
+  `covar` for `null = "permutation"`, whose permuted scans now call
+  `emmax_fast()` instead of an inline copy of it (results without `covar`
+  are unchanged).
+
 ## Consistent argument names
 
 One parameter now has one name across the package. The old names still work

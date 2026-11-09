@@ -16,7 +16,8 @@ structured_null(
   rho = colnames(ld_ws),
   qstar = seq(0, 0.95, by = 0.05),
   prep = NULL,
-  seed = 1L
+  seed = 1L,
+  covar = NULL
 )
 }
 \arguments{
@@ -44,6 +45,9 @@ captures structure without absorbing the signal.}
 \code{GTs}, \code{K} if \code{NULL}.}
 
 \item{seed}{RNG seed for reproducible surrogates.}
+
+\item{covar}{Optional covariates for the EMMAX model (see \code{\link[=emmax_setup]{emmax_setup()}}); used
+only when \code{prep} is built here.}
 }
 \value{
 An \code{ld_null} object: \code{C_obs} (the full observed per-SNP C-vector),

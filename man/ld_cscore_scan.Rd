@@ -18,7 +18,8 @@ ld_cscore_scan(
   dcap = 5e+05,
   rho_d = NULL,
   prep = NULL,
-  pvals = NULL
+  pvals = NULL,
+  covar = NULL
 )
 }
 \arguments{
@@ -41,6 +42,9 @@ ld_cscore_scan(
 \item{prep}{Optional \code{emmax_prep} from \code{\link[=emmax_setup]{emmax_setup()}} to reuse.}
 
 \item{pvals}{Optional precomputed per-SNP p-values (skips EMMAX).}
+
+\item{covar}{Optional covariates for the EMMAX model (see \code{\link[=emmax_setup]{emmax_setup()}}); used
+only when \code{prep} is built here.}
 }
 \value{
 A list with \code{C} (full per-SNP C-score), \code{edges} (an \code{\link[=ld_edges]{ld_edges()}}

@@ -29,6 +29,8 @@
 #' @param rho_ld,dcap,rho_d Clustering parameters passed to [ld_edges()].
 #' @param prep Optional `emmax_prep` from [emmax_setup()] to reuse.
 #' @param pvals Optional precomputed per-SNP p-values (skips EMMAX).
+#' @param covar Optional covariates for the EMMAX model (see [emmax_setup()]); used
+#'   only when `prep` is built here.
 #'
 #' @return A list with `C` (full per-SNP C-score), `edges` (an [ld_edges()]
 #'   object over the `C > 0` universe), and `prep` (the `emmax_prep`, or `NULL`
@@ -39,11 +41,11 @@ ld_cscore_scan <- function(y = NULL, GTs, K = NULL, ld_ws, map, decay_sum,
                            alpha = 0.05, rho = colnames(ld_ws),
                            qstar = seq(0, 0.95, by = 0.05),
                            rho_ld = 0.75, dcap = 5e5, rho_d = NULL,
-                           prep = NULL, pvals = NULL) {
+                           prep = NULL, pvals = NULL, covar = NULL) {
   if (is.null(pvals)) {
     if (is.null(prep)) {
       if (is.null(K)) stop("supply one of `pvals`, `prep`, or `K` (with `y`).")
-      prep <- emmax_setup(GTs, K)
+      prep <- emmax_setup(GTs, K, covar)
     }
     if (is.null(y)) stop("`y` is required unless `pvals` is supplied.")
     pvals <- emmax_fast(prep, y)

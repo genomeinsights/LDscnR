@@ -22,6 +22,7 @@ ld_outlier_clusters(
   B = 1000L,
   Y = NULL,
   K = NULL,
+  covar = NULL,
   rmsc_grid = seq(0, 0.98, by = 0.01),
   cores = 1L,
   verbose = TRUE,
@@ -79,6 +80,10 @@ per-chromosome \code{a_pred}, \code{b}, \code{c}); required only when \code{r2_r
 
 \item{Y, K}{Phenotype vector and kinship for \code{null = "permutation"}. \code{K} may be
 a single \verb{n x n} matrix or a named list of per-chromosome (LOCO) matrices.}
+
+\item{covar}{Optional covariates for \code{null = "permutation"}, fitted as fixed
+effects in every permuted EMMAX scan (see \code{\link[=emmax_setup]{emmax_setup()}}). Use the same
+covariates as the scan that produced \code{pval}.}
 
 \item{rmsc_grid}{Grid passed to \code{\link[=rmsc_threshold]{rmsc_threshold()}}.}
 
