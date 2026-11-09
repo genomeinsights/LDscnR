@@ -6,8 +6,13 @@
 ##   genome-wide data." Molecular Ecology Resources (2018).
 ## Included in LDscnR with permission as the downstream association step for the
 ## LD-pruned marker set; only namespace-qualification of stats/MASS/parallel
-## calls has been added -- the numerical algorithm is unchanged. The emma.*
+## calls has been added -- the numerical algorithm is unchanged, except for
+## emmax(covar_method = "gls"), the exact covariate model added in 0.9.3 (the
+## original covariate handling is covar_method = "residualise"). The emma.*
 ## helpers are the EMMA REML routines (Kang et al. 2008) and are internal.
+
+## Session state: the `Covar` deprecation warning is given once per session.
+.emmax_state <- new.env(parent = emptyenv())
 
 #' EMMAX single-locus association test accounting for relatedness
 #'
@@ -26,16 +31,23 @@
 #'   `NULL` (default) skips permutation; if set, the `MASS` package is required.
 #' @param binary Logical; if `TRUE` and `B` is set, permutation phenotypes are
 #'   dichotomised to match the case/control ratio of `Y`.
-#' @param Covar Optional covariates (a vector, matrix or data.frame; see
-#'   [emmax_setup()]'s `covar`), fitted as fixed effects alongside the
-#'   intercept: REML uses \eqn{X = [1, Covar]} and every marker is tested
-#'   conditional on it, on `n - ncol(X) - 1` residual degrees of freedom. A
-#'   single covariate that does not vary is ignored, as before. Up to 0.9.1 the
-#'   phenotype was instead replaced by the residuals of `lm(Y ~ Covar)`, with
-#'   the genotypes left unadjusted and `n - 2` degrees of freedom; that loses
-#'   power for markers correlated with a covariate and is slightly
-#'   anti-conservative.
+#' @param Covar Deprecated. Use `covar`. Supplying `Covar` selects
+#'   `covar_method = "residualise"` (unless `covar_method` is given), so scripts
+#'   written for earlier versions give the same numbers as before.
 #' @param cores Number of cores for the permutation loop.
+#' @param covar Optional covariates: a vector, factor, matrix or data.frame
+#'   with one row per individual (see [emmax_setup()]'s `covar` for how it is
+#'   turned into a design matrix).
+#' @param covar_method How `covar` enters the test. `"gls"` (default) fits it
+#'   as fixed effects alongside the intercept: REML uses \eqn{X = [1, C]} and
+#'   every marker is tested conditional on \eqn{X} by generalised least
+#'   squares, on `n - ncol(X) - 1` residual degrees of freedom; this is the
+#'   same model as [emmax_setup()] + [emmax_fast()]. `"residualise"` is the
+#'   method of earlier versions: `Y` is replaced by the residuals of
+#'   `lm(Y ~ covar)` (a covariate that does not vary is ignored), the
+#'   genotypes are left unadjusted and the test uses `n - 2` degrees of
+#'   freedom. It loses power for markers correlated with a covariate and is
+#'   slightly anti-conservative; use it only to reproduce old results.
 #'
 #' @return A list with `F` (per-column F statistics), `pval` (F-test p-values),
 #'   `Rsq` (per-column \eqn{R^2}), and -- when `B` is supplied -- `pval.corr`
@@ -48,7 +60,20 @@
 #' by Zitong Li.
 #'
 #' @export
-emmax <- function(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1) {
+emmax <- function(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1,
+                  covar = NULL, covar_method = c("gls", "residualise")) {
+  if (!is.null(Covar)) {
+    if (!is.null(covar)) stop("Supply `covar` only; `Covar` is its deprecated alias.")
+    if (!isTRUE(.emmax_state$covar_warned)) {
+      warning("`Covar` is deprecated: it residualises `Y` on the covariates ",
+              "(covar_method = \"residualise\"). Use `covar`, which fits them ",
+              "exactly (covar_method = \"gls\").", call. = FALSE)
+      .emmax_state$covar_warned <- TRUE
+    }
+    covar <- Covar
+    if (missing(covar_method)) covar_method <- "residualise"
+  }
+  covar_method <- match.arg(covar_method)
 
   n <- length(Y)
   m <- ncol(X)
@@ -58,9 +83,16 @@ emmax <- function(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1) {
   stopifnot(nrow(X) == n)
   stopifnot(nbchunks >= 2)
 
-  ## FIXED EFFECTS: intercept plus covariates, tested against exactly (GLS)
-  if (!is.null(Covar) && is.null(dim(Covar)) && length(unique(Covar)) <= 1) Covar <- NULL
-  Xo <- .emmax_design(Covar, n)
+  ## FIXED EFFECTS: intercept plus covariates, tested exactly ("gls"), or the
+  ## intercept only with Y residualised on the covariates ("residualise")
+  if (covar_method == "residualise") {
+    if (!is.null(covar) & length(unique(covar)) > 1) {
+      Y <- stats::resid(stats::lm(Y ~ covar))
+    }
+    Xo <- matrix(1, n, 1)
+  } else {
+    Xo <- .emmax_design(covar, n)
+  }
 
   ## K MATRIX NORMALISATION
   K_norm <- (n - 1) / sum((diag(n) - matrix(1, n, n) / n) * K) * K

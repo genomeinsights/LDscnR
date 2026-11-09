@@ -1,3 +1,50 @@
+# LDscnR 0.9.3
+
+## Exact fixed-effect covariates in EMMAX
+
+* `emmax_setup()` gains `covar`: a vector, factor, matrix or data.frame with
+  one row per individual. It is turned into a design matrix once
+  (`model.matrix()`, so factors become indicator columns; zero-variance
+  columns are dropped), and the fixed effects become `X = [1, covar]`. REML
+  is fitted with that `X`, and `emmax_fast()` tests each SNP by generalised
+  least squares conditional on it (Frisch-Waugh-Lovell in the whitened
+  space), on `n - ncol(X) - 1` residual degrees of freedom. The prep keeps
+  its covariates for every phenotype, which is what permutation loops need.
+  Covariates that are rank-deficient together with the intercept are
+  rejected. Without `covar`, p-values are bit-for-bit those of 0.9.2.
+* Regressing the phenotype on the covariates first, the previous approach,
+  leaves the genotypes unadjusted. That shrinks the test statistic of a SNP
+  by about `sqrt(1 - R^2(SNP ~ covar))` and loses power exactly for SNPs
+  correlated with a covariate, and with `n - 2` degrees of freedom it is
+  slightly anti-conservative.
+* `emmax()` gains `covar` and `covar_method = c("gls", "residualise")`.
+  `"gls"` (default) is the exact model above; `"residualise"` is the old
+  method. `Covar` is deprecated: it still works, selects `"residualise"` and
+  gives the same numbers as before, with a once-per-session warning.
+* `emmax_fast()` accepts a matrix of phenotypes (one per column, e.g.
+  permutations) and returns a SNPs x phenotypes matrix. Its result carries
+  the attributes `df2` and `covar_names`. A SNP with nothing left to test
+  (monomorphic, or explained completely by the covariates) gets `NA`, not
+  `NaN`. The prep adds `X`, `Xt_X`, `covar_names` and `df2`; `Xo` and `xot`
+  are kept, and preps saved by earlier versions still work.
+* `ld_outlier_regions()`, `structured_null()` and `ld_cscore_scan()` pass a
+  new `covar` argument to `emmax_setup()`. `structured_null()` makes its
+  surrogates orthogonal to `[1, covar, y]` instead of `y` only when the model
+  has covariates. `ld_outlier_clusters()` gains `covar` for
+  `null = "permutation"`, which permutes `Y` with the covariates fixed; its
+  permuted scans now call `emmax_fast()` instead of an inline copy of it
+  (results without `covar` are unchanged).
+
+## Fixes
+
+* `ld_complexity_reduction()` again stores `params$rho` (equal to `r2_rho`),
+  so callers written for 0.9.1 that pass `min_r2_rho = stage1$params$rho` to
+  `ld_prune_and_eMLG()` keep working. In 0.9.2 they passed `NULL` and failed
+  on the first chromosome with flagged clusters with `'names' attribute [n]
+  must be the same length as the vector [0]`. `ld_prune_and_eMLG()` now
+  rejects a `NULL` or out-of-range `r2_rho` or `dist_rho` with a clear
+  message.
+
 # LDscnR 0.9.2
 
 * `ld_complexity_reduction()` gains an optional `r2_th` argument, a fixed r2
@@ -14,30 +61,6 @@
 * `ld_outlier_scan()` passes `r2_th` on to `ld_outlier_test()`, and
   `ld_prune_and_eMLG()` uses a fixed `r2_th` stored on `stage1` when none is
   given.
-
-## Exact covariates in EMMAX
-
-* `emmax_setup()` gains `covar`, a vector, matrix or data.frame of covariates
-  (factors are expanded to indicator columns). The fixed effects become
-  `X = [1, covar]`: REML is fitted with that `X`, and `emmax_fast()` tests
-  each SNP by exact GLS conditional on it, with `n - ncol(X) - 1` residual
-  degrees of freedom. Regressing the phenotype on the covariates first, the
-  previous approach, leaves the genotypes unadjusted and loses power for
-  SNPs correlated with a covariate (by a factor of about
-  `sqrt(1 - R^2(SNP ~ covar))` in the test statistic). Covariates that are
-  rank-deficient together with the intercept are rejected. Without `covar`,
-  p-values are bit-for-bit the same as before.
-* `emmax_fast()` accepts a matrix of phenotypes (one per column, e.g.
-  permutations) and returns a SNPs x phenotypes matrix. Its result carries
-  the attributes `df2` and `covar_names`.
-* `emmax(Covar = )` now fits the covariates the same exact way, instead of
-  residualising `Y` and using `n - 2` degrees of freedom (which was slightly
-  anti-conservative). A single constant covariate is still ignored.
-* `ld_outlier_regions()`, `structured_null()` and `ld_cscore_scan()` pass a
-  new `covar` argument to `emmax_setup()`. `ld_outlier_clusters()` gains
-  `covar` for `null = "permutation"`, whose permuted scans now call
-  `emmax_fast()` instead of an inline copy of it (results without `covar`
-  are unchanged).
 
 ## Consistent argument names
 
@@ -65,13 +88,7 @@ but give a deprecation warning.
 * `params` of `ld_complexity_reduction()`, `ld_prune_and_eMLG()` and
   `ld_outlier_test()` use the new names (`r2_rho`, `r2_th`, `dist_rho`,
   `r2_th_resolved`). Stage-1 objects saved by earlier versions, which store
-  `params$rho`, are still read correctly. `ld_complexity_reduction()` also
-  still stores `params$rho` (equal to `r2_rho`), so callers written for 0.9.1
-  that pass `min_r2_rho = stage1$params$rho` to `ld_prune_and_eMLG()` keep
-  working. Before this, they passed `NULL` and failed on the first
-  chromosome with flagged clusters with `'names' attribute [n] must be the
-  same length as the vector [0]`. `ld_prune_and_eMLG()` now rejects a `NULL`
-  or out-of-range `r2_rho` or `dist_rho` with a clear message.
+  `params$rho`, are still read correctly.
 
 ## Changed default
 

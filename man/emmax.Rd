@@ -4,7 +4,17 @@
 \alias{emmax}
 \title{EMMAX single-locus association test accounting for relatedness}
 \usage{
-emmax(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1)
+emmax(
+  Y,
+  X,
+  K,
+  B = NULL,
+  binary = FALSE,
+  Covar = NULL,
+  cores = 1,
+  covar = NULL,
+  covar_method = c("gls", "residualise")
+)
 }
 \arguments{
 \item{Y}{Numeric phenotype vector (length \code{n} individuals).}
@@ -20,17 +30,26 @@ emmax(Y, X, K, B = NULL, binary = FALSE, Covar = NULL, cores = 1)
 \item{binary}{Logical; if \code{TRUE} and \code{B} is set, permutation phenotypes are
 dichotomised to match the case/control ratio of \code{Y}.}
 
-\item{Covar}{Optional covariates (a vector, matrix or data.frame; see
-\code{\link[=emmax_setup]{emmax_setup()}}'s \code{covar}), fitted as fixed effects alongside the
-intercept: REML uses \eqn{X = [1, Covar]} and every marker is tested
-conditional on it, on \code{n - ncol(X) - 1} residual degrees of freedom. A
-single covariate that does not vary is ignored, as before. Up to 0.9.1 the
-phenotype was instead replaced by the residuals of \code{lm(Y ~ Covar)}, with
-the genotypes left unadjusted and \code{n - 2} degrees of freedom; that loses
-power for markers correlated with a covariate and is slightly
-anti-conservative.}
+\item{Covar}{Deprecated. Use \code{covar}. Supplying \code{Covar} selects
+\code{covar_method = "residualise"} (unless \code{covar_method} is given), so scripts
+written for earlier versions give the same numbers as before.}
 
 \item{cores}{Number of cores for the permutation loop.}
+
+\item{covar}{Optional covariates: a vector, factor, matrix or data.frame
+with one row per individual (see \code{\link[=emmax_setup]{emmax_setup()}}'s \code{covar} for how it is
+turned into a design matrix).}
+
+\item{covar_method}{How \code{covar} enters the test. \code{"gls"} (default) fits it
+as fixed effects alongside the intercept: REML uses \eqn{X = [1, C]} and
+every marker is tested conditional on \eqn{X} by generalised least
+squares, on \code{n - ncol(X) - 1} residual degrees of freedom; this is the
+same model as \code{\link[=emmax_setup]{emmax_setup()}} + \code{\link[=emmax_fast]{emmax_fast()}}. \code{"residualise"} is the
+method of earlier versions: \code{Y} is replaced by the residuals of
+\code{lm(Y ~ covar)} (a covariate that does not vary is ignored), the
+genotypes are left unadjusted and the test uses \code{n - 2} degrees of
+freedom. It loses power for markers correlated with a covariate and is
+slightly anti-conservative; use it only to reproduce old results.}
 }
 \value{
 A list with \code{F} (per-column F statistics), \code{pval} (F-test p-values),

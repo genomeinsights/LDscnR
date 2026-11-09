@@ -20,61 +20,68 @@
 #'   columns (column names = markers).
 #' @param K Kinship / GRM matrix (individuals x individuals), aligned to `GTs`.
 #' @param covar Optional covariates, aligned to the rows of `GTs`: a numeric
-#'   vector, a numeric matrix, or a data.frame. Factor and character columns of
-#'   a data.frame are expanded to indicator columns with
-#'   `model.matrix(~ ., covar)[, -1]`. The intercept is always added, so do not
-#'   include one. Together with the intercept the covariates must have full
-#'   column rank, and they may not contain `NA`. A prep object holds one
-#'   covariate set; build another prep for a different set. `NULL` (default)
+#'   vector, a factor, a numeric matrix, or a data.frame. It is turned into a
+#'   design matrix once, with `model.matrix(~ ., data = as.data.frame(covar))`
+#'   without its intercept column, so factor and character columns become
+#'   indicator columns. Columns with zero variance are dropped. The intercept
+#'   is always added, so do not include one. Together with the intercept the
+#'   remaining columns must have full rank, and `covar` may not contain `NA`. A
+#'   prep object holds one covariate set, reused for every phenotype passed to
+#'   [emmax_fast()]; build another prep for a different set. `NULL` (default)
 #'   fits an intercept only, exactly as before covariates were supported.
 #'
-#' @return An `emmax_prep` list consumed by [emmax_fast()]: the scaled kinship,
-#'   its eigenbasis, the design matrix `Xo` (`[1, covar]`), the rotated
-#'   genotypes and design, the residual degrees of freedom `df2`
-#'   (`n - ncol(Xo) - 1`), and `covar_names`.
+#' @details The model is \eqn{y = X\beta + x\gamma + g + e}, with
+#'   \eqn{g \sim N(0, \sigma_g^2 K_n)} and \eqn{e \sim N(0, \sigma_e^2 I)}, where
+#'   \eqn{X = [1, C]} and \eqn{K_n} is `K` rescaled as in [emmax()]. The variance
+#'   components are estimated by REML under the null (\eqn{\gamma = 0}) with
+#'   that \eqn{X}, once per phenotype.
+#'
+#' @return An `emmax_prep` list consumed by [emmax_fast()]: the scaled kinship
+#'   `Kn`, its eigenbasis (`V`, `lam`), the rotated genotypes `Xt`, the design
+#'   `X` (`[1, covar]`) and its rotation `Xt_X`, the REML eigensystem `eigR`
+#'   for that design, the residual degrees of freedom `df2`
+#'   (`n - ncol(X) - 1`) and `covar_names`. `Xo` and `xot` (the intercept and
+#'   its rotation) are kept for code written against earlier versions.
 #' @seealso [emmax_fast()], [emmax()]
 #' @export
 emmax_setup <- function(GTs, K, covar = NULL) {
   n <- nrow(GTs)
   one_n <- matrix(1 / n, n, n)
   Kn <- (n - 1) / sum((diag(n) - one_n) * K) * K        # scale kinship to match emmax()
-  Xo <- .emmax_design(covar, n)
+  Xo <- matrix(1, n, 1)
+  X <- .emmax_design(covar, n)
   ev <- eigen(Kn, symmetric = TRUE)
-  xot <- crossprod(ev$vectors, Xo)
-  list(Kn = Kn, Xo = Xo, eigR = emma.eigen.R.wo.Z(Kn, Xo),
+  list(Kn = Kn, Xo = Xo, eigR = emma.eigen.R.wo.Z(Kn, X),
        V = ev$vectors, lam = ev$values,
-       Xt = crossprod(ev$vectors, GTs),
-       xot = if (ncol(Xo) == 1L) as.numeric(xot) else xot,
-       df2 = n - ncol(Xo) - 1L,
-       covar_names = colnames(Xo)[-1L])
+       Xt = crossprod(ev$vectors, GTs), xot = as.numeric(crossprod(ev$vectors, Xo)),
+       df2 = n - ncol(X) - 1L,
+       X = X, Xt_X = crossprod(ev$vectors, X), covar_names = colnames(X)[-1L])
 }
 
 ## The fixed-effect design [1, covar] for emmax_setup() and emmax(). Factors
-## and character columns become indicator columns; the result must have full
-## column rank, because REML and the GLS projection both assume it.
+## and character columns become indicator columns and zero-variance columns are
+## dropped; the result must have full column rank, because REML and the GLS
+## projection both assume it.
 .emmax_design <- function(covar, n) {
-  if (is.null(covar)) return(matrix(1, n, 1L, dimnames = list(NULL, "(Intercept)")))
-  if (is.data.frame(covar)) {
-    covar <- as.data.frame(lapply(covar, function(v) if (is.character(v)) factor(v) else v))
-    if (anyNA(covar)) stop("`covar` must not contain NA.")
-    C <- stats::model.matrix(~ ., covar)[, -1L, drop = FALSE]
-  } else {
-    C <- as.matrix(covar)
-    if (!is.numeric(C)) stop("`covar` must be numeric, or a data.frame with factor columns.")
-    if (is.null(colnames(C))) colnames(C) <- paste0("covar", seq_len(ncol(C)))
-  }
-  if (nrow(C) != n)
-    stop("`covar` has ", nrow(C), " rows but there are ", n, " individuals.")
-  if (anyNA(C)) stop("`covar` must not contain NA.")
-  X <- cbind(`(Intercept)` = 1, C)
+  X <- matrix(1, n, 1L, dimnames = list(NULL, "(Intercept)"))
+  if (is.null(covar)) return(X)
+  df <- as.data.frame(covar)
+  if (is.null(dim(covar)) && ncol(df) == 1L) names(df) <- "covar"
+  if (nrow(df) != n)
+    stop("`covar` has ", nrow(df), " rows but there are ", n, " individuals.")
+  if (anyNA(df)) stop("`covar` must not contain NA.")
+  C <- stats::model.matrix(~ ., data = df)[, -1L, drop = FALSE]
+  C <- C[, apply(C, 2L, function(v) any(v != v[1L])), drop = FALSE]
+  X <- cbind(X, C)
   qx <- qr(X)
   if (qx$rank < ncol(X)) {
     bad <- colnames(X)[qx$pivot[seq.int(qx$rank + 1L, ncol(X))]]
     stop("`covar` is rank-deficient together with the intercept: ",
          paste(bad, collapse = ", "), " is a linear combination of the other ",
-         "columns (or constant). Drop it.")
+         "columns. Drop it.")
   }
-  if (n - ncol(X) - 1L < 1L) stop("Too many covariates for ", n, " individuals.")
+  if (n - ncol(X) - 1L < 1L)
+    stop("Too many covariates for ", n, " individuals: no residual degrees of freedom left.")
   X
 }
 
@@ -122,33 +129,38 @@ emmax_fast <- function(prep, Y,
 }
 
 ## One phenotype. An intercept-only prep keeps the original arithmetic, so its
-## p-values are bit-for-bit what they were before covariates were supported.
+## p-values are bit-for-bit what they were before covariates were supported. A
+## SNP with no variation left to test (monomorphic, or explained completely by
+## the covariates) gets NA.
 .emmax_fast1 <- function(prep, Y) {
-  re  <- emma.REMLE(Y, prep$Xo, prep$Kn, eig.R = prep$eigR)
+  X   <- if (is.null(prep$X)) prep$Xo else prep$X     # preps from before 0.9.3 have no X
+  re  <- emma.REMLE(Y, X, prep$Kn, eig.R = prep$eigR)
   wv  <- 1 / sqrt(re$vg * prep$lam + re$ve)              # whitening weights
   yt  <- as.numeric(crossprod(prep$V, Y)) * wv
   Xtw <- prep$Xt * wv
-  if (NCOL(prep$Xo) == 1L) {
+  if (ncol(X) == 1L) {
     xo  <- prep$xot * wv
     a2  <- sum(xo * xo)
     ra  <- yt - xo * (sum(xo * yt) / a2)                # residual under the null (intercept only)
     RSS0 <- sum(ra * ra)
     Rb  <- Xtw - outer(xo, as.numeric(crossprod(xo, Xtw)) / a2)
     RSSf <- RSS0 - as.numeric(crossprod(ra, Rb))^2 / colSums(Rb * Rb)
-    return(stats::pf((RSS0 / RSSf - 1) * prep$df2, 1, prep$df2, lower.tail = FALSE))
+    p <- stats::pf((RSS0 / RSSf - 1) * prep$df2, 1, prep$df2, lower.tail = FALSE)
+    p[is.nan(p)] <- NA_real_
+    return(p)
   }
   ## Exact GLS conditional on X = [1, covar] (Frisch-Waugh-Lovell): with Q an
   ## orthonormal basis of the whitened X and M = I - QQ', the SNP effect is
   ## G'My / G'MG. M is idempotent, so the numerator needs only My, and
   ## G'MG = ||G||^2 - ||Q'G||^2.
-  Q   <- qr.Q(qr(prep$xot * wv))
+  Q   <- qr.Q(qr(prep$Xt_X * wv))
   ra  <- yt - as.numeric(Q %*% crossprod(Q, yt))
   RSS0 <- sum(ra * ra)
   num <- as.numeric(crossprod(ra, Xtw))
   den <- colSums(Xtw * Xtw) - colSums(crossprod(Q, Xtw)^2)
-  ## A SNP the covariates explain completely (or a monomorphic one) has no
-  ## variation left to test.
   den[den <= 1e-10 * colSums(Xtw * Xtw)] <- NA_real_
   RSSf <- RSS0 - num^2 / den
-  stats::pf((RSS0 / RSSf - 1) * prep$df2, 1, prep$df2, lower.tail = FALSE)
+  p <- stats::pf((RSS0 / RSSf - 1) * prep$df2, 1, prep$df2, lower.tail = FALSE)
+  p[is.nan(p)] <- NA_real_
+  p
 }

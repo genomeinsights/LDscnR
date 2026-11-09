@@ -46,8 +46,9 @@ captures structure without absorbing the signal.}
 
 \item{seed}{RNG seed for reproducible surrogates.}
 
-\item{covar}{Optional covariates for the EMMAX model (see \code{\link[=emmax_setup]{emmax_setup()}}); used
-only when \code{prep} is built here.}
+\item{covar}{Optional covariates for the EMMAX model (see \code{\link[=emmax_setup]{emmax_setup()}});
+used only when \code{prep} is built here. Surrogates are made orthogonal to
+them as well as to \code{y}.}
 }
 \value{
 An \code{ld_null} object: \code{C_obs} (the full observed per-SNP C-vector),
@@ -69,7 +70,8 @@ is too permissive.
 }
 \details{
 Surrogates keep the structure but are made orthogonal to \code{y} by Gram-Schmidt
-(\code{resid(lm(surrogate ~ y))}):
+(\code{resid(lm(surrogate ~ y))}), or, when the EMMAX model has covariates, to
+\verb{[1, covar, y]}, so the negative control carries no covariate signal either:
 \itemize{
 \item \code{basis = "genetic"}: \code{surrogate ~ MVN(0, K)} -- same genetic-relatedness
 covariance as the observed structure (use when confounding is genetic, e.g.

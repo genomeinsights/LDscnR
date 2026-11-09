@@ -13,19 +13,23 @@ columns (column names = markers).}
 \item{K}{Kinship / GRM matrix (individuals x individuals), aligned to \code{GTs}.}
 
 \item{covar}{Optional covariates, aligned to the rows of \code{GTs}: a numeric
-vector, a numeric matrix, or a data.frame. Factor and character columns of
-a data.frame are expanded to indicator columns with
-\code{model.matrix(~ ., covar)[, -1]}. The intercept is always added, so do not
-include one. Together with the intercept the covariates must have full
-column rank, and they may not contain \code{NA}. A prep object holds one
-covariate set; build another prep for a different set. \code{NULL} (default)
+vector, a factor, a numeric matrix, or a data.frame. It is turned into a
+design matrix once, with \code{model.matrix(~ ., data = as.data.frame(covar))}
+without its intercept column, so factor and character columns become
+indicator columns. Columns with zero variance are dropped. The intercept
+is always added, so do not include one. Together with the intercept the
+remaining columns must have full rank, and \code{covar} may not contain \code{NA}. A
+prep object holds one covariate set, reused for every phenotype passed to
+\code{\link[=emmax_fast]{emmax_fast()}}; build another prep for a different set. \code{NULL} (default)
 fits an intercept only, exactly as before covariates were supported.}
 }
 \value{
-An \code{emmax_prep} list consumed by \code{\link[=emmax_fast]{emmax_fast()}}: the scaled kinship,
-its eigenbasis, the design matrix \code{Xo} (\verb{[1, covar]}), the rotated
-genotypes and design, the residual degrees of freedom \code{df2}
-(\code{n - ncol(Xo) - 1}), and \code{covar_names}.
+An \code{emmax_prep} list consumed by \code{\link[=emmax_fast]{emmax_fast()}}: the scaled kinship
+\code{Kn}, its eigenbasis (\code{V}, \code{lam}), the rotated genotypes \code{Xt}, the design
+\code{X} (\verb{[1, covar]}) and its rotation \code{Xt_X}, the REML eigensystem \code{eigR}
+for that design, the residual degrees of freedom \code{df2}
+(\code{n - ncol(X) - 1}) and \code{covar_names}. \code{Xo} and \code{xot} (the intercept and
+its rotation) are kept for code written against earlier versions.
 }
 \description{
 Eigendecomposes the kinship once and rotates the genotype matrix into the
@@ -44,6 +48,12 @@ metric), with \code{n - ncol(X) - 1} residual degrees of freedom. This is not th
 same as regressing the phenotype on \code{covar} first and scanning the residuals:
 that leaves the genotypes unadjusted, which shrinks the effect of every SNP
 that is correlated with a covariate and loses power for exactly those SNPs.
+
+The model is \eqn{y = X\beta + x\gamma + g + e}, with
+\eqn{g \sim N(0, \sigma_g^2 K_n)} and \eqn{e \sim N(0, \sigma_e^2 I)}, where
+\eqn{X = [1, C]} and \eqn{K_n} is \code{K} rescaled as in \code{\link[=emmax]{emmax()}}. The variance
+components are estimated by REML under the null (\eqn{\gamma = 0}) with
+that \eqn{X}, once per phenotype.
 }
 \seealso{
 \code{\link[=emmax_fast]{emmax_fast()}}, \code{\link[=emmax]{emmax()}}

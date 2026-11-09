@@ -11,7 +11,8 @@
 #' is too permissive.
 #'
 #' Surrogates keep the structure but are made orthogonal to `y` by Gram-Schmidt
-#' (`resid(lm(surrogate ~ y))`):
+#' (`resid(lm(surrogate ~ y))`), or, when the EMMAX model has covariates, to
+#' `[1, covar, y]`, so the negative control carries no covariate signal either:
 #' * `basis = "genetic"`: `surrogate ~ MVN(0, K)` -- same genetic-relatedness
 #'   covariance as the observed structure (use when confounding is genetic, e.g.
 #'   ecotype divergence).
@@ -34,8 +35,9 @@
 #'   [ld_outlier_regions()] to avoid re-rotating the genotypes); built from
 #'   `GTs`, `K` if `NULL`.
 #' @param seed RNG seed for reproducible surrogates.
-#' @param covar Optional covariates for the EMMAX model (see [emmax_setup()]); used
-#'   only when `prep` is built here.
+#' @param covar Optional covariates for the EMMAX model (see [emmax_setup()]);
+#'   used only when `prep` is built here. Surrogates are made orthogonal to
+#'   them as well as to `y`.
 #'
 #' @return An `ld_null` object: `C_obs` (the full observed per-SNP C-vector),
 #'   `C_surr` (list of `B` *sparse* surrogate C-vectors, only `C > 0`),
@@ -59,9 +61,13 @@ structured_null <- function(y, GTs, K, ld_ws, basis = c("genetic", "spatial"),
     eK <- eigen(exp(-0.5 * (Dm / l)^2), symmetric = TRUE)
   }
   Lv <- pmax(eK$values, 0); Vk <- eK$vectors
+  ## The prep's covariates (a prep passed in may carry its own).
+  Xc <- if (!is.null(prep$X) && ncol(prep$X) > 1L) prep$X else NULL
+  qXy <- if (!is.null(Xc)) qr(cbind(Xc, y))
   gen <- function() {
     s <- as.numeric(Vk %*% (sqrt(Lv) * stats::rnorm(n)))
-    as.numeric(stats::resid(stats::lm(s ~ y)))
+    if (is.null(qXy)) as.numeric(stats::resid(stats::lm(s ~ y)))
+    else as.numeric(qr.resid(qXy, s))
   }
   sparseC <- function(pv) { C <- ld_cscore(pv, ld_ws, alpha, rho, qstar); C[C > 0] }
   C_obs <- ld_cscore(emmax_fast(prep, y), ld_ws, alpha, rho, qstar)   # full observed C
