@@ -85,3 +85,19 @@ test_that("duplicate map markers are rejected before any expensive computation",
     "duplicate"
   )
 })
+
+test_that("consensus_dosage units by column index equal the by-name consensus, in any column order", {
+  d <- build_stage1()
+  set.seed(2)
+  G <- d$GTs[, sample(ncol(d$GTs))]                      # columns no longer in member order
+  m <- ld_unit_matrix(G, d$stage1, d$map, size_floor = 2L, repr = "consensus_dosage")
+  units <- attr(m, "units")
+  mem <- d$stage1$clusters$members[match(units$unit_id, d$stage1$clusters$CL_id)]
+  ref <- vapply(mem, function(mk) consensus_dosage(G, mk), numeric(nrow(G)))
+  attr(m, "units") <- NULL
+  expect_identical(unname(m), unname(ref))
+  e <- make_eMLGs(G, data.table::as.data.table(d$stage1$map_snp), input = "dosage", size_floor = 1)
+  e_ref <- vapply(split(d$stage1$map_snp$marker, d$stage1$map_snp$CL_id),
+                  function(mk) expected_gt_dosage(G[, mk, drop = FALSE]), numeric(nrow(G)))
+  expect_equal(unname(e$eMLG[, colnames(e_ref)]), unname(e_ref))
+})

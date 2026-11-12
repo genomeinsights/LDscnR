@@ -37,6 +37,12 @@
 
 ## Fixes
 
+* `ld_unit_matrix()`, `ld_prune_and_eMLG()` and `make_eMLGs()` look up each
+  cluster's genotype columns by position, matched once for all clusters,
+  instead of subsetting `GTs` by marker name once per cluster. Subsetting by
+  name re-hashes every column name on each call (about 40 ms at 1M markers),
+  so building tens of thousands of units took about half an hour; it now
+  takes seconds. Results are identical.
 * `ld_complexity_reduction()` again stores `params$rho` (equal to `r2_rho`),
   so callers written for 0.9.1 that pass `min_r2_rho = stage1$params$rho` to
   `ld_prune_and_eMLG()` keep working. In 0.9.2 they passed `NULL` and failed

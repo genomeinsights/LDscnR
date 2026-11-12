@@ -421,20 +421,21 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
     unflagged_eMLG <- if (nrow(unflagged_for_eMLG)) {
       n_u <- nrow(unflagged_for_eMLG)
       message("Computing eMLGs for ", n_u, " unflagged clusters...")
+      cols_u <- .member_columns(unflagged_for_eMLG$members, GTs)
       m_list <- if (cores > 1 && .Platform$OS.type != "windows") {
         ## fork-based: GTs is shared via copy-on-write, not duplicated per
         ## worker, as long as each worker only reads it (consensus_dosage
         ## never modifies GTs) -- no progress bar under mclapply.
         parallel::mclapply(
           seq_len(n_u),
-          function(i) consensus_dosage(GTs, unflagged_for_eMLG$members[[i]]),
+          function(i) consensus_dosage(GTs, cols_u[[i]]),
           mc.cores = cores
         )
       } else {
         pb <- utils::txtProgressBar(min = 0, max = n_u, style = 3)
         out <- vector("list", n_u)
         for (i in seq_len(n_u)) {
-          out[[i]] <- consensus_dosage(GTs, unflagged_for_eMLG$members[[i]])
+          out[[i]] <- consensus_dosage(GTs, cols_u[[i]])
           utils::setTxtProgressBar(pb, i)
         }
         close(pb)
@@ -508,8 +509,9 @@ ld_prune_and_eMLG <- function(GTs, stage1, ld_w_col, ld_w_threshold,
   message("Computing eMLGs for ", n_f, " flagged clusters...")
   pb <- utils::txtProgressBar(min = 0, max = n_f, style = 3)
   flagged_eMLG_list <- vector("list", n_f)
+  cols_f <- .member_columns(flagged$members, GTs)
   for (i in seq_len(n_f)) {
-    flagged_eMLG_list[[i]] <- consensus_dosage(GTs, flagged$members[[i]])
+    flagged_eMLG_list[[i]] <- consensus_dosage(GTs, cols_f[[i]])
     utils::setTxtProgressBar(pb, i)
   }
   close(pb)

@@ -250,11 +250,13 @@ make_eMLGs <- function(GTs,
     dosage = expected_gt_dosage
   )
 
-  process_cluster <- function(markers) {
-    expected_fun(GTs[, markers, drop = FALSE])
+  ## by column index, matched once (see .member_columns())
+  cols <- stats::setNames(.member_columns(cls, GTs), names(cls))
+  process_cluster <- function(j) {
+    expected_fun(GTs[, j, drop = FALSE])
   }
 
-  res <- parallel::mclapply(cls, process_cluster, mc.cores = cores)
+  res <- parallel::mclapply(cols, process_cluster, mc.cores = cores)
 
   eMLG <- do.call(cbind, res)
   colnames(eMLG) <- names(cls)

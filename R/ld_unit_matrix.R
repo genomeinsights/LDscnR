@@ -78,8 +78,8 @@ ld_unit_matrix <- function(GTs, stage1, map, size_floor = 8L,
 
   out <- switch(repr,
     consensus_dosage = {
-      m <- vapply(units$members, function(mk) consensus_dosage(GTs, mk),
-                  numeric(nrow(GTs)))
+      cols <- .member_columns(units$members, GTs)
+      m <- vapply(cols, function(j) consensus_dosage(GTs, j), numeric(nrow(GTs)))
       colnames(m) <- units$unit_id
       m
     },

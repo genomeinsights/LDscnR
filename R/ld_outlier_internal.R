@@ -28,6 +28,23 @@
   match(marker_names, ref_markers)
 }
 
+## Column indices of every member set in `GTs`, from ONE match() over all of
+## them. Subsetting a matrix by column NAME re-hashes all its column names on
+## every call -- about 40 ms per call at 1M markers -- so a per-cluster
+## GTs[, members] loop over tens of thousands of clusters spends its time
+## there (~30 min), not on the consensus itself. Index by position instead.
+## @return List of integer vectors, one per element of `members`, unnamed.
+.member_columns <- function(members, GTs) {
+  idx <- .marker_positions(unlist(members, use.names = FALSE), colnames(GTs))
+  if (anyNA(idx)) {
+    miss <- unique(unlist(members, use.names = FALSE)[is.na(idx)])
+    stop(sprintf("%d marker(s) are missing from `colnames(GTs)` (e.g. %s).",
+                 length(miss), paste(utils::head(miss, 5), collapse = ", ")))
+  }
+  unname(split(idx, factor(rep.int(seq_along(members), lengths(members)),
+                           levels = seq_along(members))))
+}
+
 ## One row per cluster clearing size_floor: unit_id, Chr, from, to, n_markers,
 ## members (list of marker names), core_snp. `map` supplies Pos for from/to.
 .ld_outlier_units <- function(stage1, map, size_floor) {
