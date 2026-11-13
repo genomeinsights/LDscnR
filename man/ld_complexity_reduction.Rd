@@ -12,6 +12,7 @@ ld_complexity_reduction(
   idx = NULL,
   gds = NULL,
   r2_th = NULL,
+  max_dense = 5000L,
   rho = NULL
 )
 }
@@ -50,6 +51,18 @@ connection across forks.}
 \item{r2_th}{Optional single number in (0, 1]. A fixed r2 clustering
 threshold applied to every chromosome instead of the decay-relative one
 derived from \code{r2_rho}. Default \code{NULL} keeps the decay-relative threshold.}
+
+\item{max_dense}{Largest single-linkage component (in markers) refined with a
+dense r2 matrix and \code{\link[stats:hclust]{stats::hclust()}}. Larger components use an equivalent
+sparse complete-linkage pass on the thresholded edges, whose memory scales
+with the number of edges rather than the square of the component size (a
+dense matrix costs 8 bytes per marker pair: 0.2 GB at 5,000 markers, 29 GB
+at 60,000). The sparse pass replays \code{\link[stats:hclust]{stats::hclust()}}'s own merge order,
+so the two give identical clusters, including when r2 values are tied.
+Component size grows with \code{slide} in \code{LD_decay$params}: raising the slide
+(e.g. after an LD-decay check) lets single linkage chain more markers into
+one component, so the largest component per chromosome is reported as
+each chromosome is clustered. Default \code{5000}.}
 
 \item{rho}{Deprecated. Use \code{r2_rho}.}
 }

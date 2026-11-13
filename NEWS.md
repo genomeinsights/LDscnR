@@ -37,6 +37,19 @@
 
 ## Fixes
 
+* `ld_complexity_reduction()` no longer runs out of memory on very large
+  single-linkage components. A component of `m` markers was refined with a
+  dense `m x m` r2 matrix and `hclust()`, which at full marker density and a
+  large `slide` (a 60,000-marker component on a 223k-marker chromosome at
+  `slide = 1500`) needs about 29 GB plus 15 GB for `dist()`. Components larger
+  than the new `max_dense` (default 5000) now use a sparse complete-linkage
+  pass on the thresholded edges, whose memory scales with the number of edges.
+  It replays `hclust()`'s own merge order, so clusters, cluster IDs,
+  representatives and `median_ld` are identical to the dense path, including
+  with tied r2 values; components up to `max_dense` use the dense code
+  unchanged. Threshold edges are also split by component once instead of
+  being rescanned for every component, and the per-chromosome message reports
+  the largest component.
 * `ld_unit_matrix()`, `ld_prune_and_eMLG()` and `make_eMLGs()` look up each
   cluster's genotype columns by position, matched once for all clusters,
   instead of subsetting `GTs` by marker name once per cluster. Subsetting by

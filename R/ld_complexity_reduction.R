@@ -170,12 +170,25 @@
 #'     passed a second time as a separate argument.}
 #' }
 #'
+#' @param max_dense Largest single-linkage component (in markers) refined with a
+#'   dense r2 matrix and [stats::hclust()]. Larger components use an equivalent
+#'   sparse complete-linkage pass on the thresholded edges, whose memory scales
+#'   with the number of edges rather than the square of the component size (a
+#'   dense matrix costs 8 bytes per marker pair: 0.2 GB at 5,000 markers, 29 GB
+#'   at 60,000). The sparse pass replays [stats::hclust()]'s own merge order,
+#'   so the two give identical clusters, including when r2 values are tied.
+#'   Component size grows with `slide` in `LD_decay$params`: raising the slide
+#'   (e.g. after an LD-decay check) lets single linkage chain more markers into
+#'   one component, so the largest component per chromosome is reported as
+#'   each chromosome is clustered. Default `5000`.
 #' @param rho Deprecated. Use `r2_rho`.
 #' @export
 ld_complexity_reduction <- function(map, LD_decay, r2_rho = 0.5, cores = 1, idx = NULL,
-                                    gds = NULL, r2_th = NULL,
+                                    gds = NULL, r2_th = NULL, max_dense = 5000L,
                                     rho = NULL) {
   if (!missing(rho)) r2_rho <- .renamed_arg(rho, "rho", "r2_rho")
+  if (!(is.numeric(max_dense) && length(max_dense) == 1L && !is.na(max_dense) && max_dense >= 0))
+    stop("`max_dense` must be a single non-negative number.")
 
   if (!is.null(r2_th) &&
       !(is.numeric(r2_th) && length(r2_th) == 1L && is.finite(r2_th) &&
@@ -276,11 +289,20 @@ ld_complexity_reduction <- function(map, LD_decay, r2_rho = 0.5, cores = 1, idx 
     components_list <- split(names(comp$membership), comp$membership)
     n_comp <- length(components_list)
 
-    message(ch, ": ", n_comp, " components")
+    message(ch, ": ", n_comp, " components (largest ", max(lengths(components_list)),
+            " markers)")
     pb <- utils::txtProgressBar(min = 0, max = n_comp, style = 3)
     on.exit(close(pb))
 
     per_component <- vector("list", n_comp)
+
+    ## Every threshold edge lies inside exactly one component (components are
+    ## built from these edges), so split the edges by component ONCE instead of
+    ## rescanning all of edges_th for every component (O(n_edges * n_components)).
+    ## Output-identical: each component sees exactly the rows the old
+    ## `edges_th[SNP1 %in% cm & SNP2 %in% cm]` filter returned, in the same order.
+    edge_comp <- comp$membership[edges_th$SNP1]
+    edge_rows <- split(seq_len(nrow(edges_th)), factor(edge_comp, levels = names(components_list)))
 
     for (i in seq_len(n_comp)) {
       cluster_markers <- components_list[[i]]
@@ -294,18 +316,40 @@ ld_complexity_reduction <- function(map, LD_decay, r2_rho = 0.5, cores = 1, idx 
         ## Stage 2: within this (single-linkage) component, refine to TRUE
         ## complete-linkage sub-clusters -- a component can still be a
         ## "chain" where not every pair inside it clears r2_th
-        sub_edges <- edges_th[SNP1 %in% cluster_markers & SNP2 %in% cluster_markers]
+        sub_edges <- edges_th[edge_rows[[i]]]
         m <- length(cluster_markers)
-        R2_sub <- matrix(0, m, m, dimnames = list(cluster_markers, cluster_markers))
-        diag(R2_sub) <- 1
         i1 <- match(sub_edges$SNP1, cluster_markers)
         i2 <- match(sub_edges$SNP2, cluster_markers)
-        R2_sub[cbind(i1, i2)] <- sub_edges$r2
-        R2_sub[cbind(i2, i1)] <- sub_edges$r2
 
-        d      <- stats::as.dist(1 - R2_sub)
-        hc     <- stats::hclust(d, method = "complete")
-        sub_cl <- stats::cutree(hc, h = 1 - r2_th)
+        if (m <= max_dense) {
+          R2_sub <- matrix(0, m, m, dimnames = list(cluster_markers, cluster_markers))
+          diag(R2_sub) <- 1
+          R2_sub[cbind(i1, i2)] <- sub_edges$r2
+          R2_sub[cbind(i2, i1)] <- sub_edges$r2
+
+          d      <- stats::as.dist(1 - R2_sub)
+          hc     <- stats::hclust(d, method = "complete")
+          sub_cl <- stats::cutree(hc, h = 1 - r2_th)
+          r2_of  <- function(sm) R2_sub[sm, sm, drop = FALSE]
+        } else {
+          ## Large component: the dense m x m matrix (8 m^2 bytes, plus dist())
+          ## is what exhausts memory at full marker density. Same complete-linkage
+          ## cut, computed on the sparse threshold graph (see .sparse_complete_linkage).
+          sub_cl <- .sparse_complete_linkage(m, i1, i2, 1 - sub_edges$r2, 1 - r2_th)
+          ## edges inside each final sub-cluster, split once (same reasoning as edge_rows)
+          within <- which(sub_cl[i1] == sub_cl[i2])
+          sub_rows <- split(within, sub_cl[i1][within])
+          r2_of  <- function(sm) {
+            k <- match(sm, cluster_markers)
+            R <- matrix(0, length(sm), length(sm), dimnames = list(sm, sm)); diag(R) <- 1
+            w <- sub_rows[[as.character(sub_cl[k[1]])]]
+            if (length(w)) {
+              a1 <- match(i1[w], k); a2 <- match(i2[w], k)
+              R[cbind(a1, a2)] <- sub_edges$r2[w]; R[cbind(a2, a1)] <- sub_edges$r2[w]
+            }
+            R
+          }
+        }
 
         ## same split()-not-rescan reasoning as above, one level down
         data.table::rbindlist(lapply(split(cluster_markers, sub_cl), function(sub_markers) {
@@ -318,7 +362,7 @@ ld_complexity_reduction <- function(map, LD_decay, r2_rho = 0.5, cores = 1, idx 
           }
 
           if (length(sub_markers) == 2) {
-            ld <- R2_sub[sub_markers[1], sub_markers[2]]
+            ld <- r2_of(sub_markers)[1, 2]
             return(data.table::data.table(
               marker = sub_markers, is_core = c(TRUE, FALSE),
               median_ld = ld, grp = sub_markers[1]
@@ -328,7 +372,7 @@ ld_complexity_reduction <- function(map, LD_decay, r2_rho = 0.5, cores = 1, idx 
           ## representative: highest median r2 to the rest of the sub-cluster
           ## (see roxygen note above for why, and why this reuses R2_sub
           ## instead of recomputing anything from GTs)
-          R2_sc <- R2_sub[sub_markers, sub_markers, drop = FALSE]
+          R2_sc <- r2_of(sub_markers)
           diag(R2_sc) <- NA  ## exclude self-similarity from each marker's median
           med_r2 <- apply(R2_sc, 1, stats::median, na.rm = TRUE)
           core <- sub_markers[which.max(med_r2)]
@@ -387,6 +431,105 @@ ld_complexity_reduction <- function(map, LD_decay, r2_rho = 0.5, cores = 1, idx 
   class(out) <- "ld_complexity_reduction"
   print(out)
   out
+}
+
+## Complete-linkage clustering cut at height h, computed on the SPARSE graph of
+## pairs with distance <= h (d = 1 - r2), without a dense m x m matrix, giving the
+## same partition as cutree(hclust(as.dist(D), "complete"), h = h) on the dense
+## matrix D in which every absent pair is 1 (r2 = 0), INCLUDING under ties.
+##
+## Why the sparse graph is enough: complete linkage is monotone, so every merge at
+## height <= h happens before any merge above h, and cutree(h) keeps exactly the
+## merges at height <= h. Two clusters merge at height <= h only if every cross
+## pair has d <= h; an absent pair (d = 1 > h, for any r2 threshold > 0) blocks the
+## merge for good. The complete-linkage update max(D(I2,K), D(J2,K)) therefore
+## leaves only the COMMON neighbours of the two merged clusters.
+##
+## Why the partitions are identical even with ties (30 diploids give many equal
+## r2 values): this replays the merge order of R's own hclust() Fortran routine
+## (stats/src/hclust.f, Murtagh's nearest-neighbour-list algorithm), not just any
+## valid complete-linkage order: NN(i) is the first j > i with the smallest D(i, j);
+## each step merges the pair from the first i with the smallest DISNN(i); the
+## merged cluster keeps the lower index I2; NN(I2) is recomputed over K > I2; and
+## every i whose NN was I2 or J2 is redetermined. Values above h (absent pairs) only
+## break ties among merges above h, which cutree(h) never uses, so they can be
+## treated as +Inf. Verified against hclust() on random banded graphs with heavy
+## ties and on every component of real full-density chromosomes.
+##
+## Memory is O(number of edges), not O(m^2): a 60,547-marker component that needs
+## 29 GB as a dense matrix (plus 15 GB for dist()) fits in tens of MB here.
+##
+## @param m Number of markers (vertices are 1..m, in the dense matrix's order).
+## @param i1,i2 Integer endpoints of the edges (1-based; self-pairs are ignored and a
+##   repeated pair keeps its last distance).
+## @param d Distances 1 - r2 of those edges.
+## @param h Cut height.
+## @return Integer vector of length m: cluster label per marker.
+.sparse_complete_linkage <- function(m, i1, i2, d, h) {
+  keep <- d <= h & i1 != i2
+  i1 <- i1[keep]; i2 <- i2[keep]; d <- d[keep]
+  ## A pair listed twice (in either orientation) takes its last value, as the
+  ## dense matrix's assignment does; the neighbour lists need each pair once.
+  dup <- duplicated(cbind(pmin(i1, i2), pmax(i1, i2)), fromLast = TRUE)
+  i1 <- i1[!dup]; i2 <- i2[!dup]; d <- d[!dup]
+  a <- c(i1, i2); b <- c(i2, i1); dd <- c(d, d)
+  nb <- rep(list(integer(0)), m); nd <- rep(list(numeric(0)), m)
+  if (length(a)) {
+    o <- order(a, b)
+    a <- a[o]; b <- b[o]; dd <- dd[o]
+    sp <- split(seq_along(a), factor(a, levels = seq_len(m)))
+    nb <- lapply(sp, function(k) b[k]); nd <- lapply(sp, function(k) dd[k])
+    names(nb) <- names(nd) <- NULL
+  }
+  ## neighbour lists are kept sorted by neighbour index, so "first j with the
+  ## minimum" is which.min over the j > i part
+  nn_after <- function(i) {
+    k <- nb[[i]]; v <- nd[[i]]
+    s <- k > i
+    if (!any(s)) return(c(NA_real_, Inf))
+    k <- k[s]; v <- v[s]
+    w <- which.min(v)
+    c(k[w], v[w])
+  }
+  nn <- rep(NA_integer_, m); disnn <- rep(Inf, m)
+  for (i in seq_len(m)) { r <- nn_after(i); nn[i] <- r[1]; disnn[i] <- r[2] }
+  active <- rep(TRUE, m)
+  members <- as.list(seq_len(m))
+  repeat {
+    im <- which.min(disnn)                 # first i with the smallest DISNN (inactive = Inf)
+    if (!length(im) || disnn[im] > h) break
+    jm <- nn[im]
+    i2 <- min(im, jm); j2 <- max(im, jm)
+    ## merge J2 into I2 (complete linkage: common neighbours, larger distance)
+    p_k <- nb[[i2]]; p_d <- nd[[i2]]; q_k <- nb[[j2]]; q_d <- nd[[j2]]
+    sp_ <- p_k != j2; p_k <- p_k[sp_]; p_d <- p_d[sp_]
+    sq_ <- q_k != i2; q_k <- q_k[sq_]; q_d <- q_d[sq_]
+    common <- p_k[p_k %in% q_k]            # stays sorted
+    newd <- pmax(p_d[match(common, p_k)], q_d[match(common, q_k)])
+    for (cc in union(p_k, q_k)) {
+      kc <- nb[[cc]]; dc <- nd[[cc]]
+      rm_ <- kc == i2 | kc == j2
+      kc <- kc[!rm_]; dc <- dc[!rm_]
+      j <- match(cc, common)
+      if (!is.na(j)) {
+        pos <- findInterval(i2, kc)
+        kc <- append(kc, i2, pos); dc <- append(dc, newd[j], pos)
+      }
+      nb[[cc]] <- kc; nd[[cc]] <- dc
+    }
+    nb[[i2]] <- common; nd[[i2]] <- newd
+    nb[j2] <- list(integer(0)); nd[j2] <- list(numeric(0))
+    active[j2] <- FALSE; disnn[j2] <- Inf; nn[j2] <- NA_integer_
+    members[[i2]] <- c(members[[i2]], members[[j2]]); members[j2] <- list(NULL)
+    r <- nn_after(i2); nn[i2] <- r[1]; disnn[i2] <- r[2]
+    ## redetermine NN of every i whose NN was I2 or J2
+    for (i in which(active & !is.na(nn) & (nn == i2 | nn == j2) & seq_len(m) != i2)) {
+      r <- nn_after(i); nn[i] <- r[1]; disnn[i] <- r[2]
+    }
+  }
+  label <- integer(m)
+  for (k in which(active)) label[members[[k]]] <- k
+  label
 }
 
 #' Print an ld_complexity_reduction Object

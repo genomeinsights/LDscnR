@@ -205,3 +205,30 @@ test_that("a fixed r2_th replaces the decay-relative threshold on every chromoso
   expect_error(ld_complexity_reduction(map, ld, r2_th = 0), "r2_th")
   expect_error(ld_complexity_reduction(map, ld, r2_th = c(0.3, 0.4)), "r2_th")
 })
+
+test_that(".sparse_complete_linkage reproduces cutree(hclust(complete)) exactly, including ties", {
+  part <- function(l) unname(sort(vapply(split(seq_along(l), l), paste, "", collapse = ",")))
+  set.seed(3)
+  for (rep in 1:100) {
+    m <- sample(5:80, 1); h <- runif(1, .2, .7)
+    P <- t(utils::combn(m, 2)); P <- P[P[, 2] - P[, 1] <= sample(3:20, 1), , drop = FALSE]
+    for (d in list(runif(nrow(P)), round(runif(nrow(P)) * 10) / 10)) {   # untied, then heavily tied
+      D <- matrix(1, m, m); diag(D) <- 0; D[P] <- d; D[P[, 2:1]] <- d
+      ref <- stats::cutree(stats::hclust(stats::as.dist(D), "complete"), h = h)
+      got <- LDscnR:::.sparse_complete_linkage(m, P[, 1], P[, 2], d, h)
+      expect_identical(part(got), part(ref))
+    }
+  }
+})
+
+test_that("the sparse pass gives the same Stage-1 result as the dense hclust pass", {
+  data(sim_ex, package = "LDscnR")
+  map <- data.table::as.data.table(sim_ex$map)[, .(Chr, Pos, marker)]
+  ld  <- build_decay()
+  dense  <- suppressMessages(ld_complexity_reduction(map, ld, r2_rho = 0.5, cores = 1))
+  sparse <- suppressMessages(ld_complexity_reduction(map, ld, r2_rho = 0.5, cores = 1,
+                                                     max_dense = 0))
+  expect_identical(sparse$map_snp, dense$map_snp)
+  expect_identical(sparse$clusters, dense$clusters)
+  expect_error(ld_complexity_reduction(map, ld, max_dense = -1), "max_dense")
+})
