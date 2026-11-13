@@ -522,8 +522,13 @@ ld_complexity_reduction <- function(map, LD_decay, r2_rho = 0.5, cores = 1, idx 
     active[j2] <- FALSE; disnn[j2] <- Inf; nn[j2] <- NA_integer_
     members[[i2]] <- c(members[[i2]], members[[j2]]); members[j2] <- list(NULL)
     r <- nn_after(i2); nn[i2] <- r[1]; disnn[i2] <- r[2]
-    ## redetermine NN of every i whose NN was I2 or J2
-    for (i in which(active & !is.na(nn) & (nn == i2 | nn == j2) & seq_len(m) != i2)) {
+    ## redetermine NN of every i whose NN was I2 or J2. An NN is always an
+    ## edge neighbour, so those i are among the old neighbours of I2 and J2;
+    ## scanning them instead of all m clusters keeps a merge O(degree), not
+    ## O(m). Each i's NN depends only on its own row, so order does not matter.
+    cand <- union(p_k, q_k)
+    cand <- cand[!is.na(nn[cand]) & (nn[cand] == i2 | nn[cand] == j2)]
+    for (i in cand) {
       r <- nn_after(i); nn[i] <- r[1]; disnn[i] <- r[2]
     }
   }
